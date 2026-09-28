@@ -1,0 +1,1353 @@
+import { app } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
+import type { WASocket as BaileysSocket, WAMessageKey } from '@whiskeysockets/baileys';
+import { parsePhoneNumber } from 'libphonenumber-js';
+import { getDatabase, getSettingValue, now } from '../db';
+import { SHUTDOWN_TIMEOUT_MS } from '../shutdown';
+
+const { loadBaileys: loadBaileysModule } = require('../baileys-loader.cjs') as {
+  loadBaileys: () => Promise<typeof import('@whiskeysockets/baileys')>;
+};
+
+// Baileys is ESM-only; lazily load via dynamic import and cache reference.
+let baileysModule: typeof import('@whiskeysockets/baileys') | null = null;
+async function loadBaileys(): Promise<typeof import('@whiskeysockets/baileys')> {
+  if (!baileysModule) {
+    baileysModule = await loadBaileysModule();
+  }
+  return baileysModule;
+}
+
+type WhatsAppLogLevel = 'debug' | 'info' | 'warn' | 'error';
+const WHATSAPP_LOG_LEVEL = process.env.FLO_WHATSAPP_LOG_LEVEL === 'debug' ? 'debug' : 'warn';
+const WHATSAPP_LOG_LEVELS: Record<string, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+
+export function sanitizeLogText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = value instanceof Error ? value.message : String(value);
+  return text
+    .replace(/https?:\/\/\S+/gi, '[redacted-url]')
+    .replace(/(?<!\d)\+?\d(?:[\s().-]*\d){6,14}(?!\d)/g, '[redacted-number]')
+    .replace(
+      /(["']?(?:access[_-]?token|refresh[_-]?token|token|secret|password|auth|authorization|credential|api[_-]?key|key)["']?\s*[:=]\s*)(?:Bearer\s+)?(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,}]+)/gi,
+      '$1[redacted]',
+    )
+    .slice(0, 240);
+}
+
+function maskPhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 5) return '[redacted-number]';
+  return `+${'*'.repeat(Math.max(1, digits.length - 4))}${digits.slice(-4)}`;
+}
+
+function logWhatsApp(level: WhatsAppLogLevel, event: string, details: Record<string, unknown> = {}): void {
+  const line = `[WhatsApp] ${JSON.stringify({ event, ...details })}`;
+  if (level === 'error') console.error(line);
+  else if (level === 'warn') console.warn(line);
+  else if (level === 'debug') console.debug(line);
+  else console.info(line);
+}
+
+// Keep Baileys warnings/errors in the existing Electron main log. Its verbose
+// debug stream is opt-in because it is otherwise too noisy for production.
+type MinimalLogger = { level: string; trace: (...a: unknown[]) => void; debug: (...a: unknown[]) => void; info: (...a: unknown[]) => void; warn: (...a: unknown[]) => void; error: (...a: unknown[]) => void; fatal: (...a: unknown[]) => void; child: (obj: Record<string, unknown>) => MinimalLogger };
+function makeBaileysLogger(): MinimalLogger {
+  const emit = (level: WhatsAppLogLevel) => (...args: unknown[]): void => {
+    if (WHATSAPP_LOG_LEVELS[level] < WHATSAPP_LOG_LEVELS[WHATSAPP_LOG_LEVEL]) return;
+    const message = typeof args[1] === 'string' ? args[1] : null;
+    logWhatsApp(level === 'debug' ? 'debug' : level, 'baileys_log', {
+      level,
+      detail: sanitizeLogText(message),
+    });
+  };
+  const logger: MinimalLogger = {
+    level: WHATSAPP_LOG_LEVEL,
+    trace: emit('debug'),
+    debug: emit('debug'),
+    info: emit('info'),
+    warn: emit('warn'),
+    error: emit('error'),
+    fatal: emit('error'),
+    child: () => logger,
+  };
+  return logger;
+}
+
+const AUTH_DIR_NAME = 'whatsapp-auth';
+const RATE_LIMIT_MAX_PER_HOUR = 4;
+const RATE_LIMIT_MIN_GAP_MS = 30 * 1000;
+const BODY_REPEAT_WINDOW_MS = 10 * 60 * 1000;
+const RECENT_BODIES_PER_PHONE_MAX = 10;
+const SENT_MESSAGE_CACHE_MAX = 256;
+const TYPING_MIN_MS = 800;
+const TYPING_MAX_PER_100_CHARS_MS = 4000;
+const RECONNECT_DELAY_MS = 5_000;
+const VERSION_FETCH_TIMEOUT_MS = 5_000;
+const RATE_LIMITED_STATUS_CODES = new Set([429]);
+
+// Baileys is extremely chatty at debug. Keep that level opt-in while retaining
+// warnings and errors in the Electron log for packaged-app diagnostics.
+const baileysLogger = makeBaileysLogger();
+
+const SHORTENER_HOSTS = new Set([
+  'bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'ow.ly', 'is.gd',
+  'buff.ly', 'shorturl.at', 'rb.gy', 'cutt.ly', 'rebrand.ly',
+]);
+
+export type WhatsAppConnectionState =
+  | 'disconnected'
+  | 'connecting'
+  | 'waiting_qr'
+  | 'waiting_pairing'
+  | 'connected'
+  | 'cooldown';
+
+export interface WhatsAppStatus {
+  enabled: boolean;
+  state: WhatsAppConnectionState;
+  connectedPhone: string | null;
+  lastError: string | null;
+  cooldownUntil: string | null;
+  /** Stable reason code for frontend i18n translation of connection errors. */
+  lastErrorReason?: string | null;
+  qr?: string;
+  pairingCode?: string;
+}
+
+interface QueuedSend {
+  phoneE164: string;
+  body: string;
+  billId: number | null;
+  customerId: number | null;
+  kind: 'bill_receipt' | 'manual_reply' | 'auto_followup';
+  userId: string | null;
+  signal?: AbortSignal;
+}
+
+const state: {
+  enabled: boolean;
+  shuttingDown: boolean;
+  socket: BaileysSocket | null;
+  state: WhatsAppConnectionState;
+  lastQr: string | null;
+  lastPairingCode: string | null;
+  connectedPhone: string | null;
+  lastError: string | null;
+  lastErrorReason: string | null;
+  cooldownUntil: string | null;
+  cooldownTimer: NodeJS.Timeout | null;
+  reconnectTimer: NodeJS.Timeout | null;
+  lastSendByPhone: Map<string, number>;
+  recentBodies: Map<string, { body: string; at: number }[]>;
+  sentMessageCache: Map<string, any>;
+  lidToPhoneMap: Map<string, string>;
+} = {
+  enabled: false,
+  shuttingDown: false,
+  socket: null,
+  state: 'disconnected',
+  lastQr: null,
+  lastPairingCode: null,
+  connectedPhone: null,
+  lastError: null,
+  lastErrorReason: null,
+  cooldownUntil: null,
+  cooldownTimer: null,
+  reconnectTimer: null,
+  lastSendByPhone: new Map(),
+  recentBodies: new Map(),
+  sentMessageCache: new Map(),
+  lidToPhoneMap: new Map(),
+};
+
+type WhatsAppWorkCancellation = () => void;
+const inFlightWhatsAppWork = new Map<Promise<unknown>, WhatsAppWorkCancellation>();
+let whatsappShutdownPromise: Promise<void> | null = null;
+let whatsappAbortController = new AbortController();
+let whatsappStartPromise: Promise<void> | null = null;
+let whatsappStartController: AbortController | null = null;
+let whatsappStartAttempt = 0;
+let credentialWriteTail: Promise<void> = Promise.resolve();
+let authCleanupPromise: Promise<void> = Promise.resolve();
+let shutdownSocket: BaileysSocket | null = null;
+let whatsappTerminalCleanup = false;
+let whatsappShutdownRequested = false;
+
+function isWhatsAppTerminal(): boolean {
+  return state.shuttingDown || whatsappTerminalCleanup;
+}
+
+function createWhatsAppAbortError(): Error & { code: string } {
+  const error = new Error('WhatsApp work cancelled during shutdown') as Error & { code: string };
+  error.code = 'ERR_SHUTDOWN_ABORTED';
+  return error;
+}
+
+function cancelWhatsAppSocket(): void {
+  if (!isWhatsAppTerminal()) return;
+  const socket = state.socket ?? shutdownSocket;
+  if (!socket) return;
+  try { socket.end(undefined); } catch { }
+}
+
+function abortable<T>(operationFactory: () => Promise<T>, signal: AbortSignal, cancel: WhatsAppWorkCancellation = cancelWhatsAppSocket): Promise<T> {
+  if (signal.aborted) return Promise.reject(createWhatsAppAbortError());
+  let operation: Promise<T>;
+  try {
+    operation = operationFactory();
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  trackWhatsAppWork(operation, cancel);
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let aborted = false;
+    let joinTimeout: NodeJS.Timeout | undefined;
+    let onAbort = (): void => {};
+    const cleanup = (): void => {
+      signal.removeEventListener('abort', onAbort);
+      if (joinTimeout) clearTimeout(joinTimeout);
+    };
+    onAbort = (): void => {
+      if (settled || aborted) return;
+      aborted = true;
+      cancel();
+      const settleCancellation = (): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(createWhatsAppAbortError());
+      };
+      if (!isWhatsAppTerminal()) {
+        settleCancellation();
+        return;
+      }
+      joinTimeout = setTimeout(settleCancellation, SHUTDOWN_TIMEOUT_MS);
+      void operation.then(settleCancellation, settleCancellation);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        if (settled || aborted) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        if (settled || aborted) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
+function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(createWhatsAppAbortError());
+  return new Promise<void>((resolve, reject) => {
+    let onAbort = (): void => {};
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, milliseconds);
+    onAbort = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(createWhatsAppAbortError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+function trackWhatsAppWork<T>(operation: Promise<T>, cancel: WhatsAppWorkCancellation = cancelWhatsAppSocket): Promise<T> {
+  inFlightWhatsAppWork.set(operation, cancel);
+  void operation.finally(() => {
+    inFlightWhatsAppWork.delete(operation);
+    if (isWhatsAppTerminal() && inFlightWhatsAppWork.size === 0) {
+      if (state.socket === shutdownSocket) state.socket = null;
+      shutdownSocket = null;
+    }
+  }).catch(() => {});
+  return operation;
+}
+
+function cancelInFlightWhatsAppWork(): void {
+  for (const cancel of inFlightWhatsAppWork.values()) {
+    try { cancel(); } catch { }
+  }
+}
+
+async function waitForWhatsAppWork(): Promise<void> {
+  const drain = (async () => {
+    while (inFlightWhatsAppWork.size > 0) {
+      await Promise.allSettled([...inFlightWhatsAppWork]);
+    }
+  })();
+  void drain.catch(() => {});
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      whatsappTerminalCleanup = true;
+      cancelInFlightWhatsAppWork();
+      const timeoutError = new Error(`WhatsApp shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms`) as Error & { code: string };
+      timeoutError.code = 'ERR_SHUTDOWN_TIMEOUT';
+      reject(timeoutError);
+    }, SHUTDOWN_TIMEOUT_MS);
+    drain.then(
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+function getAuthDir(): string {
+  return path.join(app.getPath('userData'), AUTH_DIR_NAME);
+}
+
+function writeSetting(key: string, value: string): void {
+  getDatabase().prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(key, value, now());
+}
+
+export function getStatus(): WhatsAppStatus {
+  return {
+    enabled: state.enabled,
+    state: state.state,
+    connectedPhone: state.connectedPhone,
+    lastError: state.lastError,
+    lastErrorReason: state.lastErrorReason,
+    cooldownUntil: state.cooldownUntil ?? null,
+    qr: state.lastQr ?? undefined,
+    pairingCode: state.lastPairingCode ?? undefined,
+  };
+}
+
+/** Resolves user phone number to canonical WhatsApp JID via format normalization and registry check. */
+async function resolveJid(phoneE164: string, sock: BaileysSocket, signal: AbortSignal): Promise<string | null> {
+  let normalized: string;
+  try {
+    const pn = parsePhoneNumber(phoneE164);
+    if (!pn?.isValid()) return null;
+    normalized = pn.number;
+  } catch {
+    return null;
+  }
+  const naive = `${normalized.replace('+', '')}@s.whatsapp.net`;
+  try {
+    const results = (await abortable(() => sock.onWhatsApp(naive), signal)) ?? [];
+    return results[0]?.exists ? results[0].jid : null;
+  } catch {
+    return naive;
+  }
+}
+
+/** Strip the device id and domain from a Baileys JID, leaving just the user. */
+function userFromJid(jid: string): string {
+  return jid.split('@')[0].split(':')[0];
+}
+
+/** Translates WhatsApp Local ID (@lid) JIDs back to phone-number JIDs. */
+async function translateJid(jid: string, altJid: string | undefined, sock: BaileysSocket, signal: AbortSignal): Promise<string> {
+  if (!jid.endsWith('@lid')) return jid;
+  const lidUser = userFromJid(jid);
+  const cached = state.lidToPhoneMap.get(lidUser);
+  if (cached) return cached;
+  if (altJid && !altJid.endsWith('@lid')) {
+    const phoneJid = altJid.includes('@') ? altJid : `${altJid}@s.whatsapp.net`;
+    if (!isActiveSocket(sock)) return jid;
+    state.lidToPhoneMap.set(lidUser, phoneJid);
+    return phoneJid;
+  }
+  try {
+    const pn: string | null = await abortable(() => sock.signalRepository.lidMapping.getPNForLID(jid), signal);
+    if (pn) {
+      if (!isActiveSocket(sock)) return jid;
+      const phoneJid = `${userFromJid(pn)}@s.whatsapp.net`;
+      state.lidToPhoneMap.set(lidUser, phoneJid);
+      return phoneJid;
+    }
+  } catch {
+    // best-effort
+  }
+  return jid;
+}
+
+function randomDelayMs(body: string): number {
+  const perHundred = Math.ceil(body.length / 100);
+  const lower = TYPING_MIN_MS * perHundred;
+  const upper = TYPING_MAX_PER_100_CHARS_MS * perHundred;
+  return lower + Math.floor(Math.random() * (upper - lower));
+}
+
+function hasShortenerOrNonHttps(body: string): string | null {
+  const urlRe = /\bhttps?:\/\/[^\s)]+/gi;
+  const matches = body.match(urlRe);
+  if (!matches) return null;
+  for (const raw of matches) {
+    if (!raw.toLowerCase().startsWith('https://')) {
+      return `Refusing non-HTTPS link: ${raw.slice(0, 80)}`;
+    }
+    try {
+      const host = new URL(raw).hostname.toLowerCase();
+      if (SHORTENER_HOSTS.has(host)) {
+        return `Refusing URL shortener link: ${host}`;
+      }
+    } catch {
+      return `Refusing unparseable URL: ${raw.slice(0, 80)}`;
+    }
+  }
+  return null;
+}
+
+function isDuplicateBody(phoneE164: string, body: string): boolean {
+  const cutoff = Date.now() - BODY_REPEAT_WINDOW_MS;
+  const recent = state.recentBodies.get(phoneE164) ?? [];
+  const fresh = recent.filter((r) => r.at >= cutoff);
+  for (const r of fresh) {
+    if (r.body === body) {
+      state.recentBodies.set(phoneE164, fresh);
+      return true;
+    }
+  }
+  fresh.push({ body, at: Date.now() });
+  // Bound the per-phone history to avoid unbounded growth in long-running installs.
+  if (fresh.length > RECENT_BODIES_PER_PHONE_MAX) fresh.splice(0, fresh.length - RECENT_BODIES_PER_PHONE_MAX);
+  state.recentBodies.set(phoneE164, fresh);
+  return false;
+}
+
+function isBlocked(phoneE164: string): boolean {
+  const row = getDatabase()
+    .prepare('SELECT 1 FROM whatsapp_blocklist WHERE phone_e164 = ?')
+    .get(phoneE164);
+  return !!row;
+}
+
+function isOverRateLimit(phoneE164: string): { limited: boolean; retryAfterMs?: number } {
+  const last = state.lastSendByPhone.get(phoneE164);
+  if (last) {
+    const gap = Date.now() - last;
+    if (gap < RATE_LIMIT_MIN_GAP_MS) {
+      return { limited: true, retryAfterMs: RATE_LIMIT_MIN_GAP_MS - gap };
+    }
+  }
+  const db = getDatabase();
+  // Space form, same as now()/queued_at — an ISO-Z bound would sort above
+  // every space-form row of the same day and the rate limit would never fire.
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString().replace('T', ' ').replace(/\..*$/, '');
+  const row = db.prepare(`
+    SELECT COUNT(*) AS c FROM whatsapp_messages
+    WHERE phone_e164 = ? AND direction = 'outbound' AND queued_at >= ?
+  `).get(phoneE164, oneHourAgo) as { c: number };
+  if (row.c >= RATE_LIMIT_MAX_PER_HOUR) {
+    return { limited: true };
+  }
+  return { limited: false };
+}
+
+function isInCooldown(): boolean {
+  if (!state.cooldownUntil) return false;
+  return new Date(state.cooldownUntil).getTime() > Date.now();
+}
+
+function triggerCooldown(reason: string, durationMs = 5 * 60 * 1000, reasonCode: string = 'cooldown'): void {
+  const until = new Date(Date.now() + durationMs).toISOString();
+  state.cooldownUntil = until;
+  state.lastError = reason;
+  state.lastErrorReason = reasonCode;
+  if (state.cooldownTimer) clearTimeout(state.cooldownTimer);
+  state.cooldownTimer = setTimeout(() => {
+    state.cooldownUntil = null;
+  }, durationMs);
+}
+
+function recordMessageRow(row: {
+  phone_e164: string;
+  direction: 'inbound' | 'outbound';
+  kind: QueuedSend['kind'];
+  status: string;
+  body: string;
+  external_message_id?: string | null;
+  error?: string | null;
+  bill_id?: number | null;
+  customer_id?: number | null;
+  created_by_user_id?: string | null;
+  timestamp_field?: 'seen_at' | 'typing_at' | 'sent_at' | 'delivered_at' | 'read_at' | 'failed_at';
+  external_id?: string;
+}): number {
+  const db = getDatabase();
+  const tsField = row.timestamp_field;
+  const baseTs = now();
+  const result = db.prepare(`
+    INSERT INTO whatsapp_messages (
+      bill_id, customer_id, phone_e164, direction, kind, status,
+      body, external_message_id, error, queued_at,
+      seen_at, typing_at, sent_at, delivered_at, read_at, failed_at,
+      created_by_user_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    row.bill_id ?? null,
+    row.customer_id ?? null,
+    row.phone_e164,
+    row.direction,
+    row.kind,
+    row.status,
+    row.body,
+    row.external_message_id ?? row.external_id ?? null,
+    row.error ?? null,
+    baseTs,
+    tsField === 'seen_at' ? baseTs : null,
+    tsField === 'typing_at' ? baseTs : null,
+    tsField === 'sent_at' ? baseTs : null,
+    tsField === 'delivered_at' ? baseTs : null,
+    tsField === 'read_at' ? baseTs : null,
+    tsField === 'failed_at' ? baseTs : null,
+    row.created_by_user_id ?? null,
+  );
+  return Number(result.lastInsertRowid);
+}
+
+const ALLOWED_TIMESTAMP_FIELDS = new Set(['seen_at', 'typing_at', 'sent_at', 'delivered_at', 'read_at', 'failed_at']);
+
+function updateMessageRow(id: number, patch: {
+  status?: string;
+  external_message_id?: string | null;
+  error?: string | null;
+  timestamp_field?: 'seen_at' | 'typing_at' | 'sent_at' | 'delivered_at' | 'read_at' | 'failed_at';
+}): void {
+  const db = getDatabase();
+  const fields: string[] = [];
+  const values: any[] = [];
+  if (patch.status !== undefined) { fields.push('status = ?'); values.push(patch.status); }
+  if (patch.external_message_id !== undefined) { fields.push('external_message_id = ?'); values.push(patch.external_message_id); }
+  if (patch.error !== undefined) { fields.push('error = ?'); values.push(patch.error); }
+  if (patch.timestamp_field && ALLOWED_TIMESTAMP_FIELDS.has(patch.timestamp_field)) {
+    fields.push(`${patch.timestamp_field} = ?`);
+    values.push(now());
+  }
+  if (fields.length === 0) return;
+  values.push(id);
+  db.prepare(`UPDATE whatsapp_messages SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+/** Advances message status and backfills earlier timestamps using COALESCE. */
+function advanceStatus(id: number, latest: 'sent' | 'delivered' | 'read'): void {
+  const ts = now();
+  const stamps = new Set<string>([latest]);
+  if (latest === 'read') { stamps.add('delivered'); stamps.add('sent'); }
+  else if (latest === 'delivered') { stamps.add('sent'); }
+  const exprs = Array.from(stamps, (s) => `${s}_at = COALESCE(${s}_at, ?)`).join(', ');
+  const placeholders = Array(stamps.size).fill(ts);
+  getDatabase()
+    .prepare(`UPDATE whatsapp_messages SET status = ?, ${exprs} WHERE id = ?`)
+    .run(latest, ...placeholders, id);
+}
+
+function findMessageByExternalId(externalId: string): { id: number; phone_e164: string } | null {
+  const row = getDatabase()
+    .prepare('SELECT id, phone_e164 FROM whatsapp_messages WHERE external_message_id = ?')
+    .get(externalId) as { id: number; phone_e164: string } | undefined;
+  return row ?? null;
+}
+
+async function persistIncoming(msg: any, sock: BaileysSocket): Promise<void> {
+  if (!msg?.message) return;
+  const signal = whatsappAbortController.signal;
+  const rawJid: string = msg.key?.remoteJid ?? '';
+  if (!rawJid || rawJid === 'status@broadcast') return;
+  // Translate DM @lid to phone JID while preserving group chat @g.us JIDs.
+  const resolvedJid = rawJid.endsWith('@g.us')
+    ? rawJid
+    : await translateJid(rawJid, msg.key?.remoteJidAlt, sock, signal);
+  if (!isActiveSocket(sock)) return;
+  const phone = '+' + userFromJid(resolvedJid);
+  const body =
+    msg.message?.conversation ??
+    msg.message?.extendedTextMessage?.text ??
+    msg.message?.imageMessage?.caption ??
+    msg.message?.videoMessage?.caption ??
+    '';
+  if (!body) return;
+  if (!isActiveSocket(sock)) return;
+  recordMessageRow({
+    phone_e164: phone,
+    direction: 'inbound',
+    kind: 'manual_reply',
+    status: 'delivered',
+    body,
+    external_message_id: msg.key?.id ?? null,
+    created_by_user_id: null,
+  });
+}
+
+async function runSocketPhase<T>(attemptId: number, phase: string, operation: () => T | Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await operation();
+    logWhatsApp('info', 'socket_phase', { attemptId, phase, ok: true, durationMs: Date.now() - startedAt });
+    return result;
+  } catch (error) {
+    logWhatsApp('error', 'socket_phase', {
+      attemptId,
+      phase,
+      ok: false,
+      durationMs: Date.now() - startedAt,
+      error: sanitizeLogText(error),
+    });
+    throw error;
+  }
+}
+
+function isActiveSocket(socket: BaileysSocket): boolean {
+  return !isWhatsAppTerminal() && state.socket === socket;
+}
+
+function attachSocketHandlers(socket: BaileysSocket): void {
+  socket.ev.on('connection.update', (update: any) => {
+    void trackWhatsAppWork((async () => {
+    if (!isActiveSocket(socket)) return;
+    const { connection, lastDisconnect, qr } = update;
+    if (qr) {
+      state.lastQr = qr;
+      state.lastPairingCode = null;
+      state.state = 'waiting_qr';
+      logWhatsApp('info', 'connection_state', { state: 'waiting_qr' });
+    }
+    if (connection === 'open') {
+      state.state = 'connected';
+      state.lastQr = null;
+      state.lastPairingCode = null;
+      state.lastError = null;
+      state.lastErrorReason = null;
+      const user = (socket as any).user;
+      if (user?.id) {
+        const phone = '+' + userFromJid(user.id);
+        state.connectedPhone = phone;
+        writeSetting('whatsapp_connected_phone', phone);
+      }
+      logWhatsApp('info', 'connection_state', { state: 'connected', phone: maskPhone(state.connectedPhone) });
+    } else if (connection === 'close') {
+      const disconnectError = lastDisconnect?.error;
+      const status = (disconnectError as any)?.output?.statusCode as number | undefined;
+      state.socket = null;
+      state.lastQr = null;
+      state.lastPairingCode = null;
+      logWhatsApp('warn', 'connection_state', {
+        state: 'closed',
+        statusCode: status ?? null,
+        reason: sanitizeLogText(disconnectError),
+      });
+      // Baileys's DisconnectReason.loggedOut == 401. Hardcoded here so we
+      // don't have to load Baileys synchronously just to compare a number.
+      if (status === 401) {
+        // Server-side logout — stale creds will 401 again. Wipe and force
+        // a fresh QR pairing on next start.
+        state.state = 'disconnected';
+        state.connectedPhone = null;
+        writeSetting('whatsapp_connected_phone', '');
+        state.lastError = 'Logged out. Reconnect to continue.';
+        state.lastErrorReason = 'logged_out';
+        scheduleAuthWipe();
+      } else if (!isWhatsAppTerminal() && state.enabled) {
+        // Auto-reconnect on transient disconnections; cooldown only applies to explicit 429 errors.
+        state.state = 'connecting';
+        state.lastError = `Connection closed (${status ?? 'unknown'}), reconnecting in ${RECONNECT_DELAY_MS / 1000}s…`;
+        state.lastErrorReason = 'reconnecting';
+        if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+        logWhatsApp('info', 'reconnect_scheduled', { delayMs: RECONNECT_DELAY_MS, statusCode: status ?? null });
+        state.reconnectTimer = setTimeout(() => {
+          state.reconnectTimer = null;
+          if (state.enabled && !isWhatsAppTerminal()) {
+            logWhatsApp('info', 'reconnect_attempt');
+            void startSocket()
+              .then(() => logWhatsApp('info', 'reconnect_started'))
+              .catch((err) => logWhatsApp('error', 'reconnect_failed', { error: sanitizeLogText(err) }));
+          }
+        }, RECONNECT_DELAY_MS);
+      } else {
+        state.state = 'disconnected';
+      }
+    }
+    })()).catch(() => {});
+  });
+
+  socket.ev.on('creds.update', () => {});
+
+  // Keep the LID→phone cache fresh. WhatsApp rotates these over time.
+  socket.ev.on('lid-mapping.update', (update: any) => {
+    if (!isActiveSocket(socket)) return;
+    const lid = update?.lid as string | undefined;
+    const pn = update?.pn as string | undefined;
+    if (!lid || !pn) return;
+    const lidUser = userFromJid(lid);
+    const phoneJid = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
+    state.lidToPhoneMap.set(lidUser, phoneJid);
+  });
+
+  socket.ev.on('messages.upsert', ({ messages }: { messages: any[] }) => {
+    void trackWhatsAppWork((async () => {
+    if (!isActiveSocket(socket)) return;
+    const filterGroups = getSettingValue('whatsapp_filter_groups') === 'true';
+    for (const msg of messages) {
+      if (!isActiveSocket(socket)) return;
+      if (msg.key?.fromMe) continue;
+      // Ignore incoming group messages when group filtering is enabled.
+      if (filterGroups && msg.key?.remoteJid?.endsWith('@g.us')) continue;
+      await persistIncoming(msg, socket);
+    }
+    })()).catch(() => {});
+  });
+
+  socket.ev.on('messages.update', (updates: any[]) => {
+    void trackWhatsAppWork((async () => {
+    if (!isActiveSocket(socket)) return;
+    for (const u of updates) {
+      if (!isActiveSocket(socket)) return;
+      const id = u.key?.id;
+      if (!id) continue;
+      const stored = findMessageByExternalId(id);
+      if (!stored) continue;
+      const status = u.update?.status;
+      if (status === undefined) continue;
+      // Map Baileys status updates: 2=SERVER_ACK (sent), 3=delivered, 4=read.
+      if (status === 2) advanceStatus(stored.id, 'sent');
+      else if (status === 3) advanceStatus(stored.id, 'delivered');
+      else if (status === 4) advanceStatus(stored.id, 'read');
+    }
+    })()).catch(() => {});
+  });
+}
+
+async function resolveWaWebVersion(signal: AbortSignal): Promise<[number, number, number] | undefined> {
+  // Fetch latest WhatsApp Web version to prevent connection rejection from stale build hashes.
+  try {
+    const res = await fetch('https://wppconnect.io/whatsapp-versions/', {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(VERSION_FETCH_TIMEOUT_MS)]),
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const match = html.match(/2\.3000\.(\d+)/);
+      if (match) return [2, 3000, Number(match[1])];
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const { fetchLatestWaWebVersion } = await abortable(() => loadBaileys(), signal);
+    const { version } = await abortable(() => fetchLatestWaWebVersion({}), signal);
+    return version as [number, number, number];
+  } catch {
+    // fall through
+  }
+  // Let Baileys use its hardcoded fallback. Better than refusing to start.
+  return undefined;
+}
+
+async function startSocketImpl(attemptId: number): Promise<void> {
+  const signal = whatsappAbortController.signal;
+  if (!state.enabled || isWhatsAppTerminal() || signal.aborted) return;
+  await authCleanupPromise;
+  await credentialWriteTail;
+  if (!state.enabled || isWhatsAppTerminal() || signal.aborted) return;
+  logWhatsApp('info', 'socket_start', { attemptId });
+  if (state.socket) {
+    logWhatsApp('info', 'socket_start_skipped', { attemptId, reason: 'socket_exists' });
+    return;
+  }
+  const authDir = getAuthDir();
+  if (!fs.existsSync(authDir)) {
+    fs.mkdirSync(authDir, { recursive: true, mode: 0o700 });
+  }
+  const version = await runSocketPhase(attemptId, 'version_lookup', () => resolveWaWebVersion(signal));
+  if (isWhatsAppTerminal() || signal.aborted) return;
+  const { useMultiFileAuthState, makeWASocket, Browsers, proto } = await runSocketPhase(
+    attemptId,
+    'baileys_load',
+    () => abortable(() => loadBaileys(), signal),
+  );
+  if (isWhatsAppTerminal() || signal.aborted) return;
+  const { state: authState, saveCreds } = await runSocketPhase(
+    attemptId,
+    'auth_load',
+    () => abortable(() => useMultiFileAuthState(authDir), signal),
+  );
+  if (isWhatsAppTerminal() || signal.aborted) return;
+  const socket = await runSocketPhase(attemptId, 'socket_create', () => makeWASocket({
+      version,
+      auth: authState,
+      printQRInTerminal: false,
+      logger: baileysLogger,
+      browser: Browsers.macOS('Chrome'),
+      markOnlineOnConnect: false,
+      syncFullHistory: false,
+      getMessage: async (key: WAMessageKey) => {
+        const cached = state.sentMessageCache.get(key.id ?? '');
+        if (cached) return cached;
+        // Return empty message to avoid hanging on re-encryption requests.
+        return proto.Message.create({});
+      },
+    }));
+  if (isWhatsAppTerminal() || signal.aborted) {
+    try { socket.end(undefined); } catch { }
+    return;
+  }
+  state.socket = socket;
+  state.state = 'connecting';
+  attachSocketHandlers(socket);
+  socket.ev.on('creds.update', (...args: unknown[]) => {
+    queueCredentialWrite(socket, saveCreds as (...values: unknown[]) => unknown, args);
+  });
+  logWhatsApp('info', 'socket_created', { attemptId, state: state.state });
+}
+
+function wipeAuthDir(): void {
+  try {
+    fs.rmSync(getAuthDir(), { recursive: true, force: true });
+  } catch (err) {
+    logWhatsApp('error', 'auth_cleanup_failed', { error: sanitizeLogText(err) });
+  }
+}
+
+function scheduleAuthWipe(): void {
+  const pendingWrites = credentialWriteTail;
+  authCleanupPromise = authCleanupPromise
+    .then(() => pendingWrites)
+    .then(() => wipeAuthDir());
+}
+
+function queueCredentialWrite(socket: BaileysSocket, saveCreds: (...values: unknown[]) => unknown, args: unknown[]): void {
+  if (!isActiveSocket(socket)) return;
+  const write = credentialWriteTail.then(async () => {
+    if (!isActiveSocket(socket)) return;
+    await saveCreds(...args);
+  });
+  credentialWriteTail = write.catch((error) => {
+    logWhatsApp('error', 'credentials_save_failed', { error: sanitizeLogText(error) });
+  });
+  void trackWhatsAppWork(write, () => {}).catch(() => {});
+}
+
+function startSocket(requestSignal?: AbortSignal): Promise<void> {
+  const previousStart = whatsappStartPromise;
+  if (previousStart && !whatsappStartController?.signal.aborted) {
+    logWhatsApp('info', 'socket_start_deduplicated', { attemptId: whatsappStartAttempt });
+    return previousStart;
+  }
+  if (previousStart) {
+    logWhatsApp('info', 'socket_start_replacing_cancelled', { attemptId: whatsappStartAttempt });
+  }
+  if (!state.enabled || isWhatsAppTerminal() || requestSignal?.aborted) return Promise.resolve();
+  if (state.socket) {
+    logWhatsApp('info', 'socket_start_skipped', { reason: 'socket_exists' });
+    return Promise.resolve();
+  }
+
+  const attemptId = ++whatsappStartAttempt;
+  const startedAt = Date.now();
+  const startController = whatsappAbortController;
+  state.state = 'connecting';
+  let sharedPromise: Promise<void>;
+  const startup = (previousStart ? previousStart.catch(() => {}) : Promise.resolve())
+    .then(() => startSocketImpl(attemptId))
+    .then(() => {
+      logWhatsApp('info', 'socket_start_result', { attemptId, ok: true, durationMs: Date.now() - startedAt });
+    })
+    .catch((error) => {
+      if (!isWhatsAppTerminal() && !startController.signal.aborted && attemptId === whatsappStartAttempt) {
+        state.socket = null;
+        state.state = 'disconnected';
+        state.lastError = 'WhatsApp connection could not be started.';
+        state.lastErrorReason = 'startup_failed';
+      }
+      logWhatsApp('error', 'socket_start_result', {
+        attemptId,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        error: sanitizeLogText(error),
+      });
+      throw error;
+    });
+  sharedPromise = trackWhatsAppWork(startup).finally(() => {
+    if (whatsappStartPromise === sharedPromise) {
+      whatsappStartPromise = null;
+      whatsappStartController = null;
+    }
+  });
+  whatsappStartPromise = sharedPromise;
+  whatsappStartController = startController;
+  return sharedPromise;
+}
+
+export async function enable(userId: string): Promise<{ ok: boolean; error?: string }> {
+  if (whatsappShutdownPromise || whatsappShutdownRequested) return { ok: false, error: 'WhatsApp is shutting down.' };
+  state.enabled = true;
+  // Reset shutdown flag so the auto-reconnect-on-disconnect logic in the
+  // close handler is active again after a previous disable() round.
+  state.shuttingDown = false;
+  if (whatsappAbortController.signal.aborted) whatsappAbortController = new AbortController();
+  writeSetting('whatsapp_enabled', 'true');
+  writeSetting('whatsapp_activated_by_user_id', userId);
+  writeSetting('whatsapp_activated_at', now());
+  writeSetting('whatsapp_disclosure_version_acknowledged', '1');
+  state.lastError = null;
+  state.lastErrorReason = null;
+  // Restore session from existing credentials if present to avoid unneeded re-pairing.
+  const credsPath = path.join(getAuthDir(), 'creds.json');
+  if (fs.existsSync(credsPath)) {
+    void startSocket().catch((err) => {
+      logWhatsApp('error', 'auto_restore_failed', { error: sanitizeLogText(err) });
+    });
+  }
+  return { ok: true };
+}
+
+export function disable(): void {
+  state.enabled = false;
+  state.shuttingDown = true;
+  whatsappAbortController.abort();
+  writeSetting('whatsapp_enabled', 'false');
+  writeSetting('whatsapp_connected_phone', '');
+  if (state.socket) {
+    try { state.socket.end(undefined); } catch { /* ignore */ }
+    state.socket = null;
+  }
+  if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
+  state.state = 'disconnected';
+  state.connectedPhone = null;
+  state.lastQr = null;
+  state.lastPairingCode = null;
+  state.lastError = null;
+  state.lastErrorReason = null;
+  state.cooldownUntil = null;
+  if (state.cooldownTimer) { clearTimeout(state.cooldownTimer); state.cooldownTimer = null; }
+  scheduleAuthWipe();
+}
+
+export async function connectWithQr(requestSignal?: AbortSignal): Promise<{ ok: boolean; qr?: string; error?: string }> {
+  if (!state.enabled) return { ok: false, error: 'WhatsApp is not enabled.' };
+  if (whatsappShutdownPromise || whatsappShutdownRequested) return { ok: false, error: 'WhatsApp is shutting down.' };
+  state.shuttingDown = false;
+  if (whatsappAbortController.signal.aborted) whatsappAbortController = new AbortController();
+  const signal = requestSignal
+    ? AbortSignal.any([requestSignal, whatsappAbortController.signal])
+    : whatsappAbortController.signal;
+  if (signal.aborted) return { ok: false, error: 'WhatsApp request cancelled.' };
+  state.lastQr = null;
+  state.lastPairingCode = null;
+  await abortable(() => startSocket(signal), signal);
+  // QR arrives asynchronously via connection.update
+  return { ok: true };
+}
+
+export async function connectWithPairingCode(phone: string, requestSignal?: AbortSignal): Promise<{ ok: boolean; code?: string; error?: string }> {
+  if (!state.enabled) return { ok: false, error: 'WhatsApp is not enabled.' };
+  if (whatsappShutdownPromise || whatsappShutdownRequested) return { ok: false, error: 'WhatsApp is shutting down.' };
+  state.shuttingDown = false;
+  if (whatsappAbortController.signal.aborted) whatsappAbortController = new AbortController();
+  const signal = requestSignal
+    ? AbortSignal.any([requestSignal, whatsappAbortController.signal])
+    : whatsappAbortController.signal;
+  if (signal.aborted) return { ok: false, error: 'WhatsApp request cancelled.' };
+  try {
+    if (!state.socket) {
+      await abortable(() => startSocket(signal), signal);
+      await abortableDelay(1500, signal);
+    }
+    if (!state.socket) return { ok: false, error: 'Socket not ready, try again.' };
+    const code = await abortable(() => state.socket!.requestPairingCode(phone.replace(/\D/g, '')), signal);
+    state.lastPairingCode = code;
+    state.state = 'waiting_pairing';
+    return { ok: true, code };
+  } catch (err: any) {
+    return { ok: false, error: err.message ?? 'Failed to request pairing code.' };
+  }
+}
+
+export function disconnect(): void {
+  // Set shuttingDown before closing socket to prevent automatic reconnect loops.
+  state.shuttingDown = true;
+  whatsappAbortController.abort();
+  if (state.socket) {
+    try { state.socket.logout(); } catch { /* ignore */ }
+    try { state.socket.end(undefined); } catch { /* ignore */ }
+    state.socket = null;
+  }
+  if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
+  state.state = 'disconnected';
+  state.connectedPhone = null;
+  state.lastQr = null;
+  state.lastPairingCode = null;
+  state.lastError = null;
+  state.lastErrorReason = null;
+  writeSetting('whatsapp_connected_phone', '');
+  scheduleAuthWipe();
+}
+
+export interface SendResult {
+  ok: boolean;
+  messageId?: number;
+  error?: string;
+  reason?:
+    | 'feature_off'
+    | 'no_phone'
+    | 'blocked'
+    | 'rate_limited'
+    | 'cooldown'
+    | 'not_connected'
+    | 'not_on_whatsapp'
+    | 'content_blocked'
+    | 'send_failed';
+}
+
+const sendLocks = new Map<string, Promise<void>>();
+
+// Serializes outgoing sends per recipient to prevent race conditions during rate-limit checks.
+export function sendMessage(req: QueuedSend): Promise<SendResult> {
+  return trackWhatsAppWork(sendMessageWithLock(req));
+}
+
+async function sendMessageWithLock(req: QueuedSend): Promise<SendResult> {
+  const startedAt = Date.now();
+  logWhatsApp('info', 'send_requested', { phone: maskPhone(req.phoneE164) });
+  const signal = req.signal
+    ? AbortSignal.any([whatsappAbortController.signal, req.signal])
+    : whatsappAbortController.signal;
+  const previous = sendLocks.get(req.phoneE164) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  sendLocks.set(req.phoneE164, current);
+  try {
+    await abortable(() => previous, signal);
+    if (isWhatsAppTerminal()) {
+      const result = { ok: false, error: 'WhatsApp is shutting down.', reason: 'send_failed' as const };
+      logWhatsApp('warn', 'send_result', {
+        phone: maskPhone(req.phoneE164),
+        ok: false,
+        reason: result.reason,
+        durationMs: Date.now() - startedAt,
+      });
+      return result;
+    }
+    const result = await sendMessageInternal(req, signal);
+    logWhatsApp(result.ok ? 'info' : 'warn', 'send_result', {
+      phone: maskPhone(req.phoneE164),
+      ok: result.ok,
+      reason: result.reason ?? 'sent',
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
+  } catch (error) {
+    if (isWhatsAppTerminal() || signal.aborted) {
+      const result = { ok: false, error: 'WhatsApp is shutting down.', reason: 'send_failed' as const };
+      logWhatsApp('warn', 'send_result', {
+        phone: maskPhone(req.phoneE164),
+        ok: false,
+        reason: result.reason,
+        durationMs: Date.now() - startedAt,
+      });
+      return result;
+    }
+    logWhatsApp('error', 'send_result', {
+      phone: maskPhone(req.phoneE164),
+      ok: false,
+      reason: 'send_failed',
+      error: sanitizeLogText(error),
+      durationMs: Date.now() - startedAt,
+    });
+    throw error;
+  } finally {
+    release();
+    if (sendLocks.get(req.phoneE164) === current) sendLocks.delete(req.phoneE164);
+  }
+}
+
+async function sendMessageInternal(req: QueuedSend, signal: AbortSignal): Promise<SendResult> {
+  if (!state.enabled || isWhatsAppTerminal()) return { ok: false, error: 'WhatsApp is not enabled.', reason: 'feature_off' };
+  if (!req.phoneE164) return { ok: false, error: 'Phone number required.', reason: 'no_phone' };
+  if (state.state !== 'connected' || !state.socket) {
+    return { ok: false, error: 'Flo is not connected to WhatsApp.', reason: 'not_connected' };
+  }
+  const socket = state.socket;
+  const jid = await resolveJid(req.phoneE164, socket, signal);
+  if (isWhatsAppTerminal()) return { ok: false, error: 'WhatsApp is shutting down.', reason: 'send_failed' };
+  if (!jid) {
+    return { ok: false, error: 'This phone is not registered on WhatsApp.', reason: 'not_on_whatsapp' };
+  }
+  if (isInCooldown()) {
+    return { ok: false, error: 'Send is temporarily paused.', reason: 'cooldown' };
+  }
+  if (isBlocked(req.phoneE164)) {
+    return { ok: false, error: 'This number asked to stop receiving messages.', reason: 'blocked' };
+  }
+  const rate = isOverRateLimit(req.phoneE164);
+  if (rate.limited) {
+    return { ok: false, error: 'Rate limit reached for this number.', reason: 'rate_limited' };
+  }
+  const contentErr = hasShortenerOrNonHttps(req.body);
+  if (contentErr) {
+    return { ok: false, error: contentErr, reason: 'content_blocked' };
+  }
+  if (isDuplicateBody(req.phoneE164, req.body)) {
+    return { ok: false, error: 'Identical message sent to this number recently.', reason: 'content_blocked' };
+  }
+
+  const db = getDatabase();
+  const bill = req.billId
+    ? db.prepare(`
+        SELECT b.*, o.customer_id AS order_customer_id
+        FROM bills b
+        LEFT JOIN orders o ON o.id = b.order_id
+        WHERE b.id = ?
+      `).get(req.billId) as any
+    : null;
+  if (bill && bill.payment_status !== 'paid') {
+    return { ok: false, error: 'Bill is not paid.', reason: 'send_failed' };
+  }
+  let resolvedKind = req.kind;
+  let resolvedCustomerId = req.customerId;
+  if (bill) {
+    if (bill.customer_id && String(bill.customer_id) === String(bill.order_customer_id)) {
+      resolvedKind = 'bill_receipt';
+      resolvedCustomerId = bill.customer_id;
+    }
+  }
+
+  let messageId: number;
+  try {
+    messageId = recordMessageRow({
+      phone_e164: req.phoneE164,
+      direction: 'outbound',
+      kind: resolvedKind,
+      status: 'queued',
+      body: req.body,
+      bill_id: req.billId,
+      customer_id: resolvedCustomerId,
+      created_by_user_id: req.userId,
+    });
+  } catch (err: any) {
+    return { ok: false, error: err.message ?? 'Failed to record message.', reason: 'send_failed' };
+  }
+
+  const shutdownFailure = (): SendResult => {
+    if (!whatsappTerminalCleanup) {
+      try {
+        updateMessageRow(messageId, {
+          status: 'failed',
+          error: 'WhatsApp is shutting down.',
+          timestamp_field: 'failed_at',
+        });
+      } catch { }
+    }
+    return { ok: false, messageId, error: 'WhatsApp is shutting down.', reason: 'send_failed' };
+  };
+
+  try {
+    if (resolvedKind === 'manual_reply') {
+      try {
+        updateMessageRow(messageId, { status: 'seen', timestamp_field: 'seen_at' });
+      } catch { /* best-effort */ }
+    }
+    await abortable(() => socket.presenceSubscribe(jid), signal).catch(() => {});
+    if (isWhatsAppTerminal() || signal.aborted) return shutdownFailure();
+    await abortable(() => socket.sendPresenceUpdate('composing', jid), signal).catch(() => {});
+    if (isWhatsAppTerminal() || signal.aborted) return shutdownFailure();
+    updateMessageRow(messageId, { status: 'typing', timestamp_field: 'typing_at' });
+    await abortableDelay(randomDelayMs(req.body), signal);
+    await abortable(() => socket.sendPresenceUpdate('paused', jid), signal).catch(() => {});
+    if (isWhatsAppTerminal() || signal.aborted) return shutdownFailure();
+    const sent = await abortable(() => socket.sendMessage(jid, { text: req.body }), signal);
+    if (isWhatsAppTerminal() || signal.aborted) return shutdownFailure();
+    // Do not mark 'sent' immediately; wait for server ACK (status=2) in messages.update.
+    updateMessageRow(messageId, {
+      external_message_id: sent?.key?.id ?? null,
+    });
+    // Cache sent message payload for session restart re-encryption requests.
+    if (sent?.key?.id && sent?.message) {
+      state.sentMessageCache.set(sent.key.id, sent.message);
+      if (state.sentMessageCache.size > SENT_MESSAGE_CACHE_MAX) {
+        const oldest = state.sentMessageCache.keys().next().value!;
+        state.sentMessageCache.delete(oldest);
+      }
+    }
+    state.lastSendByPhone.set(req.phoneE164, Date.now());
+    if (state.lastSendByPhone.size > 1000) {
+      const oldestKey = state.lastSendByPhone.keys().next().value;
+      if (oldestKey) state.lastSendByPhone.delete(oldestKey);
+    }
+    return { ok: true, messageId };
+  } catch (err: any) {
+    if (isWhatsAppTerminal() || signal.aborted) return shutdownFailure();
+    updateMessageRow(messageId, {
+      status: 'failed',
+      error: err?.message ?? 'Send failed',
+      timestamp_field: 'failed_at',
+    });
+    const statusCode = (err as any)?.output?.statusCode;
+    if (typeof statusCode === 'number' && RATE_LIMITED_STATUS_CODES.has(statusCode)) {
+      triggerCooldown(`Send rate-limited by WhatsApp (${statusCode}). Cooling down for 5 minutes.`, 5 * 60 * 1000, 'rate_limited');
+    }
+    return { ok: false, messageId, error: err?.message ?? 'Send failed', reason: 'send_failed' };
+  }
+}
+
+export interface InboxMessage {
+  id: number;
+  phone_e164: string;
+  body: string;
+  status: string;
+  queued_at: string;
+}
+
+export function listInbox(limit: number, offset: number): InboxMessage[] {
+  return getDatabase().prepare(`
+    SELECT id, phone_e164, body, status, queued_at
+    FROM whatsapp_messages
+    WHERE direction = 'inbound'
+    ORDER BY queued_at DESC
+    LIMIT ? OFFSET ?
+  `).all(limit, offset) as InboxMessage[];
+}
+
+export interface SentMessageRow {
+  id: number;
+  phone_e164: string;
+  bill_id: number | null;
+  customer_id: number | null;
+  direction: 'inbound' | 'outbound';
+  kind: 'bill_receipt' | 'manual_reply' | 'auto_followup';
+  status: string;
+  body: string;
+  error: string | null;
+  queued_at: string;
+  seen_at: string | null;
+  typing_at: string | null;
+  sent_at: string | null;
+  delivered_at: string | null;
+  read_at: string | null;
+  failed_at: string | null;
+  created_by_user_id: string | null;
+}
+
+export function listMessages(opts: {
+  direction?: 'inbound' | 'outbound';
+  status?: string;
+  phone?: string;
+  billId?: number;
+  limit: number;
+  offset: number;
+}): SentMessageRow[] {
+  const where: string[] = [];
+  const params: any[] = [];
+  if (opts.direction) { where.push('direction = ?'); params.push(opts.direction); }
+  if (opts.status) { where.push('status = ?'); params.push(opts.status); }
+  if (opts.phone) { where.push('phone_e164 = ?'); params.push(opts.phone); }
+  if (opts.billId) { where.push('bill_id = ?'); params.push(opts.billId); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  params.push(opts.limit, opts.offset);
+  return getDatabase().prepare(`
+    SELECT id, phone_e164, bill_id, customer_id, direction, kind, status,
+           body, error, queued_at, seen_at, typing_at, sent_at,
+           delivered_at, read_at, failed_at, created_by_user_id
+    FROM whatsapp_messages
+    ${whereSql}
+    ORDER BY queued_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params) as SentMessageRow[];
+}
+
+export interface BlocklistRow {
+  phone_e164: string;
+  reason: string | null;
+  blocked_at: string;
+  blocked_by_user_id: string | null;
+}
+
+export function listBlocklist(): BlocklistRow[] {
+  return getDatabase()
+    .prepare('SELECT phone_e164, reason, blocked_at, blocked_by_user_id FROM whatsapp_blocklist ORDER BY blocked_at DESC')
+    .all() as BlocklistRow[];
+}
+
+export function addToBlocklist(phoneE164: string, reason: string, userId: string): void {
+  getDatabase().prepare(`
+    INSERT INTO whatsapp_blocklist (phone_e164, reason, blocked_at, blocked_by_user_id)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(phone_e164) DO UPDATE SET reason = excluded.reason, blocked_at = excluded.blocked_at
+  `).run(phoneE164, reason, now(), userId);
+}
+
+export function removeFromBlocklist(phoneE164: string): boolean {
+  const result = getDatabase().prepare('DELETE FROM whatsapp_blocklist WHERE phone_e164 = ?').run(phoneE164);
+  return result.changes > 0;
+}
+
+export function initFromDb(): void {
+  // creds.json is the source of truth for the paired phone; the DB setting
+  // is just a fallback when creds.json is missing (fresh install) or corrupt.
+  const credsPath = path.join(getAuthDir(), 'creds.json');
+  if (fs.existsSync(credsPath)) {
+    try {
+      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8')) as { me?: { id?: string } };
+      if (creds.me?.id) {
+        state.connectedPhone = '+' + userFromJid(creds.me.id);
+      }
+    } catch {
+      // corrupt creds — fall through to DB fallback
+    }
+  }
+  if (!state.connectedPhone) {
+    state.connectedPhone = getSettingValue('whatsapp_connected_phone') || null;
+  }
+  const v = getDatabase().prepare("SELECT value FROM settings WHERE key = 'whatsapp_enabled'").get() as { value: string | null } | undefined;
+  state.enabled = v?.value === 'true';
+  logWhatsApp('info', 'startup_init', {
+    enabled: state.enabled,
+    hasCredentials: fs.existsSync(credsPath),
+    connectedPhone: maskPhone(state.connectedPhone),
+  });
+  if (state.enabled) {
+    void startSocket().catch(() => {});
+  }
+}
+
+export function shutdown(): Promise<void> {
+  if (whatsappShutdownPromise) return whatsappShutdownPromise;
+  requestShutdown();
+  const socket = state.socket;
+  shutdownSocket = socket;
+  whatsappShutdownPromise = waitForWhatsAppWork().finally(() => {
+    if (inFlightWhatsAppWork.size === 0) {
+      if (state.socket === socket) state.socket = null;
+      shutdownSocket = null;
+    }
+  });
+  return whatsappShutdownPromise;
+}
+
+export function requestShutdown(): void {
+  if (whatsappShutdownRequested) return;
+  whatsappShutdownRequested = true;
+  state.shuttingDown = true;
+  whatsappAbortController.abort();
+  cancelInFlightWhatsAppWork();
+  if (state.cooldownTimer) { clearTimeout(state.cooldownTimer); state.cooldownTimer = null; }
+  if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
+  const socket = state.socket;
+  shutdownSocket = socket;
+  if (socket) {
+    try { socket.end(undefined); } catch { /* ignore */ }
+  }
+}

@@ -1,0 +1,379 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import api from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import toast from 'react-hot-toast';
+import { Plus, X, Edit, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import type { Staff } from '@/lib/types';
+import { useTranslations, type AppConfig } from 'use-intl';
+import { useAuthStore } from '@/store/auth';
+import { PermissionMatrix } from '@/components/settings/PermissionMatrix';
+import { ROLE_ACCESS, ROLE_KEYS, hasRole } from '@shared/role-permissions';
+import { ROLE_LABEL_KEYS } from '@/lib/i18n-enums';
+
+const VALID_ROLES = ROLE_KEYS;
+
+type StaffKey = keyof AppConfig['Messages']['staff'];
+
+const roleColors: Record<string, string> = {
+  owner: 'bg-red-100 text-red-800',
+  manager: 'bg-purple-100 text-purple-800',
+  cashier: 'bg-blue-100 text-blue-800',
+  server: 'bg-green-100 text-green-800',
+  chef: 'bg-orange-100 text-orange-800',
+};
+
+function roleLabel(role: string, t: (key: StaffKey) => string): string {
+  const key = ROLE_LABEL_KEYS[role];
+  return key ? t(key) : role;
+}
+
+function extractErrorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error)) {
+    const apiError = error.response?.data?.error;
+    if (typeof apiError === 'string' && apiError.trim()) return apiError;
+  }
+  return fallback;
+}
+
+export default function StaffPage() {
+  const t = useTranslations('staff');
+  const tCommon = useTranslations('common');
+  const tAuth = useTranslations('auth');
+  const tSetup = useTranslations('setup');
+  const { currentTenant } = useAuthStore();
+  const canViewPermissionMatrix = hasRole(currentTenant?.role, ROLE_ACCESS.ownerManager);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [kitchenStations, setKitchenStations] = useState<{ id: string; name: string }[]>([]);
+  const [kdsEnabled, setKdsEnabled] = useState(true);
+  const [, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
+  const [showResetPw, setShowResetPw] = useState(false);
+  const [resetPwStaff, setResetPwStaff] = useState<Staff | null>(null);
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    role: 'server',
+    pin: '',
+    station_ids: [] as string[],
+  });
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
+
+  const fetchStaff = async () => {
+    try {
+      const { data } = await api.get('/staff');
+      setStaff(data.staff || []);
+    } catch {
+      toast.error(t('failedToLoad'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    api.get('/staff')
+      .then(({ data }) => setStaff(data.staff || []))
+      .catch(() => toast.error(t('failedToLoad')))
+      .finally(() => setLoading(false));
+    api.get('/kitchen-stations')
+      .then(({ data }) => setKitchenStations(data.kitchenStations || []))
+      .catch(() => setKitchenStations([]));
+    api.get('/settings/kds_enabled')
+      .then(({ data }) => setKdsEnabled(data.setting?.value !== 'false'))
+      .catch(() => setKdsEnabled(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openAdd = () => {
+    setEditingStaff(null);
+    setForm({ name: '', email: '', password: '', confirmPassword: '', role: 'server', pin: '', station_ids: [] });
+    setShowPassword(false);
+    setShowPin(false);
+    setShowForm(true);
+  };
+
+  const openEdit = (s: Staff) => {
+    setEditingStaff(s);
+    setForm({ name: s.name, email: s.email || '', password: '', confirmPassword: '', role: s.role, pin: '', station_ids: [] });
+    setShowPassword(false);
+    setShowPin(false);
+    setShowForm(true);
+  };
+
+  const openResetPw = (s: Staff) => {
+    setResetPwStaff(s);
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setShowResetPassword(false);
+    setShowResetPw(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (form.password && form.password !== form.confirmPassword) {
+      toast.error(tSetup('passwordsMismatch'));
+      return;
+    }
+    try {
+      if (editingStaff) {
+        await api.put(`/staff/${editingStaff.id}`, {
+          name: form.name,
+          email: form.email,
+          role: form.role,
+          ...(form.password ? { password: form.password } : {}),
+          ...(form.pin ? { pin: form.pin } : {}),
+        });
+        toast.success(t('updatedToast'));
+      } else {
+        await api.post('/staff', {
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          role: form.role,
+          ...(form.pin ? { pin: form.pin } : {}),
+          ...(form.role === 'chef' ? { station_ids: form.station_ids } : {}),
+        });
+        toast.success(t('addedToast'));
+      }
+      closeForm();
+      fetchStaff();
+    } catch (error: unknown) {
+      toast.error(extractErrorMessage(error, t('failedToSave')));
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetPwStaff || !newPassword) return;
+    if (newPassword !== confirmNewPassword) {
+      toast.error(tSetup('passwordsMismatch'));
+      return;
+    }
+    try {
+      await api.put(`/staff/${resetPwStaff.id}`, { password: newPassword });
+      toast.success(t('resetPasswordToast'));
+      closeResetPassword();
+    } catch (error: unknown) {
+      toast.error(extractErrorMessage(error, t('failedToReset')));
+    }
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setShowPassword(false);
+    setShowPin(false);
+  };
+
+  const closeResetPassword = () => {
+    setShowResetPw(false);
+    setShowResetPassword(false);
+  };
+
+  const toggleActive = async (s: Staff) => {
+    try {
+      await api.post(`/staff/${s.id}/${s.is_active ? 'deactivate' : 'reactivate'}`);
+      fetchStaff();
+    } catch {
+      toast.error(t('failedToUpdate'));
+    }
+  };
+
+  const editingLastActiveOwner = Boolean(editingStaff?.is_active)
+    && editingStaff?.role === 'owner'
+    && staff.filter((s) => s.role === 'owner' && Boolean(s.is_active)).length === 1;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
+        <Button onClick={openAdd}><Plus size={16} className="me-1" /> {t('addButton')}</Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {staff.map((s) => (
+          <div key={s.id} className={`bg-card rounded-xl p-5 border ${s.is_active ? 'border-border' : 'border-border opacity-60'}`}>
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <p className="font-bold text-foreground">{s.name}</p>
+                <p className="text-xs text-muted-foreground">{s.email || '—'}</p>
+                {Boolean(s.has_pin) && (
+                  <p className="text-xs text-green-600 mt-1">{t('pinSet')}</p>
+                )}
+              </div>
+              <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${roleColors[s.role] || 'bg-muted text-foreground'}`}>
+                {roleLabel(s.role, t)}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <Button variant="outline" size="sm" onClick={() => openEdit(s)}>
+                <Edit size={14} className="me-1" /> {tCommon('edit')}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => openResetPw(s)}>
+                <RotateCcw size={14} className="me-1" /> {t('resetPwButton')}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => toggleActive(s)}
+                className={s.is_active ? 'text-red-500 hover:text-red-700 hover:bg-red-50' : 'text-green-500 hover:text-green-700 hover:bg-green-50'}
+              >
+                {s.is_active ? t('deactivate') : t('reactivate')}
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {staff.length === 0 && <p className="text-center text-muted-foreground py-12">{t('empty')}</p>}
+
+      {canViewPermissionMatrix && <PermissionMatrix />}
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-2xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold">{editingStaff ? t('modalTitleEdit') : t('modalTitleAdd')}</h2>
+              <button type="button" onClick={closeForm}><X size={20} className="text-gray-400" /></button>
+            </div>
+            <form onSubmit={handleSave} className="space-y-4">
+              <input
+                type="text" placeholder={t('namePlaceholder')} value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand" required
+              />
+              <input
+                type="email" placeholder={tAuth('email')} value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+                autoComplete="email"
+                dir="ltr"
+                required
+              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'} placeholder={editingStaff ? t('newPasswordPlaceholder') : t('passwordPlaceholder')}
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  className="w-full px-3 py-2 pe-10 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+                  required={!editingStaff}
+                />
+                <button type="button" aria-label="Toggle password visibility" title="Toggle password visibility" onClick={() => setShowPassword(!showPassword)} className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <input
+                type={showPassword ? 'text' : 'password'} placeholder={tAuth('confirmPassword')}
+                value={form.confirmPassword}
+                onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+                required={!editingStaff || Boolean(form.password)}
+              />
+              <select
+                value={form.role} onChange={(e) => {
+                  const role = e.target.value;
+                  setForm({
+                    ...form,
+                    role,
+                    pin: hasRole(role, ROLE_ACCESS.ownerManager) ? form.pin : '',
+                    station_ids: role === 'chef' ? form.station_ids : [],
+                  });
+                }}
+                className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+              >
+                {VALID_ROLES.map((r) => (
+                  <option key={r} value={r} disabled={editingLastActiveOwner && r !== 'owner'}>{roleLabel(r, t)}</option>
+                ))}
+              </select>
+              {!editingStaff && form.role === 'chef' && (
+                <div>
+                  <p className="text-sm font-medium text-foreground mb-1">{t('kitchenStationsOptional')}</p>
+                  <div className={`space-y-1 rounded-lg border border-border p-2 ${!kdsEnabled ? 'opacity-60' : ''}`}>
+                    {kitchenStations.map((station) => (
+                      <label key={station.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                        <input type="checkbox"
+                          checked={form.station_ids.includes(station.id)}
+                          onChange={() => setForm((current) => ({
+                            ...current,
+                            station_ids: current.station_ids.includes(station.id)
+                              ? current.station_ids.filter((id) => id !== station.id)
+                              : [...current.station_ids, station.id],
+                          }))}
+                          disabled={!kdsEnabled}
+                          className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand" />
+                        {station.name}
+                      </label>
+                    ))}
+                    {kitchenStations.length === 0 && (
+                      <p className="px-2 py-1 text-xs text-muted-foreground">{t('noKitchenStations')}</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {kdsEnabled ? t('kitchenStationsOptionalHint') : t('kitchenStationsRequireKds')}
+                  </p>
+                </div>
+              )}
+              {hasRole(form.role, ROLE_ACCESS.ownerManager) && (
+                <div>
+                  <div className="relative">
+                    <input
+                      type={showPin ? 'text' : 'password'} placeholder={editingStaff ? t('pinPlaceholderEdit') : t('pinPlaceholderAdd')}
+                      value={form.pin}
+                      onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                      className="w-full px-3 py-2 pe-10 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+                      maxLength={6}
+                      pattern="[0-9]*"
+                      inputMode="numeric"
+                    />
+                    <button type="button" aria-label="Toggle PIN visibility" title="Toggle PIN visibility" onClick={() => setShowPin(!showPin)} className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                      {showPin ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('pinHint')}</p>
+                </div>
+              )}
+              <Button type="submit" className="w-full">{editingStaff ? t('updateButton') : t('addButton')}</Button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showResetPw && resetPwStaff && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-2xl p-6 w-full max-w-sm">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold">{t('resetPasswordTitle')}</h2>
+              <button type="button" onClick={closeResetPassword}><X size={20} className="text-gray-400" /></button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">{t('resetPasswordBody', { name: resetPwStaff.name })}</p>
+            <div className="space-y-4">
+              <div className="relative">
+                <input
+                  type={showResetPassword ? 'text' : 'password'} placeholder={t('newPasswordPlaceholder')} value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 pe-10 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+                />
+                <button type="button" aria-label="Toggle password visibility" title="Toggle password visibility" onClick={() => setShowResetPassword(!showResetPassword)} className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showResetPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <input
+                type={showResetPassword ? 'text' : 'password'} placeholder={tAuth('confirmPassword')} value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+              />
+              <Button onClick={handleResetPassword} className="w-full">{t('resetPasswordTitle')}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,330 @@
+/** Frontend bridge between raw Bill/Order rows and shared PrintDocument model. */
+import {
+  buildBillDocument,
+  buildKotDocument,
+  isKotItemPending,
+  type LabelResolver,
+  type KotDocument,
+  type KotPrintData,
+  optionalPaymentAmount,
+  type PaymentSnapshot,
+  type PrintContext,
+  type PrintData,
+  type PrintDocument,
+} from '@print/document';
+import { defaultPrintLanguagePolicy, resolveReceiptLanguages } from '@print/policy';
+import type { PrintLanguageCode, ReceiptLanguagePolicy, ResolvedPrintLanguages } from '@print/types';
+import { createTranslator } from 'use-intl/core';
+import { getCachedMessages, loadLocaleMessages } from '@/lib/i18n/loader';
+import { LANGUAGES, getLanguageDirection, type Language } from '@/lib/i18n/languages';
+import { usePosSettingsStore } from '@/store/pos-settings';
+import { getCountryByCode, getCurrencySymbol, resolveTenantCurrency } from '@countries';
+import { resolveTaxComponents } from './tax-components';
+import type { Bill, Order, OrderItem } from '@/lib/types';
+
+/** Business contact facts and visibility flags for one bill print run. */
+export interface BillBusinessOptions {
+  businessName?: string;
+  address?: string;
+  phone?: string;
+  footerNote?: string;
+  instagramHandle?: string;
+  taxRegistrationNumber?: string;
+  /** Tax-id line requested by the surface (`includeTaxId`). */
+  includeTaxId?: boolean;
+  /** Pre-resolved country-profile tax-id label (GSTIN, کد اقتصادی, …). */
+  taxIdLabel?: string;
+  maskCustomerPhone?: boolean;
+  useBillCustomer?: boolean;
+  showTaxBreakdown?: boolean;
+  showBusinessName?: boolean;
+  showCustomerName?: boolean;
+  showCustomerPhone?: boolean;
+  showTableNumber?: boolean;
+  isReprint?: boolean;
+}
+
+function maskPhoneOnReceipt(phone: string): string {
+  if (!phone || phone.length < 4) return phone;
+  return 'x'.repeat(phone.length - 4) + phone.slice(-4);
+}
+
+/** Resolve the active UI language, falling back to `en` outside the client store. */
+export function resolveActiveUiLanguage(language?: Language): Language {
+  if (language) return language;
+  try {
+    return usePosSettingsStore.getState().language;
+  } catch {
+    return 'en';
+  }
+}
+
+/** Ordered receipt languages for client resolved against billLanguagePolicy. */
+export function resolveBillPrintLanguages(uiLanguage?: Language): ResolvedPrintLanguages {
+  let policy: ReceiptLanguagePolicy = defaultPrintLanguagePolicy();
+  try {
+    const stored = usePosSettingsStore.getState().billLanguagePolicy;
+    if (stored) policy = stored;
+  } catch {
+    // Outside the client store (tests/SSR): inherit → English.
+  }
+  return resolveReceiptLanguages(policy, resolveActiveUiLanguage(uiLanguage));
+}
+
+/** Synchronous per-language translator backed by the shared loader cache. */
+function translatorFor(language: Language | string): ((key: string) => string) | null {
+  const lang = (Object.keys(LANGUAGES) as Language[]).includes(language as Language)
+    ? (language as Language)
+    : null;
+  if (!lang) return null;
+  const locale = LANGUAGES[lang]?.locale ?? 'en';
+  const messages = getCachedMessages(lang) ?? getCachedMessages('en') ?? null;
+  if (!messages) return null;
+  // `createTranslator` resolves dotted keys against the whole message tree;
+  // the cached messages are untyped, so the translator accepts any key here.
+  return createTranslator({ locale, messages }) as unknown as (key: string) => string;
+}
+
+/** Pure label-catalog lookup for PrintContext backed by shared messages. */
+export const printLabelResolver: LabelResolver = (conceptId: string, language: string) => {
+  const primary = translatorFor(language);
+  if (primary) {
+    const resolved = primary(conceptId);
+    if (resolved !== conceptId) return resolved;
+  }
+  const fallback = translatorFor('en');
+  return fallback ? fallback(conceptId) : conceptId;
+};
+
+/** Loads requested receipt language message bundles into memory before building documents. */
+export async function ensurePrintLanguagesLoaded(languages: ResolvedPrintLanguages): Promise<PrintLanguageCode[]> {
+  const outcomes = await Promise.allSettled(
+    languages.map((language) => loadLocaleMessages(language as Language)),
+  );
+  return languages.filter((_, index) => outcomes[index].status === 'rejected');
+}
+
+/** Base document direction for the primary language, from the central registry. */
+function baseDirectionFor(languages: ResolvedPrintLanguages): ReturnType<typeof getLanguageDirection> {
+  const primary = languages[0] as Language;
+  try {
+    return getLanguageDirection(primary);
+  } catch {
+    return 'ltr';
+  }
+}
+
+function parsePaymentDetails(raw: Bill['payment_details']): PaymentSnapshot[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => {
+    const tendered = optionalPaymentAmount(entry?.tendered_amount);
+    const change = optionalPaymentAmount(entry?.change_amount);
+    return {
+      method: String(entry?.method ?? ''),
+      amount: Number(entry?.amount) || 0,
+      ...(tendered !== undefined ? { tendered } : {}),
+      ...(change !== undefined ? { change } : {}),
+    };
+  });
+}
+
+/** Normalize a Bill and nested Order into authoritative PrintData. */
+export function buildBillPrintData(bill: Bill, opts: BillBusinessOptions = {}): PrintData {
+  const order = bill.order;
+  const billCustomer = (bill as Bill & { customer?: { name?: unknown; phone?: unknown; country_code?: unknown } }).customer;
+  const customer = opts.useBillCustomer === true ? billCustomer ?? order?.customer : order?.customer;
+  const customerPhone = String(customer?.phone ?? '');
+  const customerCountryCode = String(customer?.country_code ?? '');
+  const rasterCustomerPhone = customerCountryCode && customerPhone && !customerPhone.startsWith(customerCountryCode)
+    ? `${customerCountryCode} ${customerPhone}`
+    : customerPhone;
+  const items = order?.items ?? [];
+
+  const showTaxId = opts.includeTaxId === true && !!opts.taxRegistrationNumber;
+
+  return {
+    isReprint: opts.isReprint === true,
+    order: {
+      orderNumber: String(order?.order_number ?? ''),
+      createdAt: String(order?.created_at ?? ''),
+      tableName: String(order?.table?.name ?? ''),
+      onlinePlatform: String(order?.online_platform ?? ''),
+      externalOrderId: String(order?.external_order_id ?? ''),
+      items: items.map((item) => ({
+        productName: String(item?.product_name ?? ''),
+        quantity: Number(item?.quantity) || 0,
+        unitPrice: Number(item?.unit_price) || 0,
+        total: Number(item?.total) || 0,
+        addons: (Array.isArray(item?.addons) ? item.addons : []).map((addon) => {
+          const addonQty = (addon !== null && typeof addon === 'object' && 'quantity' in addon
+            && typeof addon.quantity === 'number' && addon.quantity) || 1;
+          return {
+            name: String(addon?.name ?? ''),
+            price: (Number(addon?.price) || 0) * addonQty * (Number(item?.quantity) || 0),
+            quantity: addonQty,
+          };
+        }),
+        specialInstructions: String(item?.special_instructions ?? ''),
+      })),
+    },
+    bill: {
+      billNumber: String(bill?.bill_number ?? ''),
+      subtotal: Number(bill?.subtotal) || 0,
+      discountAmount: Number(bill?.discount_amount) || 0,
+      taxAmount: Number(bill?.tax_amount) || 0,
+      total: Number(bill?.total) || 0,
+      serviceCharge: Number(bill?.service_charge) || 0,
+      deliveryCharge: Number(bill?.delivery_charge) || 0,
+      packagingCharge: Number(bill?.packaging_charge) || 0,
+      taxComponents: resolveTaxComponents(bill),
+      payments: parsePaymentDetails(bill?.payment_details),
+      pointsEarned: Number(bill?.points_earned) || 0,
+      pointsRedeemed: Number(bill?.points_redeemed) || 0,
+      pointsBalance: Object.prototype.hasOwnProperty.call(bill || {}, 'points_balance')
+        ? Number(bill?.points_balance) || 0
+        : null,
+    },
+    business: {
+      name: String(opts.businessName ?? ''),
+      address: String(opts.address ?? ''),
+      phone: String(opts.phone ?? ''),
+      taxRegistrationNumber: String(opts.taxRegistrationNumber ?? ''),
+      taxIdLabel: String(opts.taxIdLabel ?? ''),
+      instagramHandle: String(opts.instagramHandle ?? ''),
+      footerNote: String(opts.footerNote ?? ''),
+      customerName: String(customer?.name ?? ''),
+      customerPhone: opts.maskCustomerPhone === true
+        ? maskPhoneOnReceipt(rasterCustomerPhone)
+        : customerPhone,
+      showName: opts.showBusinessName !== false,
+      showAddress: !!opts.address,
+      showPhone: !!opts.phone,
+      showTaxId: showTaxId ? 'force' : 'never',
+      showTaxBreakdown: opts.showTaxBreakdown === true,
+      showTableNumber: opts.showTableNumber !== false,
+      showCustomerName: opts.showCustomerName !== false,
+      showCustomerPhone: opts.showCustomerPhone !== false,
+    },
+  };
+}
+
+/** Build PrintContext for frontend bill document: paper columns, languages, and locale prefs. */
+/** Tenant fields the frontend print context needs for presentation prefs. */
+export interface FrontendTenantPrefs {
+  currency?: string | null;
+  country?: string | null;
+  timezone?: string | null;
+}
+
+export function buildBillPrintContext(opts: {
+  /** Receipt language list (already resolved from settings/policy). */
+  languages: ResolvedPrintLanguages;
+  /** Tenant slice used for locale/currency presentation prefs. */
+  tenant: FrontendTenantPrefs;
+  columns?: number;
+  trimDecimals?: boolean;
+}): PrintContext {
+  const country = getCountryByCode(opts.tenant.country ?? '');
+  const currency = resolveTenantCurrency(opts.tenant.currency, opts.tenant.country ?? '');
+  return {
+    columns: opts.columns ?? 42,
+    languages: opts.languages,
+    baseDirection: baseDirectionFor(opts.languages),
+    locale: LANGUAGES[opts.languages[0] as Language]?.locale ?? country?.locale ?? 'en-US',
+    currency,
+    currencySymbol: getCurrencySymbol(currency, country?.locale ?? 'en-US'),
+    trimDecimals: opts.trimDecimals === true,
+    ...(opts.tenant.timezone ? { timezone: String(opts.tenant.timezone) } : {}),
+    resolveLabel: printLabelResolver,
+  };
+}
+
+/** Data → document: the single entry point every frontend renderer calls. */
+export function buildFrontendBillDocument(
+  bill: Bill,
+  tenant: Parameters<typeof buildBillPrintContext>[0]['tenant'],
+  opts: BillBusinessOptions & { columns?: number; trimDecimals?: boolean; languages?: ResolvedPrintLanguages } = {},
+): PrintDocument {
+  const languages = opts.languages ?? resolveBillPrintLanguages();
+  const printData = buildBillPrintData(bill, opts);
+  const printContext = buildBillPrintContext({
+    languages,
+    tenant,
+    ...(opts.columns !== undefined ? { columns: opts.columns } : {}),
+    ...(opts.trimDecimals !== undefined ? { trimDecimals: opts.trimDecimals } : {}),
+  });
+  return buildBillDocument(printData, printContext);
+}
+
+export function buildFrontendKotDocument(
+  order: Order,
+  opts: {
+    stationName: string;
+    items?: readonly OrderItem[];
+    columns: number;
+    language: string;
+    timezone?: string;
+  },
+): KotDocument {
+  const orderShape = order as Order & {
+    table_name?: unknown;
+    tableName?: unknown;
+    customer_name?: unknown;
+    customerName?: unknown;
+  };
+  const firstText = (...values: unknown[]): string => {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim().length > 0) return value;
+    }
+    return '';
+  };
+  const parseKotAddons = (value: unknown): Array<{ name: string; quantity?: number }> => {
+    let candidates = value;
+    if (typeof value === 'string') {
+      try {
+        candidates = JSON.parse(value);
+      } catch {
+        candidates = null;
+      }
+    }
+    if (!Array.isArray(candidates)) return [];
+    return candidates.filter((addon): addon is { name: string; quantity?: number } => (
+      typeof addon === 'object' && addon !== null && typeof (addon as { name?: unknown }).name === 'string'
+    ));
+  };
+  const languages = [opts.language] as ResolvedPrintLanguages;
+  const items = opts.items ?? order.items ?? [];
+  const printData: KotPrintData = {
+    stationName: String(opts.stationName ?? ''),
+    order: {
+      orderNumber: String(order.order_number ?? ''),
+      createdAt: String(order.created_at ?? ''),
+      tableName: firstText(order.table?.name, orderShape.table_name, orderShape.tableName),
+      orderType: String(order.type ?? '').trim(),
+      customerName: firstText(order.customer?.name, orderShape.customer_name, orderShape.customerName),
+    },
+    items: items.filter((item) => isKotItemPending(item.status)).map((item) => ({
+      productName: String(item.product_name ?? ''),
+      quantity: Number(item.quantity) || 0,
+      addons: parseKotAddons(item.addons).map((addon) => ({
+        name: String(addon?.name ?? ''),
+        ...(typeof addon?.quantity === 'number' && Number.isFinite(addon.quantity) && addon.quantity > 0
+          ? { quantity: addon.quantity }
+          : {}),
+      })),
+      specialInstructions: String(item.special_instructions ?? ''),
+    })),
+  };
+  const printContext: PrintContext = {
+    columns: opts.columns,
+    languages,
+    baseDirection: baseDirectionFor(languages),
+    locale: LANGUAGES[opts.language as Language]?.locale ?? 'en-US',
+    currency: '',
+    currencySymbol: '',
+    trimDecimals: false,
+    ...(opts.timezone !== undefined ? { timezone: opts.timezone } : {}),
+    resolveLabel: printLabelResolver,
+  };
+  return buildKotDocument(printData, printContext);
+}

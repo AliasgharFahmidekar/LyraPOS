@@ -1,0 +1,467 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-sans: "Geist", "Noto Sans Devanagari", "Nirmala UI", "Kohinoor Devanagari", "Devanagari Sangam MN", system-ui, sans-serif;
+  --font-mono: "Geist Mono", monospace;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  /* Semantic surfaces: new UI uses these instead of raw gray or indigo
+   * utilities. Existing raw-color usage migrates only when that page is
+   * already being touched, not as a standalone sweep. */
+  --panel: var(--card);
+  --selected-row: #e8ebff;
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: #3248FF;
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: #e8ebff;
+  --sidebar-accent-foreground: #3248FF;
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: #3248FF;
+
+  /* Hoisted to :root so fixed app chrome can offset below the title bar;
+   * consumed by both .flo-title-bar and the sidebar inset rules below. */
+  --flo-titlebar-height: 40px;
+  --flo-titlebar-fallback-controls-width: 132px;
+  --flo-sidebar-block-start: 0px;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* Custom +/- controls exist next to numeric fields throughout the POS UI;
+ * the native spinner is redundant and its narrow hit target invites mis-taps. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+
+/* Desktop title bar: native-overlay mode supplies the caption buttons through
+ * Electron; html-fallback mode mounts equivalent controls in the renderer.
+ * The safe-area env values exclude native buttons and update on geometrychange;
+ * physical positioning is intentional for WCO's physical x/width values while
+ * content spacing and flow use logical properties for RTL locales. */
+.flo-title-bar {
+  position: relative;
+  block-size: var(--flo-titlebar-height);
+  min-block-size: var(--flo-titlebar-height);
+  align-items: center;
+  overflow: hidden;
+  border-block-end: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-app-region: drag;
+  app-region: drag;
+  transition: opacity 150ms ease;
+}
+
+html[data-flo-window-focused='false'] .flo-title-bar {
+  opacity: 0.6;
+}
+
+.flo-title-bar__safe-area {
+  position: absolute;
+  inset-block-start: env(titlebar-area-y, 0px);
+  left: env(titlebar-area-x, 0px);
+  inline-size: env(titlebar-area-width, 100%);
+  block-size: env(titlebar-area-height, var(--flo-titlebar-height));
+  max-inline-size: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-inline: 0.75rem;
+}
+
+/* macOS uses native traffic lights on the top-left (occupying ~68px).
+ * Traffic lights stay physically on the left even in RTL locales.
+ * Safe area spans full width with 96px left padding (leaving 28px gap after green light) and 0.75rem right padding. */
+html[data-flo-platform='darwin'] .flo-title-bar__safe-area {
+  left: 0;
+  right: 0;
+  inline-size: 100%;
+  padding-left: 96px;
+  padding-right: 0.75rem;
+}
+
+body:has(.flo-title-bar__fallback-controls) .flo-title-bar__safe-area {
+  left: auto;
+  right: auto;
+  inset-inline-start: 0;
+  inset-inline-end: var(--flo-titlebar-fallback-controls-width);
+  inline-size: auto;
+}
+
+.flo-title-bar__interactive,
+.flo-title-bar button,
+.flo-title-bar a,
+.flo-title-bar [role='button'],
+.flo-title-bar__fallback-controls,
+.flo-title-bar__fallback-controls button {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* HTML fallback caption buttons: mounted only when main reports the native
+ * overlay is unavailable ('html-fallback'). Logical properties keep them on
+ * the trailing edge for RTL locales; sizes echo standard caption-button hit
+ * targets while staying consistent with the 40px bar height. */
+.flo-title-bar__fallback-controls {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  block-size: var(--flo-titlebar-height);
+  display: flex;
+  align-items: stretch;
+  z-index: 30;
+}
+
+.flo-title-bar__fallback-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 44px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+.flo-title-bar__fallback-button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.flo-title-bar__fallback-button--close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.flo-title-bar--root-drag {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 10;
+  display: flex;
+}
+
+[data-testid='desktop-title-bar'] {
+  position: relative;
+  z-index: 20;
+}
+
+/* Under Electron the fixed app sidebar must start below the custom title bar
+ * instead of sliding beneath it. data-flo-desktop-titlebar is set on <html>
+ * only when window.electronAPI exists (TitleBar.tsx), so browser/LAN keeps
+ * the viewport-top geometry (--flo-sidebar-block-start stays 0px). Block-axis
+ * logical properties are direction-independent, keeping RTL correct. */
+html[data-flo-desktop-titlebar='true'] {
+  --flo-sidebar-block-start: var(--flo-titlebar-height);
+}
+
+/* Modern minimalist toast styling (Linear / Sonner aesthetic) */
+.flo-toast-card {
+  position: relative !important;
+  overflow: hidden !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid oklch(0.922 0 0 / 0.9) !important;
+  border-radius: 12px !important;
+  padding: 10px 14px !important;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.05),
+    0 10px 20px -3px rgba(0, 0, 0, 0.06),
+    0 0 0 1px rgba(0, 0, 0, 0.03) !important;
+  color: var(--foreground) !important;
+  font-family: var(--font-sans) !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  line-height: 1.4 !important;
+  max-width: 380px !important;
+}
+
+.dark .flo-toast-card {
+  background: rgba(24, 24, 27, 0.94) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #fafafa !important;
+}
+
+/* Toast time-drain progress bar: visual indicator running out linearly from 100% to 0%.
+ * Pauses on hover in sync with react-hot-toast's dismiss timer. */
+@keyframes flo-toast-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.flo-toast-drain {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  inline-size: 100%;
+  block-size: 2.5px;
+  background-color: var(--sidebar-primary, #3248FF);
+  transform-origin: left center;
+  animation-name: flo-toast-drain;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  pointer-events: none;
+}
+
+html[dir='rtl'] .flo-toast-drain {
+  transform-origin: right center;
+}
+
+.flo-toast-card:hover .flo-toast-drain,
+div:hover > .flo-toast-drain,
+[data-rht-toaster]:hover .flo-toast-drain {
+  animation-play-state: paused;
+}
+
+.flo-toast-drain--success {
+  background-color: #10b981;
+}
+
+.flo-toast-drain--error {
+  background-color: #f43f5e;
+}
+
+.flo-toast-drain--blank {
+  background-color: var(--sidebar-primary, #3248FF);
+}
+
+
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-panel: var(--panel);
+  --color-selected-row: var(--selected-row);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Brand colors */
+  --color-brand: #3248FF;
+  --color-brand-light: #e8ebff;
+  --color-brand-hover: #2538d4;
+  --color-brand-ring: #3248FF80;
+  --color-success: #00cc61;
+  --color-success-light: #dcfce7;
+  --color-success-hover: #00b355;
+}
+
+.dark {
+  --background: oklch(0.17 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.22 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.22 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.28 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.28 0 0);
+  --muted-foreground: oklch(0.75 0 0);
+  --accent: oklch(0.28 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 18%);
+  --ring: oklch(0.556 0 0);
+  --panel: var(--card);
+  --selected-row: oklch(0.24 0.03 264);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: #6366f1;
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.28 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: #6366f1;
+
+  /* Brand surface for bg-brand-light in dark mode. Note: text-brand (#3248FF)
+   * has limited contrast on this surface; components using bg-brand-light with
+   * text-brand should add dark:text-indigo-300 for legibility. */
+  --color-brand-light: oklch(0.20 0.03 270);
+}
+
+html.dark::-webkit-scrollbar-thumb,
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+
+html.dark::-webkit-scrollbar-thumb:hover,
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  select {
+    color-scheme: light;
+    background-color: var(--card);
+    color: var(--card-foreground);
+  }
+  /* Explicit option colors keep Chromium's Windows popup readable. */
+  select option {
+    background-color: var(--card);
+    color: var(--card-foreground);
+  }
+  .dark select {
+    color-scheme: dark;
+  }
+}
+
+@keyframes shake-centered {
+  0%, 100% { transform: translateX(-50%); }
+  20%, 60% { transform: translateX(calc(-50% - 5px)); }
+  40%, 80% { transform: translateX(calc(-50% + 5px)); }
+}
+.animate-shake-centered {
+  animation: shake-centered 0.4s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
+}
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-shake,
+  .animate-shake-centered {
+    animation: none;
+  }
+}
+
+/* ── RTL / direction foundation (Batch C, Refs #241) ──────────────────────────
+ * Shared building blocks for Persian RTL UI. Persian is a user-selectable UI
+ * language (Batch J, Refs #241); these rules take effect once the document is
+ * `dir="rtl"` (set by HtmlLangSync / KdsHtmlLang).
+ *
+ * - `.ltr-island` keeps content that is naturally LTR (emails, URLs, IP
+ *   addresses, pairing/technical codes, numeric identifiers, paths, version
+ *   strings) left-to-right with bidi isolation so it stays readable and
+ *   copy/paste preserves the correct order inside RTL pages.
+ * - `.rtl-flip` mirrors directional icons (chevrons, arrows) in RTL documents.
+ */
+.ltr-island {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}

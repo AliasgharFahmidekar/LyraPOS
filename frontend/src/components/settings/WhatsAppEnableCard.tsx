@@ -1,0 +1,71 @@
+'use client';
+
+import { useState } from 'react';
+import { MessageCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import api from '@/lib/api';
+import toast from 'react-hot-toast';
+import { useTranslations } from 'use-intl';
+import { usePosSettingsStore } from '@/store/pos-settings';
+
+/** Opt-in card for WhatsApp integration with acknowledgement checkbox
+ * and self-contained submit state. */
+export function WhatsAppEnableCard() {
+  const t = useTranslations('whatsapp.enable');
+  const tConnect = useTranslations('whatsapp.connect');
+  const setWhatsappEnabled = usePosSettingsStore((s) => s.setWhatsappEnabled);
+  const [ack, setAck] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleEnable = async () => {
+    if (!ack) {
+      toast.error(t('ackError'));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post('/whatsapp/enable');
+      setWhatsappEnabled(true);
+      setAck(false);
+      toast.success(t('success'));
+    } catch (err: unknown) {
+      console.warn('[WhatsAppEnable] Enable failed:', (err as Error)?.message || err);
+      toast.error(t('failed'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardContent className="space-y-5 py-6">
+        <div className="flex items-center gap-2">
+          <MessageCircle size={20} className="text-brand" />
+          <div>
+            <h2 className="font-semibold text-foreground">{t('title')}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{t('description')}</p>
+          </div>
+        </div>
+        <div className="rounded-md border bg-muted/40 p-4 text-sm space-y-3">
+          <p>{t('riskNote')}</p>
+          <p className="text-muted-foreground">{t('floHelps')}</p>
+        </div>
+        <label className="flex items-start gap-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 accent-primary"
+            checked={ack}
+            onChange={(e) => setAck(e.target.checked)}
+          />
+          <span>{t('acknowledge')}</span>
+        </label>
+        <div className="flex">
+          <Button onClick={handleEnable} disabled={!ack || submitting}>
+            {submitting ? tConnect('connecting') : t('cta')}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

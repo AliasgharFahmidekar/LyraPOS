@@ -1,0 +1,193 @@
+/** Generates WhatsApp share links for bills using wa.me API. */
+
+import type { Bill, Tenant, Customer } from '@/lib/types';
+import { getCountryByCode, getCurrencyFractionDigits } from '@/lib/countries';
+import { formatDate } from './printer/format-date';
+import api from './api';
+import toast from 'react-hot-toast';
+
+export interface WhatsAppShareOptions {
+  /** Points earned from this bill (cashback) */
+  pointsEarned?: number;
+  /** Current wallet balance */
+  walletBalance?: number;
+  /** Business phone for WhatsApp business account */
+  businessPhone?: string;
+}
+
+/** Generates a wa.me URL pre-filled with bill details for WhatsApp sharing. */
+export function getWhatsAppShareUrl(
+  bill: Bill,
+  tenant: Pick<Tenant, 'business_name' | 'currency' | 'country'>,
+  customer: Pick<Customer, 'phone' | 'country_code'> | null,
+  opts: WhatsAppShareOptions = {},
+  localeOverride?: string,
+): string {
+  const { pointsEarned = 0, walletBalance, businessPhone } = opts;
+  const currency = tenant.currency;
+  const locale = localeOverride || getCountryByCode(tenant.country)?.locale || 'en-US';
+
+  // Build the message
+  const lines: string[] = [];
+
+  lines.push(`*${tenant.business_name}*`);
+  lines.push(`Bill #: ${bill.bill_number}`);
+  lines.push(`Date: ${formatDate(bill.order?.created_at, locale)}`);
+  const itemLines = formatItemsList(bill.order, currency, locale);
+  if (itemLines.length > 0) {
+    lines.push(``);
+    lines.push(`*Items:*`);
+    lines.push(...itemLines);
+  }
+  lines.push(``);
+  lines.push(`*Total: ${formatAmount(bill.total, currency, locale)}*`);
+
+  if (pointsEarned > 0) {
+    lines.push(``);
+    lines.push(`You earned ${pointsEarned} loyalty points! 🎉`);
+  }
+
+  if (walletBalance !== undefined && walletBalance > 0) {
+    lines.push(`Your wallet balance: ${formatAmount(walletBalance, currency, locale)}`);
+  }
+
+  lines.push(``);
+  lines.push(`Thank you for your visit! 🙏`);
+
+  if (businessPhone) {
+    lines.push(`Contact: ${businessPhone}`);
+  }
+
+  const message = lines.join('\n');
+  const encoded = encodeURIComponent(message);
+
+  if (customer && customer.phone) {
+    const cleanPhone = customer.phone.replace(/[^0-9]/g, '');
+    return `https://wa.me/${cleanPhone}?text=${encoded}`;
+  }
+
+  return `https://wa.me/?text=${encoded}`;
+}
+
+/** Opens the WhatsApp share URL externally and reports whether it opened. */
+export function shareBillViaWhatsApp(
+  bill: Bill,
+  customerInfo: Pick<Customer, 'phone' | 'country_code'> | null,
+  tenant: Pick<Tenant, 'business_name' | 'currency' | 'country'>,
+  opts: WhatsAppShareOptions = {},
+  localeOverride?: string,
+): Promise<boolean> {
+  const url = getWhatsAppShareUrl(bill, tenant, customerInfo, opts, localeOverride);
+  if (window.electronAPI?.openWhatsAppShare) {
+    return window.electronAPI.openWhatsAppShare(url)
+      .then((result) => 'success' in result && result.success === true);
+  }
+  const popup = window.open('', '_blank');
+  if (!popup) return Promise.resolve(false);
+  popup.opener = null;
+  popup.location.href = url;
+  return Promise.resolve(true);
+}
+
+/** Generates plain text bill summary message for clipboard copy. */
+export function getWhatsAppMessage(
+  bill: Bill,
+  tenant: Pick<Tenant, 'business_name' | 'currency' | 'country'>,
+  opts: WhatsAppShareOptions = {},
+  localeOverride?: string,
+): string {
+  const { pointsEarned = 0, walletBalance } = opts;
+  const currency = tenant.currency;
+  const locale = localeOverride || getCountryByCode(tenant.country)?.locale || 'en-US';
+
+  const lines: string[] = [];
+
+  lines.push(`${tenant.business_name}`);
+  lines.push(`Bill #: ${bill.bill_number}`);
+  lines.push(`Date: ${formatDate(bill.order?.created_at, locale)}`);
+  const itemLines = formatItemsList(bill.order, currency, locale);
+  if (itemLines.length > 0) {
+    lines.push(``);
+    lines.push(`Items:`);
+    lines.push(...itemLines);
+  }
+  lines.push(``);
+  lines.push(`Total: ${formatAmount(bill.total, currency, locale)}`);
+
+  if (pointsEarned > 0) {
+    lines.push(``);
+    lines.push(`You earned ${pointsEarned} loyalty points!`);
+  }
+
+  if (walletBalance !== undefined && walletBalance > 0) {
+    lines.push(`Your wallet balance: ${formatAmount(walletBalance, currency, locale)}`);
+  }
+
+  lines.push(``);
+  lines.push(`Thank you for your visit!`);
+
+  return lines.join('\n');
+}
+
+// Helpers
+
+function formatAmount(value: number | string, currencyCode: string, locale: string): string {
+  const amount = Number(value);
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  try {
+    const decimals = getCurrencyFractionDigits(currencyCode);
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: currencyCode,
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(safeAmount);
+  } catch {
+    // currencyCode empty/invalid (e.g. tenant regional snapshot not resolved
+    // yet) — Intl throws for an empty/invalid currency. Plain number, no
+    // symbol, rather than crashing or guessing a currency (never restore INR).
+    return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safeAmount);
+  }
+}
+
+/** One line per ordered item (skipping cancelled ones), e.g. "2x Chicken Biryani - ₹360.00". */
+function formatItemsList(order: Bill['order'], currencyCode: string, locale: string): string[] {
+  const items = order?.items?.filter((item) => item.status !== 'cancelled') ?? [];
+  return items.map((item) => `${item.quantity}x ${item.product_name} - ${formatAmount(item.total, currencyCode, locale)}`);
+}
+
+/** Sends paid bill receipt through connected WhatsApp session. */
+export async function sendBillViaFlo(
+  bill: Bill,
+  customerPhone: string,
+  tenant: Pick<Tenant, 'business_name' | 'currency' | 'country'>,
+  t: (key: string, params?: Record<string, string | number>) => string,
+  opts: WhatsAppShareOptions = {},
+  localeOverride?: string,
+): Promise<void> {
+  const message = getWhatsAppMessage(bill, tenant, opts, localeOverride);
+  try {
+    const { data } = await api.post('/whatsapp/send', {
+      bill_id: bill.id,
+      kind: 'bill_receipt',
+      phone_e164: customerPhone,
+      body: message,
+    });
+    if (data?.ok) toast.success(t('whatsapp.send.success'));
+  } catch (err: unknown) {
+    const axiosErr = err as { response?: { data?: { error?: string; reason?: string } } };
+    const reason = axiosErr?.response?.data?.reason;
+    const msg = t('whatsapp.send.failed');
+    if (reason === 'not_connected') {
+      toast.error(t('whatsapp.send.error.notConnected'));
+    } else if (reason === 'not_on_whatsapp') {
+      toast.error(t('whatsapp.send.error.notOnWhatsapp'));
+    } else if (reason === 'blocked') {
+      toast.error(t('whatsapp.send.error.blocked'));
+    } else if (reason === 'rate_limited') {
+      toast.error(msg || t('whatsapp.send.error.rateLimited'));
+    } else {
+      toast.error(msg);
+    }
+  }
+}

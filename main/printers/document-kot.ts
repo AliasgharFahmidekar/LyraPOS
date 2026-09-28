@@ -1,0 +1,353 @@
+/** PrintDocument v1 kitchen order ticket renderer; maps KotDocument onto ESC/POS token-line layout. */
+
+import { parseDbTimestamp } from '../db';
+import { printLabel } from '../print/print-labels.generated';
+import type { PrintConceptId } from '../../shared/print/concepts';
+import type { PrinterCutMode } from './profiles';
+import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
+import type { RasterSemanticLineGroup } from '../../shared/print/raster';
+import {
+  buildEscPos,
+  truncate,
+  truncateShapedLine,
+  type PrintWarning,
+} from './formatting-helpers';
+import {
+  GENERIC_THERMAL_CAPABILITIES,
+  isThermalTextRepresentable,
+  mergeThermalCapabilities,
+  shouldUseOrderTypeFallback,
+  thermalTextFallback,
+} from '../../shared/print/thermal-capabilities';
+import { detectPrintLanguageDirection } from './document-classic';
+import { displayCellWidth } from '../../shared/print/width';
+import {
+  buildKotDocument,
+  isKotItemPending,
+  type DirectionalText,
+  type KotDocument,
+  type KotDocumentBlock,
+  type KotHeaderBlock,
+  type KotItemsBlock,
+  type KotPrintData,
+  type PrintContext,
+  type SemanticLabel,
+} from '../../shared/print';
+
+// Normalization (caller-side, main-process layer).
+
+/** Normalize raw order/items/station rows into an authoritative KOT snapshot. */
+export function buildKotPrintData(order: any, items: any[], stationName: string): KotPrintData {
+  const ticketItems = Array.isArray(items)
+    ? items.filter((item: any) => isKotItemPending(item?.status))
+    : [];
+  return {
+    stationName: String(stationName ?? ''),
+    order: {
+      orderNumber: String(order?.order_number ?? ''),
+      createdAt: String(order?.created_at ?? ''),
+      tableName: String(order?.table?.name ?? ''),
+      orderType: String(order?.type ?? '').trim(),
+      customerName: String(order?.customer?.name ?? order?.customer_name ?? '').trim(),
+    },
+    items: ticketItems.map((item: any) => ({
+      productName: String(item?.product_name ?? ''),
+      quantity: Number(item?.quantity) || 0,
+      addons: parseKotAddons(item?.addons).map((addon) => ({
+        name: String(addon?.name ?? ''),
+        ...(typeof addon?.quantity === 'number' && Number.isFinite(addon.quantity) && addon.quantity > 0
+          ? { quantity: addon.quantity }
+          : {}),
+      })),
+      specialInstructions: String(item?.special_instructions ?? ''),
+    })),
+  };
+}
+
+function parseKotAddons(value: unknown): Array<{ name: string; quantity?: number }> {
+  let candidates = value;
+  if (typeof value === 'string') {
+    try {
+      candidates = JSON.parse(value);
+    } catch {
+      candidates = null;
+    }
+  }
+  if (!Array.isArray(candidates)) return [];
+  return candidates.filter((addon): addon is { name: string; quantity?: number } =>
+    Boolean(addon) && typeof addon === 'object' && typeof (addon as { name?: unknown }).name === 'string');
+}
+
+/** Build PrintContext for a kitchen ticket using pre-resolved language policy. */
+export function buildKotPrintContext(opts: {
+  columns: number;
+  /** KOT label language (already resolved from the kitchen policy). */
+  language: string;
+  /** Store timezone for business-local ticket time formatting. */
+  timezone?: string;
+}): PrintContext {
+  return {
+    columns: opts.columns,
+    languages: [opts.language],
+    baseDirection: detectPrintLanguageDirection(opts.language),
+    locale: 'en-US',
+    currency: '',
+    currencySymbol: '',
+    trimDecimals: false,
+    ...(opts.timezone !== undefined ? { timezone: opts.timezone } : {}),
+    resolveLabel: (conceptId, language) => printLabel(language, conceptId as PrintConceptId),
+  };
+}
+
+// Document to KOT ESC/POS token lines.
+
+/** Renderer options: physical/locale presentation only, no business data. */
+export interface KotDocumentRenderOptions {
+  readonly columns: number;
+  readonly language: string;
+  readonly locale?: string;
+  readonly timezone?: string;
+  readonly useUnicode: boolean;
+  readonly arabicShaping: boolean;
+  readonly cutMode: PrinterCutMode;
+  readonly capabilities?: ThermalPrinterCapabilities;
+  readonly rasterGroups?: RasterSemanticLineGroup[];
+}
+
+/** Typed accessor for one block kind within a KOT document. */
+function kotBlock<K extends KotDocumentBlock['kind']>(
+  document: KotDocument,
+  kind: K,
+): Extract<KotDocumentBlock, { kind: K }> | undefined {
+  return document.blocks.find((block): block is Extract<KotDocumentBlock, { kind: K }> => block.kind === kind);
+}
+
+function labelOf(label: SemanticLabel): string {
+  return label.primary;
+}
+
+/** Interpolate the ICU {name} placeholder of pos.tableLabel inline (#440). */
+function formatTableLabel(label: SemanticLabel, tableName: string): string {
+  return labelOf(label).replace('{name}', tableName);
+}
+
+// Use localized header metadata if supported; fallback to ASCII labels.
+const UNSUPPORTED_METADATA_PLACEHOLDER = '[UNSUPPORTED]';
+function thermalSafeText(value: string, fallback: string, language: string, arabicShaping: boolean, capabilities?: ThermalPrinterCapabilities): string {
+  const merged = mergeThermalCapabilities(capabilities ?? GENERIC_THERMAL_CAPABILITIES, arabicShaping);
+  if (merged.raster.enabled === true && !isThermalTextRepresentable(value, merged)) return value;
+  return thermalTextFallback(value, fallback, merged);
+}
+
+function thermalSafeMetadataValue(value: string, language: string, arabicShaping: boolean, capabilities?: ThermalPrinterCapabilities): string {
+  return thermalSafeText(value, UNSUPPORTED_METADATA_PLACEHOLDER, language, arabicShaping, capabilities);
+}
+
+function formatOrderNumberLabel(label: SemanticLabel, orderNumber: string, language: string, arabicShaping: boolean, capabilities?: ThermalPrinterCapabilities): string {
+  const localized = labelOf(label).replace('{number}', orderNumber);
+  const fallbackOrderNumber = thermalSafeMetadataValue(orderNumber, language, arabicShaping, capabilities);
+  return thermalSafeText(localized, `Order #${fallbackOrderNumber}`, language, arabicShaping, capabilities);
+}
+
+function kotHeaderLines(header: KotHeaderBlock, options: KotDocumentRenderOptions, sourceLines?: string[], sourceControlLines?: string[]): string[] {
+  const cols = options.columns;
+  const lines: string[] = [];
+  const tzOptions = options.timezone ? { timeZone: options.timezone } : undefined;
+  const thermalCapabilities = mergeThermalCapabilities(options.capabilities, options.arabicShaping);
+  const banner = thermalSafeText(labelOf(header.banner), 'KITCHEN ORDER TICKET', options.language, options.arabicShaping, options.capabilities);
+  const station = thermalSafeText(
+    `${labelOf(header.stationLabel)}: ${header.stationName.text}`,
+    `Station: ${thermalSafeMetadataValue(header.stationName.text, options.language, options.arabicShaping, options.capabilities)}`,
+    options.language,
+    options.arabicShaping,
+    options.capabilities,
+  );
+  const table = header.table
+    ? thermalSafeText(
+      formatTableLabel(header.table.label, header.table.name.text),
+      `Table: ${thermalSafeMetadataValue(header.table.name.text, options.language, options.arabicShaping, options.capabilities)}`,
+      options.language,
+      options.arabicShaping,
+      options.capabilities,
+    )
+    : null;
+  const orderType = header.orderType
+    ? (() => {
+      const localized = `${labelOf(header.orderType.label)}: ${header.orderType.value.text}`;
+      const fallback = `Type: ${header.orderType.code.replace(/_/g, ' ').trim().toUpperCase()}`;
+      return shouldUseOrderTypeFallback(localized, thermalCapabilities)
+        ? fallback
+        : thermalSafeText(localized, fallback, options.language, options.arabicShaping, options.capabilities);
+    })()
+    : null;
+  const time = parseDbTimestamp(header.timestamp.text).toLocaleTimeString((options.locale ?? 'en-US') + '-u-nu-latn', tzOptions);
+  const timeLine = thermalSafeText(
+    `${labelOf(header.timeLabel)}: ${time}`,
+    `Time: ${parseDbTimestamp(header.timestamp.text).toLocaleTimeString('en-US-u-nu-latn', tzOptions)}`,
+    options.language,
+    options.arabicShaping,
+    options.capabilities,
+  );
+
+  lines.push('{CENTER}{BOLD}' + truncateShapedLine(banner, cols, options.arabicShaping, options.language, options.capabilities) + '{/BOLD}{/CENTER}');
+  sourceLines?.push(labelOf(header.banner));
+  sourceControlLines?.push(lines.at(-1) ?? '');
+  lines.push('');
+  sourceLines?.push('');
+  sourceControlLines?.push('');
+  lines.push(truncateShapedLine(station, cols, options.arabicShaping, options.language, options.capabilities));
+  sourceLines?.push(`${labelOf(header.stationLabel)}: ${header.stationName.text}`);
+  sourceControlLines?.push(lines.at(-1) ?? '');
+  lines.push(truncateShapedLine(formatOrderNumberLabel(header.orderNumberLabel, header.orderNumber.text, options.language, options.arabicShaping, options.capabilities), cols, options.arabicShaping, options.language, options.capabilities));
+  sourceLines?.push(labelOf(header.orderNumberLabel).replace('{number}', header.orderNumber.text));
+  sourceControlLines?.push(lines.at(-1) ?? '');
+  if (table) {
+    lines.push(truncateShapedLine(table, cols, options.arabicShaping, options.language, options.capabilities));
+    sourceLines?.push(formatTableLabel(header.table!.label, header.table!.name.text));
+    sourceControlLines?.push(lines.at(-1) ?? '');
+  }
+  if (orderType) {
+    lines.push(truncateShapedLine(orderType, cols, options.arabicShaping, options.language, options.capabilities));
+    sourceLines?.push(`${labelOf(header.orderType!.label)}: ${header.orderType!.value.text}`);
+    sourceControlLines?.push(lines.at(-1) ?? '');
+  }
+  if (header.customer) {
+    const customer = thermalSafeText(
+      `${labelOf(header.customer.label)}: ${header.customer.name.text}`,
+      `Customer: ${thermalSafeMetadataValue(header.customer.name.text, options.language, options.arabicShaping, options.capabilities)}`,
+      options.language,
+      options.arabicShaping,
+      options.capabilities,
+    );
+    lines.push(truncateShapedLine(customer, cols, options.arabicShaping, options.language, options.capabilities));
+    sourceLines?.push(`${labelOf(header.customer.label)}: ${header.customer.name.text}`);
+    sourceControlLines?.push(lines.at(-1) ?? '');
+  }
+  lines.push(truncateShapedLine(timeLine, cols, options.arabicShaping, options.language, options.capabilities));
+  sourceLines?.push(`${labelOf(header.timeLabel)}: ${time}`);
+  sourceControlLines?.push(lines.at(-1) ?? '');
+  return lines;
+}
+
+function kotItemLines(row: KotItemsBlock['rows'][number], cols: number, arabicShaping: boolean, language: string, capabilities?: ThermalPrinterCapabilities): string[] {
+  const lines: string[] = [];
+  const itemPrefix = row.quantity + 'x  ';
+  lines.push('{DOUBLE_HEIGHT}{BOLD}' + itemPrefix + truncateShapedLine(row.name.text, Math.max(1, cols - displayCellWidth(itemPrefix)), arabicShaping, language, capabilities) + '{/BOLD}{/DOUBLE_HEIGHT}');
+  for (const addon of row.addons) {
+    const quantity = addon.quantity ?? 1;
+    const quantitySuffix = quantity > 1 ? ` x${quantity}` : '';
+    const name = truncate(addonName(addon), Math.max(1, cols - 4 - displayCellWidth(quantitySuffix)), language, capabilities);
+    lines.push('  + ' + name + quantitySuffix);
+  }
+  if (row.specialInstructions) {
+    lines.push('  >> ' + truncateShapedLine(row.specialInstructions.text, Math.max(1, cols - 8), arabicShaping, language, capabilities));
+  }
+  return lines;
+}
+
+function addonName(addon: DirectionalText): string {
+  return addon.text;
+}
+
+/** Map a KotDocument onto the legacy KOT token-line layout. */
+export function renderKotDocumentToLines(document: KotDocument, options: KotDocumentRenderOptions): string[] {
+  const lines: string[] = [];
+
+  const header = kotBlock(document, 'kot-header');
+  const items = kotBlock(document, 'kot-items');
+  const cols = options.columns;
+  const bar = '='.repeat(cols);
+
+  lines.push('{INIT}');
+  if (header) {
+    const headerStart = lines.length;
+    const headerSourceLines: string[] = [];
+    const headerSourceControlLines: string[] = [];
+    lines.push(...kotHeaderLines(header, options, headerSourceLines, headerSourceControlLines));
+    options.rasterGroups?.push({ groupId: 'kot-header', lineIndex: headerStart, lineCount: lines.length - headerStart, sourceLines: headerSourceLines, sourceControlLines: headerSourceControlLines });
+  }
+  lines.push(bar);
+  lines.push('');
+
+  if (items) {
+    for (const [rowIndex, row] of items.rows.entries()) {
+      const rowStart = lines.length;
+      const rowLines = kotItemLines(row, cols, options.arabicShaping, options.language, options.capabilities);
+      lines.push(...rowLines);
+      const sourceLines = [`${row.quantity}x  ${row.name.text}`];
+      const sourceControlLines = [rowLines[0] ?? ''];
+      let rowLineOffset = 1;
+      for (const addon of row.addons) {
+        const quantitySuffix = (addon.quantity ?? 1) > 1 ? ` x${addon.quantity}` : '';
+        sourceLines.push(`  + ${addon.text}${quantitySuffix}`);
+        sourceControlLines.push(rowLines[rowLineOffset] ?? '');
+        rowLineOffset += 1;
+      }
+      if (row.specialInstructions) {
+        sourceLines.push('  >> ' + row.specialInstructions.text);
+        sourceControlLines.push(rowLines[rowLineOffset] ?? '');
+      }
+      if (options.rasterGroups) {
+        const group = { groupId: `kot-items-row-${rowIndex}`, lineIndex: rowStart, lineCount: lines.length - rowStart };
+        options.rasterGroups.push({ ...group, sourceLines, sourceControlLines });
+      }
+    }
+  }
+
+  lines.push('');
+  lines.push(bar);
+  lines.push('{CUT}');
+
+  return lines;
+}
+
+// Entry: data -> document -> lines -> bytes.
+
+export interface KotDocumentRenderResult {
+  readonly document: KotDocument;
+  readonly lines: string[];
+  readonly data: Buffer;
+  readonly warnings: PrintWarning[];
+  readonly rasterGroups: readonly RasterSemanticLineGroup[];
+}
+
+/** Full document-driven KOT pipeline: data -> document -> lines -> bytes. */
+export function renderKotViaDocument(
+  order: any,
+  items: any[],
+  stationName: string,
+  opts: {
+    columns: number;
+    /** KOT label language, resolved from `kot_language_policy` by the caller. */
+    language: string;
+    locale?: string;
+    timezone?: string;
+    useUnicode: boolean;
+    arabicShaping: boolean;
+    cutMode: PrinterCutMode;
+    capabilities?: import('../../shared/print/thermal-capabilities').ThermalPrinterCapabilities;
+  },
+): KotDocumentRenderResult {
+  const printData = buildKotPrintData(order, items, stationName);
+  const printContext = buildKotPrintContext({
+    columns: opts.columns,
+    language: opts.language,
+    ...(opts.timezone !== undefined ? { timezone: opts.timezone } : {}),
+  });
+  const document = buildKotDocument(printData, printContext);
+  const warnings: PrintWarning[] = [];
+  const rasterGroups: RasterSemanticLineGroup[] = [];
+  const lines = renderKotDocumentToLines(document, {
+    columns: opts.columns,
+    language: opts.language,
+    ...(opts.locale !== undefined ? { locale: opts.locale } : {}),
+    ...(printContext.timezone !== undefined ? { timezone: printContext.timezone } : {}),
+    useUnicode: opts.useUnicode,
+    arabicShaping: opts.arabicShaping,
+    cutMode: opts.cutMode,
+    capabilities: opts.capabilities,
+    rasterGroups,
+  });
+  const data = buildEscPos(lines, opts.useUnicode, { cutMode: opts.cutMode, arabicShaping: opts.arabicShaping, columns: opts.columns, language: opts.language, capabilities: opts.capabilities }, warnings);
+  return { document, lines, data, warnings, rasterGroups };
+}

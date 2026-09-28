@@ -1,0 +1,356 @@
+import * as assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type { BrowserWindow } from 'electron';
+
+const Module = require('module');
+const originalLoad = Module._load;
+
+const registered = new Map<string, (...args: any[]) => any>();
+const registeredSync = new Map<string, (...args: any[]) => any>();
+const windows: any[] = [];
+let failExternalOpen = false;
+
+class FakeWebContents {
+  handlers = new Map<string, Function[]>();
+  windowOpenHandler: ((...args: any[]) => any) | null = null;
+  frame = { frameToken: `frame-${Math.random()}`, detached: false };
+
+  constructor(public readonly ownerWindow: FakeBrowserWindow) {}
+
+  getURL() {
+    return this.ownerWindow.loadedUrl;
+  }
+
+  get mainFrame() {
+    return this.frame;
+  }
+
+  on(event: string, cb: Function) {
+    const list = this.handlers.get(event) ?? [];
+    list.push(cb);
+    this.handlers.set(event, list);
+  }
+  setWindowOpenHandler(cb: (...args: any[]) => any) {
+    this.windowOpenHandler = cb;
+  }
+}
+
+class FakeBrowserWindow {
+  webPreferences: any;
+  webContents: FakeWebContents;
+  loadedUrl = '';
+
+  static fromWebContents(sender: FakeWebContents) {
+    return sender.ownerWindow;
+  }
+
+  constructor(opts: any) {
+    this.webPreferences = opts.webPreferences;
+    this.webContents = new FakeWebContents(this);
+    windows.push(this);
+  }
+
+  destroyed = false;
+  closeHandlers: Function[] = [];
+  on(event: string, cb: Function) {
+    if (event === 'closed') {
+      this.closeHandlers.push(cb);
+    }
+  }
+  loadURL(url: string) {
+    this.loadedUrl = url;
+  }
+  focus() {}
+  isDestroyed() {
+    return this.destroyed;
+  }
+  close() {
+    this.destroyed = true;
+    this.closeHandlers.forEach((cb) => cb());
+  }
+}
+
+Module._load = function (request: string, parent: unknown, isMain: boolean) {
+  if (request === 'electron') {
+    return {
+      ipcMain: {
+        on: (channel: string, listener: (...args: any[]) => any) => {
+          registeredSync.set(channel, listener);
+        },
+        handle: (channel: string, listener: (...args: any[]) => any) => {
+          registered.set(channel, listener);
+        },
+      },
+      dialog: {
+        showSaveDialog: async () => ({ canceled: false, filePath: '/tmp/flo-backup.db' }),
+        showOpenDialog: async () => ({ canceled: false, filePaths: ['/tmp/flo-backup.db'] }),
+        showMessageBox: async () => ({ response: 0 }),
+      },
+      app: { getPath: () => '/tmp/flo-kds-test', getVersion: () => '3.2.0', getName: () => 'FloCafe' },
+      BrowserWindow: FakeBrowserWindow,
+      shell: {
+        openExternal: async () => {
+          if (failExternalOpen) throw new Error('test external-open failure');
+        },
+      },
+    };
+  }
+  if (request === './db') {
+    const fakeDb = {
+      prepare: (sql: string) => ({
+        all: () => (sql.includes('settings') ? [{ key: 'business_name', value: 'Flo Cafe' }] : [{ id: 1, name: 'Thermal Kitchen' }]),
+        get: () => ({ bill_count: 5, revenue: 120.50, covers: 12, count: 2 }),
+        run: () => ({ changes: 1 }),
+      }),
+    };
+    return {
+      getDatabase: () => fakeDb,
+      createBackup: async () => ({ path: '/tmp/flo-backup.db', schemaVersion: 68 }),
+      restoreBackup: async () => ({ success: true, mode: 'full', tablesRestored: 20 }),
+      now: () => new Date().toISOString(),
+      getCurrentSchemaVersion: () => 68,
+      getSchemaVersionFromBackup: () => 68,
+      resetDatabaseWithBackup: async () => ({ backupPath: '/tmp/flo-backup.db' }),
+      withDatabaseMaintenanceLock: async (fn: any) => fn(),
+      withDatabaseRequest: async (fn: any) => fn(),
+    };
+  }
+  if (request === './middleware/security') {
+    return { clearInMemoryRevokedTokens: () => {}, clearUserAuthCache: () => {} };
+  }
+  if (request === './server') {
+    return { getLocalIP: () => '192.168.1.50' };
+  }
+  if (request === './routes/auth') {
+    return { clearJWTSecretCache: () => {} };
+  }
+  if (request === './kds-server') {
+    return { getKdsPort: () => 3002 };
+  }
+  if (request === './services/master-pin') {
+    return {
+      authorizeMasterPin: (pin?: string) => (pin === '1234' ? { ok: true } : { ok: false, error: 'Invalid master PIN' }),
+      isMasterPinAvailable: () => true,
+      isMasterPinSet: () => true,
+    };
+  }
+  if (request === './services/schema-health') {
+    return {
+      runHealthCheck: () => ({ status: 'healthy', findings: [] }),
+      applySafeFixes: () => ({ applied: ['fix1'], skipped: [], errors: [] }),
+    };
+  }
+  if (request === './services/whatsapp') {
+    return {
+      getStatus: () => ({ connected: false, qrCode: null }),
+      sanitizeLogText: (error: unknown) => (error instanceof Error ? error.message : String(error))
+        .replace(/https?:\/\/\S+/gi, '[redacted-url]'),
+    };
+  }
+  return originalLoad.apply(this, arguments as any);
+};
+
+import { registerIpcHandlers } from '../main/ipc';
+
+async function run(): Promise<void> {
+  const evidenceLogs: string[] = [];
+  const log = (msg: string) => {
+    console.log(msg);
+    evidenceLogs.push(msg);
+  };
+
+  log('=== GHSA-jmmq-fjg5-g6px KDS Window & IPC Hardening Verification ===');
+
+  const mainPosWindow = new FakeBrowserWindow({ webPreferences: {} });
+  registerIpcHandlers(undefined, () => mainPosWindow as unknown as BrowserWindow);
+
+  // The preload's synchronous registration is allowed before Chromium exposes
+  // the localhost URL only for the expected POS window and its current main
+  // frame. Other windows and remote origins remain unauthorized.
+  const documentHandler = registeredSync.get('window-document');
+  assert.ok(documentHandler, 'window-document IPC handler is registered');
+  const earlyDocumentEvent: any = {
+    sender: mainPosWindow.webContents,
+    senderFrame: mainPosWindow.webContents.mainFrame,
+  };
+  documentHandler(earlyDocumentEvent, '123e4567-e89b-42d3-a456-426614174003');
+  assert.deepEqual(earlyDocumentEvent.returnValue, { success: true });
+
+  const otherWindow = new FakeBrowserWindow({ webPreferences: {} });
+  const otherDocumentEvent: any = {
+    sender: otherWindow.webContents,
+    senderFrame: otherWindow.webContents.mainFrame,
+  };
+  documentHandler(otherDocumentEvent, '123e4567-e89b-42d3-a456-426614174004');
+  assert.deepEqual(otherDocumentEvent.returnValue, { error: 'Unauthorized sender' });
+
+  const staleFrameEvent: any = {
+    sender: mainPosWindow.webContents,
+    senderFrame: { frameToken: 'stale-frame', detached: false },
+  };
+  documentHandler(staleFrameEvent, '123e4567-e89b-42d3-a456-426614174005');
+  assert.deepEqual(staleFrameEvent.returnValue, { success: false, error: 'Invalid document registration' });
+
+  mainPosWindow.loadedUrl = 'http://evil.example.com/';
+  const remoteDocumentEvent: any = {
+    sender: mainPosWindow.webContents,
+    senderFrame: mainPosWindow.webContents.mainFrame,
+  };
+  documentHandler(remoteDocumentEvent, '123e4567-e89b-42d3-a456-426614174006');
+  assert.deepEqual(remoteDocumentEvent.returnValue, { error: 'Unauthorized sender' });
+  mainPosWindow.loadedUrl = 'http://localhost:3001/';
+
+  const trustedLocalhost = { sender: { getURL: () => 'http://localhost:3001/' } };
+  const trusted127 = { sender: { getURL: () => 'http://127.0.0.1:3001/pos' } };
+  const untrustedKds = { sender: { getURL: () => 'http://192.168.1.50:3002/kds' } };
+  const untrustedExternal = { sender: { getURL: () => 'http://evil.example.com/' } };
+  const untrustedSpoofedPrefix = { sender: { getURL: () => 'http://localhost.evil.com/' } };
+  const untrustedCredentialPrefix = { sender: { getURL: () => 'http://localhost:3001@evil.example/' } };
+  const untrustedNullSender = { sender: { getURL: () => null } };
+
+  // 1. Verify ALL non-PIN-gated handlers enforce sender identity
+  const nonPinGatedHandlers = [
+    { channel: 'db-health-check', args: [] },
+    { channel: 'db-apply-safe-fixes', args: [['finding-1']] },
+    { channel: 'master-pin-status', args: [] },
+    { channel: 'get-settings', args: [] },
+    { channel: 'set-setting', args: ['business_name', 'My Cafe'] },
+    { channel: 'whatsapp-get-status', args: [] },
+    { channel: 'whatsapp-open-share', args: ['https://wa.me/15555550100?text=test'] },
+    { channel: 'get-kds-info', args: [] },
+    { channel: 'open-kds-window', args: [] },
+    { channel: 'get-app-info', args: [] },
+    { channel: 'get-printers', args: [] },
+    { channel: 'save-printer', args: [{ name: 'Kitchen Printer', type: 'thermal', connection_type: 'network' }] },
+    { channel: 'get-daily-summary', args: [] },
+  ];
+
+  log(`\n[Phase 1] Verifying sender identity across ${nonPinGatedHandlers.length} non-PIN-gated IPC channels...`);
+
+  for (const { channel, args } of nonPinGatedHandlers) {
+    const listener = registered.get(channel);
+    assert.ok(listener, `IPC channel '${channel}' is registered`);
+
+    // Test rejection of untrusted senders
+    const kdsRes = await listener(untrustedKds, ...args);
+    assert.deepEqual(kdsRes, { error: 'Unauthorized sender' }, `${channel} rejected KDS origin sender`);
+
+    const extRes = await listener(untrustedExternal, ...args);
+    assert.deepEqual(extRes, { error: 'Unauthorized sender' }, `${channel} rejected external origin sender`);
+
+    const spoofRes = await listener(untrustedSpoofedPrefix, ...args);
+    assert.deepEqual(spoofRes, { error: 'Unauthorized sender' }, `${channel} rejected spoofed prefix sender`);
+
+    const credentialPrefixRes = await listener(untrustedCredentialPrefix, ...args);
+    assert.deepEqual(credentialPrefixRes, { error: 'Unauthorized sender' }, `${channel} rejected credential-prefix sender`);
+
+    const nullRes = await listener(untrustedNullSender, ...args);
+    assert.deepEqual(nullRes, { error: 'Unauthorized sender' }, `${channel} rejected null sender`);
+
+    // Test acceptance of trusted localhost and 127.0.0.1 senders
+    const localRes = await listener(trustedLocalhost, ...args);
+    assert.notDeepEqual(localRes, { error: 'Unauthorized sender' }, `${channel} accepted localhost sender`);
+
+    const loopbackRes = await listener(trusted127, ...args);
+    assert.notDeepEqual(loopbackRes, { error: 'Unauthorized sender' }, `${channel} accepted 127.0.0.1 sender`);
+
+    log(`  ✓ ${channel}: successfully blocks untrusted senders and admits trusted origins`);
+  }
+
+  const openShareListener = registered.get('whatsapp-open-share')!;
+  const invalidShareRes = await openShareListener(trustedLocalhost, 'https://example.com/');
+  assert.deepEqual(invalidShareRes, { success: false, error: 'Invalid WhatsApp share URL' }, 'WhatsApp opener rejects non-wa.me URLs');
+  failExternalOpen = true;
+  const failedShareRes = await openShareListener(trustedLocalhost, 'https://wa.me/15555550100?text=test');
+  assert.deepEqual(failedShareRes, { success: false, error: 'Failed to open WhatsApp' }, 'WhatsApp opener reports shell failure');
+  failExternalOpen = false;
+  const successfulShareRes = await openShareListener(trustedLocalhost, 'https://wa.me/15555550100?text=test');
+  assert.deepEqual(successfulShareRes, { success: true }, 'WhatsApp opener reports shell success');
+
+  // 2. PIN-gated handlers enforce master PIN
+  log('\n[Phase 2] Verifying PIN-gated handlers require authorization...');
+  const backupListener = registered.get('backup-database')!;
+  const invalidPinRes = await backupListener(trustedLocalhost, 'wrong-pin');
+  assert.equal(invalidPinRes.success, false, 'backup rejected invalid PIN');
+  assert.equal(invalidPinRes.error, 'Invalid master PIN');
+  const validPinRes = await backupListener(trustedLocalhost, '1234');
+  assert.equal(validPinRes.success, true, 'backup accepted valid PIN');
+  log('  ✓ backup-database: successfully protected by master PIN');
+
+  // 3. KDS window webPreferences: privileged preload bridge removed, isolation intact
+  log('\n[Phase 3] Verifying KDS window construction and bridge removal...');
+  while (windows.length > 0) {
+    const w = windows.pop();
+    w.close();
+  }
+  const openKdsListener = registered.get('open-kds-window')!;
+  await openKdsListener(trustedLocalhost);
+  assert.equal(windows.length, 1, 'a KDS window is created');
+  const kdsWindow = windows[0];
+
+  assert.equal(kdsWindow.webPreferences.preload, undefined, 'KDS window webPreferences.preload is undefined (bridge removed)');
+  assert.equal(kdsWindow.webPreferences.contextIsolation, true, 'context isolation remains enabled');
+  assert.equal(kdsWindow.webPreferences.nodeIntegration, false, 'node integration remains disabled');
+  // gh-513: open-kds-window appends the current palette via appendThemeQueryParam so
+  // the KDS window's pre-paint script learns the theme without preload access.
+  // Assert both the origin/path invariance and that the theme param is one of the
+  // two resolved palettes (robust to the currentEffectiveIsDark default flipping
+  // between releases).
+  assert.ok(
+    /^http:\/\/192\.168\.1\.50:3002\/kds\?theme=(?:light|dark)$/.test(kdsWindow.loadedUrl),
+    `KDS window loads a themed URL (got ${kdsWindow.loadedUrl})`,
+  );
+  log('  ✓ BrowserWindow webPreferences: preload=undefined, contextIsolation=true, nodeIntegration=false');
+
+  // 4. Navigation confinement to KDS origin and window-open denial
+  log('\n[Phase 4] Verifying KDS window navigation confinement...');
+  const navigateHandlers = kdsWindow.webContents.handlers.get('will-navigate')!;
+  assert.ok(navigateHandlers && navigateHandlers.length === 1, 'will-navigate handler is installed');
+  const navigate = navigateHandlers[0];
+
+  let prevented = false;
+  navigate({ preventDefault: () => { prevented = true; } }, 'http://evil.example.com/');
+  assert.equal(prevented, true, 'navigation to external origin is prevented');
+
+  prevented = false;
+  navigate({ preventDefault: () => { prevented = true; } }, 'http://192.168.1.50:3002/kds/station/1');
+  assert.equal(prevented, false, 'navigation within KDS origin is allowed');
+
+  prevented = false;
+  navigate({ preventDefault: () => { prevented = true; } }, 'http://localhost:3001/');
+  assert.equal(prevented, true, 'navigation to main POS origin is prevented');
+
+  prevented = false;
+  navigate({ preventDefault: () => { prevented = true; } }, 'javascript:alert(1)');
+  assert.equal(prevented, true, 'navigation to javascript pseudo-protocol is prevented');
+
+  assert.deepEqual(kdsWindow.webContents.windowOpenHandler!(), { action: 'deny' }, 'new windows via window.open are denied');
+  log('  ✓ will-navigate strictly confines navigation to http://192.168.1.50:3002');
+  log('  ✓ windowOpenHandler denies all popup/new-window requests');
+
+  log('\n✅ All KDS window hardening and IPC security checks passed successfully.');
+
+  // Write evidence to output directory if present
+  const evidenceDir =
+    process.env.EVIDENCE_DIR ||
+    path.join(os.tmpdir(), 'no-mistakes-evidence', '01M03SG09151P3VMMYNWFRVWA2');
+  try {
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    const evidencePath = path.join(evidenceDir, 'kds-window-hardening-verification.txt');
+    fs.writeFileSync(evidencePath, evidenceLogs.join('\n') + '\n', 'utf8');
+    console.log(`[Evidence] Written verification log to: ${evidencePath}`);
+  } catch (e: any) {
+    console.warn(`[Evidence] Could not write to ${evidenceDir}: ${e.message}`);
+  }
+}
+
+run()
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  })
+  .finally(() => {
+    Module._load = originalLoad;
+  });

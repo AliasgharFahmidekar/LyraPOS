@@ -1,0 +1,100 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import { useTranslations } from 'use-intl';
+import { useAuthStore } from '@/store/auth';
+import api from '@/lib/api';
+import { showPrintLanguageLoadErrorsToast } from '@/lib/printer/warnings-toast';
+
+export function getLandingPage(): string {
+  return '/pos';
+}
+
+const PUBLIC_PATHS = ['/kds', '/kds-standalone', '/server-standalone', '/auth/login', '/auth/register', '/auth/recover', '/setup'];
+
+export default function AuthGuard({ children }: { children: React.ReactNode }) {
+  const t = useTranslations('common');
+  const { user, currentTenant, loading, loadFromStorage } = useAuthStore();
+  const printLanguageLoadErrors = useAuthStore((s) => s.printLanguageLoadErrors);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null); // null = still checking
+
+  const isPublicPath = PUBLIC_PATHS.some(p => pathname === p || pathname?.startsWith(p + '/'));
+  const isSetupPath = pathname === '/setup' || pathname?.startsWith('/setup/');
+  const isStandalonePath = pathname?.startsWith('/kds') || pathname?.startsWith('/server-standalone');
+
+  useEffect(() => {
+    // Standalone KDS and Server App pages manage their own auth sessions;
+    // skip loading shared POS auth store to avoid clearing their tokens.
+    if (isStandalonePath) return;
+    loadFromStorage();
+  }, [isStandalonePath, loadFromStorage]);
+
+  useEffect(() => {
+    showPrintLanguageLoadErrorsToast(printLanguageLoadErrors);
+  }, [printLanguageLoadErrors]);
+
+  // Single effect: determine where to redirect after auth state + setup status are known
+  useEffect(() => {
+    if (loading) return; // wait for auth state to load
+
+    // If we don't know setup status yet, fetch it
+    if (!isStandalonePath && needsSetup === null) {
+      const controller = new AbortController();
+      let active = true;
+      api.get('/auth/setup/status', { signal: controller.signal })
+        .then(({ data }) => {
+          if (active) setNeedsSetup(data.needsSetup);
+        })
+        .catch((err) => {
+          if (!active || (err instanceof Error && (err.name === 'CanceledError' || err.name === 'AbortError'))) return;
+          console.error('[AuthGuard] Failed to check setup status:', err);
+          // Fail closed: do not allow normal app routes when setup state is unknown.
+          setNeedsSetup(true);
+        });
+      return () => {
+        active = false;
+        controller.abort();
+      }; // wait for the result before redirecting
+    }
+
+    if (needsSetup && !isSetupPath) {
+      router.push('/setup');
+      return;
+    }
+
+    if (isPublicPath) return; // don't redirect from public paths unless setup is needed
+
+    // Auth loaded + setup status known + not on public path
+    if (!user) {
+      router.push('/auth/login');
+    } else if (!currentTenant) {
+      router.push('/auth/login?select_tenant=true');
+    }
+  }, [loading, user, currentTenant, isPublicPath, isSetupPath, isStandalonePath, needsSetup, router]);
+
+  if (isStandalonePath || isSetupPath) {
+    return <>{children}</>;
+  }
+
+  if (loading || needsSetup === null || needsSetup === true) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin" />
+          <p className="text-muted-foreground text-sm">{t('loadingScreen')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isPublicPath) {
+    return <>{children}</>;
+  }
+
+  if (!user || !currentTenant) return null;
+
+  return <>{children}</>;
+}

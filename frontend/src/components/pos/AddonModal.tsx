@@ -1,0 +1,383 @@
+'use client';
+
+import { useState } from 'react';
+import { X, Plus, Minus } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { Button } from '@/components/ui/button';
+import { useTranslations } from 'use-intl';
+import { useFormatCurrency } from '@/hooks/useFormatCurrency';
+import { formatCurrencyForTenant } from '@/lib/countries';
+import { fractionalQuantityStep, roundToQuantityPrecision } from '@/lib/utils';
+import type { Product, Addon, AddonGroup } from '@/lib/types';
+
+interface Props {
+  product: Product;
+  currency: string;
+  /** Overrides the signed-in tenant's currency formatting (e.g. for standalone pages with no auth store). */
+  country?: string;
+  onAdd: (product: Product, quantity: number, addons: Addon[], specialInstructions: string) => void;
+  onClose: () => void;
+  initialQuantity?: number;
+  initialAddons?: Addon[];
+  initialInstructions?: string;
+  mode?: 'add' | 'edit';
+}
+
+function groupInitialAddons(addons: Addon[]): Record<string | number, Addon[]> {
+  const grouped: Record<string | number, Addon[]> = {};
+  for (const addon of addons) {
+    const groupId = addon.addon_group_id;
+    if (groupId == null) continue;
+    grouped[groupId] = [...(grouped[groupId] || []), addon];
+  }
+  return grouped;
+}
+
+export default function AddonModal({
+  product, currency, country, onAdd, onClose,
+  initialQuantity = 1, initialAddons = [], initialInstructions = '', mode = 'add',
+}: Props) {
+  const t = useTranslations('pos');
+  const tenantFmt = useFormatCurrency();
+  const fmt = country ? (n: number) => formatCurrencyForTenant(n, country, currency) : tenantFmt;
+  const [selected, setSelected] = useState<Record<string | number, Addon[]>>(() => groupInitialAddons(initialAddons));
+  const [quantity, setQuantity] = useState(initialQuantity);
+  const [qtyDraft, setQtyDraft] = useState(() => String(initialQuantity));
+  const [instructions, setInstructions] = useState(initialInstructions);
+  const step = fractionalQuantityStep(product);
+
+  const setQty = (next: number) => {
+    setQuantity(next);
+    setQtyDraft(String(next));
+  };
+
+  const commitQtyDraft = () => {
+    if (step == null) return;
+    const parsed = Number(qtyDraft);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setQtyDraft(String(quantity));
+      return;
+    }
+    const rounded = Math.max(step, roundToQuantityPrecision(parsed, step));
+    setQuantity(rounded);
+    setQtyDraft(String(rounded));
+  };
+
+  const groups = product.addon_groups || [];
+
+  const getGroupTotalQuantity = (groupId: string | number): number => {
+    const list = selected[groupId] || [];
+    return list.reduce((sum, a) => sum + (a.quantity || 1), 0);
+  };
+
+  const updateAddonQuantity = (group: AddonGroup, addon: Addon, delta: number) => {
+    const groupId = group.id;
+    const currentList = selected[groupId] || [];
+    const existingIndex = currentList.findIndex((a) => a.id === addon.id);
+    const currentQty = existingIndex >= 0 ? (currentList[existingIndex].quantity || 1) : 0;
+    const newQty = currentQty + delta;
+
+    if (newQty <= 0) {
+      const updatedList = currentList.filter((a) => a.id !== addon.id);
+      setSelected({ ...selected, [groupId]: updatedList });
+    } else {
+      const currentGroupTotal = currentList.reduce((sum, a) => sum + (a.quantity || 1), 0);
+      const newGroupTotal = currentGroupTotal + delta;
+      const max = group.max_selection || 999;
+      if (delta > 0 && newGroupTotal > max) {
+        toast.error(t('maxSelectionReached', { count: max }));
+        return;
+      }
+
+      if (existingIndex >= 0) {
+        const updatedList = [...currentList];
+        updatedList[existingIndex] = { ...updatedList[existingIndex], quantity: newQty };
+        setSelected({ ...selected, [groupId]: updatedList });
+      } else {
+        setSelected({ ...selected, [groupId]: [...currentList, { ...addon, quantity: newQty }] });
+      }
+    }
+  };
+
+  const toggleAddonCheckbox = (group: AddonGroup, addon: Addon) => {
+    const currentList = selected[group.id] || [];
+    const exists = currentList.some((a) => a.id === addon.id);
+    if (exists) {
+      updateAddonQuantity(group, addon, -1);
+    } else {
+      updateAddonQuantity(group, addon, 1);
+    }
+  };
+
+  const getAddonQuantity = (groupId: string | number, addonId: string | number): number => {
+    const list = selected[groupId] || [];
+    const item = list.find((a) => a.id === addonId);
+    return item ? (item.quantity || 1) : 0;
+  };
+
+  const allAddons = Object.values(selected).flat();
+  const addonTotal = allAddons.reduce((sum, a) => sum + Number(a.price) * (a.quantity || 1), 0);
+  const itemTotal = (Number(product.price) + addonTotal) * quantity;
+
+  const isValid = groups.every((g) => {
+    const count = getGroupTotalQuantity(g.id);
+    const requiredMin = Boolean(g.is_required) ? Math.max(1, g.min_selection || 1) : (g.min_selection || 0);
+    if (count < requiredMin) return false;
+    if (g.max_selection && count > g.max_selection) return false;
+    return true;
+  });
+
+  const handleAdd = () => {
+    if (!isValid) return;
+    let effectiveQuantity = quantity;
+    if (step != null) {
+      const parsed = Number(qtyDraft);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        effectiveQuantity = Math.max(step, roundToQuantityPrecision(parsed, step));
+        setQuantity(effectiveQuantity);
+        setQtyDraft(String(effectiveQuantity));
+      }
+    }
+    onAdd(product, effectiveQuantity, allAddons, instructions);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-card rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col">
+        <div className="flex justify-between items-center p-5 border-b border-border">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">{product.name}</h2>
+            <p className="text-brand font-semibold">{fmt(Number(product.price))}</p>
+          </div>
+          <button onClick={onClose} className="touch-target rounded-full text-muted-foreground hover:text-foreground active:bg-muted" aria-label={t('close')}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {groups.map((group) => {
+            const count = getGroupTotalQuantity(group.id);
+            const activeAddons = (group.addons || []).filter((a) => a.is_active);
+            const allowMultiple = Boolean(group.allow_multiple_quantities);
+
+            return (
+              <div key={group.id}>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold text-sm text-foreground">{group.name}</h3>
+                  <span className="flex items-center gap-2">
+                    {Boolean(group.is_required) && (
+                      <span className="text-xs font-medium text-red-500 dark:text-red-400">{t('required')}</span>
+                    )}
+                    {group.max_selection ? (() => {
+                      const remaining = Math.max(0, group.max_selection - count);
+                      const isZero = remaining === 0;
+                      return (
+                        <span className={`font-semibold transition-all ${
+                          isZero
+                            ? 'text-sm text-amber-500'
+                            : 'text-xs text-sky-500'
+                        }`}>
+                          {isZero ? t('selectionComplete') : t('remainingCount', { count: remaining })}
+                        </span>
+                      );
+                    })() : null}
+                  </span>
+                </div>
+                {group.description && <p className="text-xs text-muted-foreground mb-2">{group.description}</p>}
+                <div className="space-y-1">
+                  {activeAddons.map((addon) => {
+                    const addonQty = getAddonQuantity(group.id, addon.id);
+                    const isSel = addonQty > 0;
+
+                    if (allowMultiple) {
+                      return (
+                        <div
+                          key={addon.id}
+                          className={`w-full min-h-14 flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+                            isSel
+                              ? 'border-brand bg-[var(--color-brand-light)] text-brand dark:text-indigo-300'
+                              : 'border-border hover:border-gray-300 dark:hover:border-border dark:border-border'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-foreground">{addon.name}</span>
+                            <span className={`text-xs ${isSel ? 'text-brand dark:text-indigo-300 font-semibold' : 'text-muted-foreground'}`}>
+                              {Number(addon.price) === 0 ? t('freeAddon') : `+${fmt(Number(addon.price))}`}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isSel ? (
+                              <div className="flex items-center gap-1.5 bg-card border border-brand rounded-lg p-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => updateAddonQuantity(group, addon, -1)}
+                                  className="touch-target rounded flex items-center justify-center text-brand dark:text-indigo-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
+                                >
+                                  <Minus size={14} />
+                                </button>
+                                <span className="text-sm font-bold w-5 text-center text-brand dark:text-indigo-300 tabular-nums">{addonQty}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateAddonQuantity(group, addon, 1)}
+                                  className="touch-target rounded flex items-center justify-center text-brand dark:text-indigo-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
+                                >
+                                  <Plus size={14} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => updateAddonQuantity(group, addon, 1)}
+                                className="touch-target rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-muted active:bg-muted"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={addon.id}
+                        className={`w-full min-h-14 flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+                          isSel
+                            ? 'border-brand bg-[var(--color-brand-light)] text-brand dark:text-indigo-300'
+                            : 'border-border hover:border-gray-300 dark:hover:border-border dark:border-border'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground">{addon.name}</span>
+                          <span className={`text-xs ${isSel ? 'text-brand dark:text-indigo-300 font-semibold' : 'text-muted-foreground'}`}>
+                            {Number(addon.price) === 0 ? t('freeAddon') : `+${fmt(Number(addon.price))}`}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isSel ? (
+                            <div className="flex items-center gap-1.5 bg-card border border-brand rounded-lg p-0.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleAddonCheckbox(group, addon)}
+                                className="touch-target rounded flex items-center justify-center text-brand dark:text-indigo-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
+                              >
+                                <Minus size={14} />
+                              </button>
+                              <span className="text-sm font-bold w-5 text-center text-brand dark:text-indigo-300 tabular-nums">1</span>
+                              <button
+                                type="button"
+                                disabled
+                                className="touch-target rounded flex items-center justify-center text-muted-foreground cursor-not-allowed opacity-50"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => toggleAddonCheckbox(group, addon)}
+                              className="touch-target rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-muted active:bg-muted"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const requiredMin = Boolean(group.is_required) ? Math.max(1, group.min_selection || 1) : (group.min_selection || 0);
+                  if (requiredMin > 0 && count < requiredMin) {
+                    return (
+                      <p className="mt-1 text-xs text-red-500 dark:text-red-400">{t('selectAtLeast', { count: requiredMin })}</p>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            );
+          })}
+
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">{t('specialInstructions')}</label>
+            <input
+              type="text"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value.slice(0, 100))}
+              placeholder={t('specialInstructionsPlaceholder')}
+              maxLength={100}
+              className="w-full min-h-11 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-brand"
+            />
+            <p className="text-xs text-muted-foreground text-end mt-0.5">{instructions.length}/100</p>
+          </div>
+        </div>
+
+        <div className="p-5 border-t border-border">
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <button
+              onClick={() =>
+                step == null
+                  ? setQty(Math.max(1, quantity - 1))
+                  : setQty(Math.max(step, roundToQuantityPrecision(quantity - step, step)))
+              }
+              className="touch-target rounded-full bg-muted flex items-center justify-center hover:bg-muted active:bg-muted"
+              aria-label={t('remove')}
+            >
+              <Minus size={18} />
+            </button>
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 2, 3].map((quickQty) => (
+                <button
+                  key={quickQty}
+                  type="button"
+                  onClick={() => setQty(quickQty)}
+                  className={`touch-target rounded-lg border px-3 text-sm font-bold tabular-nums ${
+                    quantity === quickQty ? 'border-brand bg-brand text-white' : 'border-border bg-card text-foreground'
+                  }`}
+                >
+                  {quickQty}
+                </button>
+              ))}
+            </div>
+            {step == null ? (
+              <span className="text-lg font-bold w-10 text-center tabular-nums">{quantity}</span>
+            ) : (
+              <input
+                type="number"
+                inputMode="decimal"
+                min={step}
+                step={step}
+                value={qtyDraft}
+                onChange={(e) => setQtyDraft(e.target.value)}
+                onBlur={commitQtyDraft}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitQtyDraft();
+                }}
+                aria-label={t('quantity')}
+                className="w-16 text-lg font-bold text-center tabular-nums border border-border bg-background rounded-md px-1 py-0.5 outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
+              />
+            )}
+            <button
+              onClick={() =>
+                step == null
+                  ? setQty(quantity + 1)
+                  : setQty(roundToQuantityPrecision(quantity + step, step))
+              }
+              className="touch-target rounded-full bg-muted flex items-center justify-center hover:bg-muted active:bg-muted"
+              aria-label={t('addItems')}
+            >
+              <Plus size={18} />
+            </button>
+          </div>
+          <Button onClick={handleAdd} disabled={!isValid} className="w-full" size="lg">
+            {mode === 'edit'
+              ? t('saveItemChanges', { total: fmt(itemTotal) })
+              : t('addToCart', { total: fmt(itemTotal) })}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

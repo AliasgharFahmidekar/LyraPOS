@@ -1,0 +1,245 @@
+/**
+ * Regression coverage for issue #145 staff-management authorization and PIN policy.
+ * Run: npm run test:staff-authz
+ */
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+const Module = require('module');
+const originalLoad = Module._load;
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-staff-authz-'));
+process.env.FLO_AUTH_RATE_LIMIT_MAX = process.env.FLO_AUTH_RATE_LIMIT_MAX || '100';
+
+Module._load = function (request: string, parent: unknown, isMain: boolean) {
+  if (request === 'electron') {
+    return {
+      app: {
+        isPackaged: true,
+        getPath: () => testDir,
+        getVersion: () => 'test',
+      },
+    };
+  }
+  return originalLoad.apply(this, arguments as any);
+};
+
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const request = require('supertest');
+const {
+  initTestDb,
+  createApp,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
+  now,
+} = require('./helpers/test-setup');
+const { staffRoutes } = require('../main/routes/staff');
+const { getJWTSecret } = require('../main/routes/auth');
+
+function seedUser(db: any, id: string, role: string, pin = '1234') {
+  const email = `${id}@test.local`;
+  db.prepare(`
+    INSERT INTO users (id, name, email, password, role, pin_hash, is_active, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+  `).run(
+    id,
+    id,
+    email,
+    bcrypt.hashSync('Testpass1', 10),
+    role,
+    pin ? bcrypt.hashSync(pin, 10) : null,
+    now(),
+    now(),
+  );
+
+  const token = jwt.sign({ userId: id, email, role }, getJWTSecret(), { expiresIn: '1h' });
+  return { Authorization: `Bearer ${token}` };
+}
+
+async function main() {
+  console.log('Staff Authorization Regression Tests (#145)');
+  console.log('='.repeat(60));
+
+  const db = initTestDb();
+  const ownerAuth = seedUser(db, 'owner-145', 'owner');
+  const managerAuth = seedUser(db, 'manager-145', 'manager');
+  seedUser(db, 'manager-target-145', 'manager');
+  seedUser(db, 'cashier-target-145', 'cashier', '');
+  seedUser(db, 'server-target-145', 'server', '');
+  seedUser(db, 'chef-target-145', 'chef', '');
+  db.prepare(`INSERT INTO kitchen_stations (id, name, is_active, created_at, updated_at)
+    VALUES ('station-145', 'Main Kitchen', 1, ?, ?)`
+  ).run(now(), now());
+
+  const app = createApp({ '/api/staff': staffRoutes });
+
+  console.log('\n── Manager boundaries ─────────────────────────────────────────');
+  let result = await request(app).put('/api/staff/owner-145').set(managerAuth).send({
+    name: 'Compromised owner', password: 'ChangedPass1',
+  });
+  assertEqual(result.status, 403, 'manager cannot edit owner details or password');
+
+  result = await request(app).put('/api/staff/manager-target-145').set(managerAuth).send({
+    name: 'Compromised manager', password: 'ChangedPass1',
+  });
+  assertEqual(result.status, 403, 'manager cannot edit another manager details or password');
+
+  for (const target of ['owner-145', 'manager-target-145']) {
+    result = await request(app).post(`/api/staff/${target}/deactivate`).set(managerAuth);
+    assertEqual(result.status, 403, `manager cannot deactivate ${target}`);
+
+    db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(target);
+    result = await request(app).post(`/api/staff/${target}/reactivate`).set(managerAuth);
+    assertEqual(result.status, 403, `manager cannot reactivate ${target}`);
+    db.prepare('UPDATE users SET is_active = 1 WHERE id = ?').run(target);
+  }
+
+  result = await request(app).put('/api/staff/cashier-target-145').set(managerAuth).send({ is_active: false });
+  assertEqual(result.status, 400, 'PUT cannot change is_active');
+
+  for (const role of ['owner', 'manager']) {
+    result = await request(app).post('/api/staff').set(managerAuth).send({
+      name: `Forbidden ${role}`, email: `forbidden-${role}@test.local`, password: 'StrongPass1', role,
+    });
+    assertEqual(result.status, 403, `manager cannot create ${role}`);
+  }
+
+  console.log('\n── Manager operational-staff access ───────────────────────────');
+  const managerCreated: Record<string, string> = {};
+  for (const role of ['cashier', 'server', 'chef']) {
+    result = await request(app).post('/api/staff').set(managerAuth).send({
+      name: `Managed ${role}`, email: `managed-${role}@test.local`, password: 'StrongPass1', role,
+    });
+    assertEqual(result.status, 201, `manager can create ${role}`);
+    managerCreated[role] = result.body.staff?.id;
+    assert(!('pin_hash' in result.body.staff), `create ${role} response does not expose pin_hash`);
+    if (role !== 'chef') {
+      assert(!('station_ids' in result.body.staff), `create ${role} response omits station_ids`);
+    }
+  }
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Station Chef', email: 'station-chef@test.local', password: 'StrongPass1', role: 'chef', station_ids: ['station-145'],
+  });
+  assertEqual(result.status, 201, 'chef can be optionally assigned to a station during creation');
+  assertEqual(result.body.staff.station_ids[0], 'station-145', 'created chef response includes the station assignment');
+  const stationChef = db.prepare('SELECT station_assignments_configured FROM users WHERE id = ?').get(result.body.staff.id) as any;
+  assertEqual(stationChef.station_assignments_configured, 1, 'station-scoped chef is marked as explicitly configured');
+  const stationLink = db.prepare('SELECT station_id FROM station_users WHERE user_id = ?').get(result.body.staff.id) as any;
+  assertEqual(stationLink.station_id, 'station-145', 'chef station assignment is persisted');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Unassigned Chef', email: 'unassigned-chef@test.local', password: 'StrongPass1', role: 'chef', station_ids: [],
+  });
+  assertEqual(result.status, 201, 'chef creation does not require a station');
+  const unassignedChef = db.prepare('SELECT station_assignments_configured FROM users WHERE id = ?').get(result.body.staff.id) as any;
+  assertEqual(unassignedChef.station_assignments_configured, 0, 'unassigned chef remains unrestricted by station configuration');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Invalid Station Cashier', email: 'station-cashier@test.local', password: 'StrongPass1', role: 'cashier', station_ids: ['station-145'],
+  });
+  assertEqual(result.status, 400, 'non-chef accounts cannot receive kitchen station assignments');
+
+  for (const role of ['cashier', 'server', 'chef']) {
+    result = await request(app).put(`/api/staff/${managerCreated[role]}`).set(managerAuth).send({
+      name: `Updated ${role}`, role,
+    });
+    assertEqual(result.status, 200, `manager can edit ${role}`);
+  }
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Missing email server', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 400, 'staff creation requires email');
+  assertEqual(result.body.error, 'name, email, password, and role are required', 'missing email returns a clear validation error');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Invalid email server', email: 'not-an-email', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 400, 'staff creation rejects invalid email');
+  assertEqual(result.body.error, 'Enter a valid email address', 'invalid email returns a clear validation error');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Normalized email server', email: '  Mixed.Server@Test.Local  ', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 201, 'staff creation trims and normalizes required email');
+  assertEqual(result.body.staff.email, 'mixed.server@test.local', 'created staff email is stored normalized');
+
+  result = await request(app).put(`/api/staff/${managerCreated.server}`).set(managerAuth).send({ email: '   ' });
+  assertEqual(result.status, 400, 'staff update rejects blank email');
+  assertEqual(result.body.error, 'email is required', 'blank email update returns a clear validation error');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Pinned cashier', email: 'pinned-cashier@test.local', password: 'StrongPass1', role: 'cashier', pin: '1234',
+  });
+  assertEqual(result.status, 400, 'operational roles reject a non-empty PIN');
+
+  console.log('\n── PIN policy ─────────────────────────────────────────────────');
+  for (const pin of ['abcd', '123', '1234567']) {
+    result = await request(app).post('/api/staff').set(ownerAuth).send({
+      name: `Bad PIN ${pin}`, email: `bad-pin-${pin}@test.local`, password: 'StrongPass1', role: 'manager', pin,
+    });
+    assertEqual(result.status, 400, `PIN ${pin} is rejected unless it is 4-6 numeric digits`);
+  }
+
+  result = await request(app).put('/api/staff/manager-target-145').set(ownerAuth).send({ role: 'server' });
+  assertEqual(result.status, 200, 'owner can demote a manager to server');
+  assertEqual(result.body.staff.has_pin, 0, 'demoting to an operational role clears has_pin');
+  const demoted = db.prepare('SELECT pin_hash FROM users WHERE id = ?').get('manager-target-145') as any;
+  assertEqual(demoted.pin_hash, null, 'demoting to an operational role clears pin_hash');
+
+  const originalPinHash = (db.prepare('SELECT pin_hash FROM users WHERE id = ?').get('manager-145') as any).pin_hash;
+  result = await request(app).put('/api/staff/manager-145').set(ownerAuth).send({ name: 'Manager PIN preserved' });
+  assertEqual(result.status, 200, 'owner can update a manager without supplying a PIN');
+  assertEqual(result.body.staff.has_pin, 1, 'omitting PIN preserves has_pin');
+  const preserved = db.prepare('SELECT pin_hash FROM users WHERE id = ?').get('manager-145') as any;
+  assertEqual(preserved.pin_hash, originalPinHash, 'omitting PIN preserves the PIN hash');
+
+  result = await request(app).post('/api/staff/owner-145/deactivate').set(ownerAuth);
+  assertEqual(result.status, 400, 'cannot deactivate the last active owner');
+
+  result = await request(app).put('/api/staff/owner-145').set(ownerAuth).send({ role: 'cashier' });
+  assertEqual(result.status, 400, 'cannot demote the last active owner');
+  const lastOwner = db.prepare('SELECT role FROM users WHERE id = ?').get('owner-145') as any;
+  assertEqual(lastOwner.role, 'owner', 'last active owner keeps the owner role after a rejected demotion');
+
+  seedUser(db, 'owner-145-second', 'owner');
+  result = await request(app).put('/api/staff/owner-145').set(ownerAuth).send({ role: 'cashier' });
+  assertEqual(result.status, 200, 'owner can demote after another active owner exists');
+
+  console.log('\n── Owner full access ───────────────────────────────────────────');
+  result = await request(app).post('/api/staff').set(ownerAuth).send({
+    name: 'Owner-created manager', email: 'owner-created-manager@test.local', password: 'StrongPass1', role: 'manager', pin: '9876',
+  });
+  assertEqual(result.status, 201, 'owner can create a manager with a valid PIN');
+  assertEqual(result.body.staff.has_pin, 1, 'staff responses expose has_pin for configured PINs');
+
+  result = await request(app).post('/api/staff/cashier-target-145/deactivate').set(ownerAuth);
+  assertEqual(result.status, 200, 'owner can deactivate operational staff');
+  result = await request(app).post('/api/staff/cashier-target-145/reactivate').set(ownerAuth);
+  assertEqual(result.status, 200, 'owner can reactivate operational staff');
+
+  const results = getResults();
+  console.log(`\nResults: ${results.passed}/${results.total} passed`);
+  if (results.failed > 0) {
+    throw new Error(`${results.failed} staff authorization assertion(s) failed`);
+  }
+}
+
+main()
+  .then(() => {
+    closeDatabase();
+    Module._load = originalLoad;
+    fs.rmSync(testDir, { recursive: true, force: true });
+    console.log('\nStaff authorization tests passed');
+  })
+  .catch((error) => {
+    try { closeDatabase(); } catch { }
+    Module._load = originalLoad;
+    fs.rmSync(testDir, { recursive: true, force: true });
+    console.error(error);
+    process.exit(1);
+  });

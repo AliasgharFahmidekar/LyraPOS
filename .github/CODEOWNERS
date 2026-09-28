@@ -1,0 +1,11 @@
+# CODEOWNERS — Auto-assign reviewers based on file paths
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Project Owner: @itsbkm
+# Maintainers & Reviewers: @khaira777, @carvalab
+
+# Default reviewers for all files across the repository
+* @itsbkm @khaira777 @carvalab
+
+# Repository governance changes require project owner review
+/.github/CODEOWNERS @itsbkm

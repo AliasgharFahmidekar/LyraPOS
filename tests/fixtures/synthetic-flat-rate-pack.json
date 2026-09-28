@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "test-flat-rate-pack",
+  "publisher": "FreeOpenSourcePOS",
+  "version": "1.0.0",
+  "country": "YY",
+  "jurisdiction": "*",
+  "currency": "YYY",
+  "effectiveFrom": "2026-01-01",
+  "publishedAt": "2026-01-01",
+  "minFloVersion": "2.4.0",
+  "taxPoint": "finalized_at",
+  "inclusivePricingDefault": false,
+  "registrationNumberLabel": "Tax ID",
+  "categories": [
+    { "id": "standard", "label": "Standard", "ruleIds": ["tax"] },
+    { "id": "packaging", "label": "Packaging", "ruleIds": ["tax"] },
+    { "id": "delivery", "label": "Delivery", "ruleIds": ["tax"] },
+    { "id": "service_charge", "label": "Service charge", "ruleIds": ["tax"] },
+    { "id": "addon", "label": "Add-on", "ruleIds": ["tax"] },
+    { "id": "unclassified", "label": "Unclassified", "ruleIds": ["tax"] }
+  ],
+  "defaultCategories": {
+    "product": "standard",
+    "packaging": "packaging",
+    "delivery": "delivery",
+    "service_charge": "service_charge",
+    "addon": "addon"
+  },
+  "unclassifiedCategoryId": "unclassified",
+  "rules": [
+    {
+      "id": "tax",
+      "label": "Tax",
+      "type": "percent",
+      "categoryIds": ["standard", "packaging", "delivery", "service_charge", "addon", "unclassified"],
+      "rate": "7"
+    }
+  ],
+  "taxRounding": {
+    "scope": "line",
+    "method": "half_up",
+    "decimalPlaces": 2,
+    "remainderAllocation": "largest_remainder"
+  },
+  "payableRounding": {
+    "increment": "0.01",
+    "method": "half_up"
+  }
+}

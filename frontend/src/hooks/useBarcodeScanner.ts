@@ -1,0 +1,60 @@
+import { useEffect, useRef } from 'react';
+
+/** Detects keyboard-wedge barcode scanner input based on rapid keystroke intervals. */
+const MAX_INTER_KEY_MS = 60;
+const MIN_CODE_LENGTH = 4;
+
+export function useBarcodeScanner(onScan: (code: string) => void, enabled: boolean = true) {
+  const bufferRef = useRef('');
+  const lastKeyTimeRef = useRef(0);
+  const onScanRef = useRef(onScan);
+
+  useEffect(() => {
+    onScanRef.current = onScan;
+  }, [onScan]);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const now = Date.now();
+      const gap = now - lastKeyTimeRef.current;
+      lastKeyTimeRef.current = now;
+
+      if (e.key === 'Enter') {
+        const code = bufferRef.current;
+        bufferRef.current = '';
+        // Defer Enter handling when a text input is focused to avoid
+        // firing duplicate scans.
+        const target = e.target as HTMLElement | null;
+        const isTextInput = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
+        if (!isTextInput && code.length >= MIN_CODE_LENGTH) {
+          try {
+            onScanRef.current(code);
+          } catch (error) {
+            console.error('[useBarcodeScanner] Scan handler failed:', error);
+          }
+        }
+        return;
+      }
+
+      // Single printable character keys only — ignore Shift/Tab/Escape/etc,
+      // and reject anything with modifiers (real shortcuts, not a scan).
+      if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) {
+        bufferRef.current = '';
+        return;
+      }
+
+      // A gap this large means either the first keystroke of a new sequence,
+      // or genuine human typing — either way, start a fresh buffer.
+      bufferRef.current = gap > MAX_INTER_KEY_MS ? e.key : bufferRef.current + e.key;
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      bufferRef.current = '';
+      lastKeyTimeRef.current = 0;
+    };
+  }, [enabled]);
+}

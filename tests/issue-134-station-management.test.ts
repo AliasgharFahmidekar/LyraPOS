@@ -1,0 +1,293 @@
+/**
+ * Integration Test: Issue #134 — Kitchen station CRUD, printer link, user assignment
+ *
+ * Covers the Settings-facing API for the station-routing feature:
+ *  - POST /api/kitchen-stations actually assigns a usable id (was a pre-existing
+ *    bug — the handler never set the TEXT PRIMARY KEY, so created stations had
+ *    a NULL id and GET-after-create silently returned nothing useful)
+ *  - printer_id can be set on create/update and must reference a real printer
+ *  - PUT /api/kitchen-stations/:id/users replaces the staff assigned to a station
+ *  - GET /api/kitchen-stations/:id returns the linked printer + assigned users
+ *
+ * Usage: node tests/run-electron-node-test.cjs tests/issue-134-station-management.test.ts
+ */
+
+const Module = require('module');
+const originalLoad = Module._load;
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-issue-134-mgmt-'));
+Module._load = function (request: string, parent: unknown, isMain: boolean) {
+  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  return originalLoad.apply(this, arguments as any);
+};
+
+process.env.JWT_SECRET = 'test-secret-issue-134-mgmt';
+
+const {
+  initTestDb, startServer, seedOwnerUser, seedCategory,
+  api, assert, assertEqual, getResults, closeDatabase,
+} = require('./helpers/test-setup');
+const { kitchenStationRoutes } = require('../main/routes/kitchen-stations');
+const { printerRoutes } = require('../main/routes/printers');
+
+async function main() {
+  console.log('Integration Test: Issue #134 — Station management API');
+  console.log('='.repeat(60));
+
+  const db = initTestDb();
+  const { authHeader } = seedOwnerUser(db);
+  seedCategory(db, 'cat-bev', 'Beverages');
+  seedCategory(db, 'cat-food', 'Food');
+  db.prepare('INSERT INTO categories (id, name, is_active) VALUES (?, ?, 0)').run('cat-inactive', 'Inactive');
+  db.prepare("INSERT INTO categories (id, name, is_active, deleted_at) VALUES (?, ?, 1, datetime('now'))").run('cat-deleted', 'Deleted');
+
+  db.prepare(`INSERT INTO printers (id, name, connection_type, ip_address, port) VALUES ('pr-bar', 'Bar Printer', 'network', '192.168.1.70', 9100)`).run();
+  db.prepare(`INSERT INTO users (id, name, email, password, role) VALUES ('u-bar-staff', 'Bar Chef', 'bar@test.com', 'x', 'chef')`).run();
+  db.prepare(`INSERT INTO users (id, name, email, password, role) VALUES ('u-bar-staff-2', 'Bar Chef 2', 'bar2@test.com', 'x', 'chef')`).run();
+
+  const express = require('express');
+  const app = express();
+  app.use(express.json());
+  const jwt = require('jsonwebtoken');
+  const { getJWTSecret } = require('../main/routes/auth');
+  app.use((req: any, res: any, next: any) => {
+    const h = req.headers.authorization;
+    if (!h?.startsWith('Bearer ')) { res.status(401).json({ error: 'Authentication required' }); return; }
+    try {
+      req.user = jwt.verify(h.split(' ')[1], getJWTSecret());
+      next();
+    } catch { res.status(401).json({ error: 'Invalid token' }); }
+  });
+  app.use('/api/kitchen-stations', kitchenStationRoutes);
+  app.use('/api/printers', printerRoutes);
+
+  const { baseUrl, server } = await startServer(app);
+
+  try {
+    let stationId: string;
+
+    console.log('\n─── Scenario A: creating a station assigns a real id ───');
+    {
+      const res = await api(baseUrl, '/api/kitchen-stations', {
+        method: 'POST',
+        body: { name: 'Bar', category_ids: ['cat-bev'], printer_id: 'pr-bar' },
+        headers: authHeader,
+      });
+      assertEqual(res.status, 201, 'A: station created');
+      assert(!!res.data.kitchenStation.id, 'A: created station has a non-null id');
+      assertEqual(res.data.kitchenStation.printer_id, 'pr-bar', 'A: printer_id persisted on create');
+      stationId = res.data.kitchenStation.id;
+
+      const getRes = await api(baseUrl, `/api/kitchen-stations/${stationId}`, { headers: authHeader });
+      assertEqual(getRes.status, 200, 'A: created station is fetchable by its id');
+      assertEqual(getRes.data.kitchenStation.printer.id, 'pr-bar', 'A: fetched station includes the linked printer object');
+    }
+
+    console.log('\n─── Scenario B: printer_id must reference a real printer ───');
+    {
+      const res = await api(baseUrl, '/api/kitchen-stations', {
+        method: 'POST',
+        body: { name: 'Ghost Station', printer_id: 'does-not-exist' },
+        headers: authHeader,
+      });
+      assertEqual(res.status, 400, 'B: rejects an unknown printer_id');
+
+      const emptyCreate = await api(baseUrl, '/api/kitchen-stations', {
+        method: 'POST', body: { name: 'Empty Printer', printer_id: '' }, headers: authHeader,
+      });
+      assertEqual(emptyCreate.status, 400, 'B: rejects an empty printer_id on create');
+
+      const emptyUpdate = await api(baseUrl, `/api/kitchen-stations/${stationId!}`, {
+        method: 'PUT', body: { printer_id: '' }, headers: authHeader,
+      });
+      assertEqual(emptyUpdate.status, 400, 'B: rejects an empty printer_id on update');
+
+      const clearUpdate = await api(baseUrl, `/api/kitchen-stations/${stationId!}`, {
+        method: 'PUT', body: { printer_id: null }, headers: authHeader,
+      });
+      assertEqual(clearUpdate.status, 200, 'B: allows explicit printer clearing');
+      const restoreUpdate = await api(baseUrl, `/api/kitchen-stations/${stationId!}`, {
+        method: 'PUT', body: { printer_id: 'pr-bar' }, headers: authHeader,
+      });
+      assertEqual(restoreUpdate.status, 200, 'B: allows restoring a valid printer assignment');
+    }
+
+    console.log('\n─── Scenario C: selecting an assigned category moves it to the current station ───');
+    {
+      const secondBar = await api(baseUrl, '/api/kitchen-stations', {
+        method: 'POST', body: { name: 'Second Bar', category_ids: ['cat-bev'], printer_id: 'pr-bar' }, headers: authHeader,
+      });
+      assertEqual(secondBar.status, 201, 'C: allows selecting a category assigned to another station');
+      assertEqual(secondBar.data.reassignedFrom[0].station_name, 'Bar', 'C: reports the station the category moved from');
+      const originalAfterMove = db.prepare('SELECT category_ids FROM kitchen_stations WHERE id = ?').get(stationId) as { category_ids: string };
+      assertEqual(originalAfterMove.category_ids, '[]', 'C: removes the moved category from its previous station');
+
+      const malformed = await api(baseUrl, '/api/kitchen-stations', {
+        method: 'POST', body: { name: 'Malformed', category_ids: 'cat-food', printer_id: 'pr-bar' }, headers: authHeader,
+      });
+      assertEqual(malformed.status, 400, 'C: rejects category_ids that are not an array');
+
+      const unknownCreate = await api(baseUrl, '/api/kitchen-stations', {
+        method: 'POST', body: { name: 'Unknown Category', category_ids: ['cat-missing'], printer_id: 'pr-bar' }, headers: authHeader,
+      });
+      assertEqual(unknownCreate.status, 400, 'C: rejects an unknown category on create');
+
+      for (const [categoryId, label] of [['cat-inactive', 'inactive'], ['cat-deleted', 'deleted']]) {
+        const invalidCategoryCreate = await api(baseUrl, '/api/kitchen-stations', {
+          method: 'POST', body: { name: `${label} Category`, category_ids: [categoryId], printer_id: 'pr-bar' }, headers: authHeader,
+        });
+        assertEqual(invalidCategoryCreate.status, 400, `C: rejects ${label} category on create`);
+        const createdStation = db.prepare('SELECT id FROM kitchen_stations WHERE name = ?').get(`${label} Category`);
+        assert(!createdStation, `C: rejected ${label} category does not create a station`);
+      }
+
+      const unknownUpdate = await api(baseUrl, `/api/kitchen-stations/${stationId!}`, {
+        method: 'PUT', body: { category_ids: ['cat-missing'] }, headers: authHeader,
+      });
+      assertEqual(unknownUpdate.status, 400, 'C: rejects an unknown category on update');
+
+      const prep = await api(baseUrl, '/api/kitchen-stations', {
+        method: 'POST', body: { name: 'Prep', category_ids: ['cat-food'], printer_id: 'pr-bar' }, headers: authHeader,
+      });
+      assertEqual(prep.status, 201, 'C: allows an unassigned category on a new station');
+
+      const selfUpdate = await api(baseUrl, `/api/kitchen-stations/${stationId!}`, {
+        method: 'PUT', body: { category_ids: ['cat-bev'] }, headers: authHeader,
+      });
+      assertEqual(selfUpdate.status, 200, 'C: allows moving a category back during update');
+
+      for (const [categoryId, label] of [['cat-inactive', 'inactive'], ['cat-deleted', 'deleted']]) {
+        const invalidCategoryUpdate = await api(baseUrl, `/api/kitchen-stations/${stationId!}`, {
+          method: 'PUT', body: { category_ids: [categoryId] }, headers: authHeader,
+        });
+        assertEqual(invalidCategoryUpdate.status, 400, `C: rejects ${label} category on update`);
+        const stationAfterRejectedUpdate = db.prepare('SELECT category_ids FROM kitchen_stations WHERE id = ?').get(stationId!) as { category_ids: string };
+        assertEqual(stationAfterRejectedUpdate.category_ids, '["cat-bev"]', `C: rejected ${label} category update preserves current assignment`);
+      }
+
+      const secondBarAfterMove = db.prepare('SELECT category_ids FROM kitchen_stations WHERE id = ?').get(secondBar.data.kitchenStation.id) as { category_ids: string };
+      assertEqual(secondBarAfterMove.category_ids, '[]', 'C: moving a category back clears it from the other station');
+
+      const movingUpdate = await api(baseUrl, `/api/kitchen-stations/${prep.data.kitchenStation.id}`, {
+        method: 'PUT', body: { category_ids: ['cat-food', 'cat-bev'] }, headers: authHeader,
+      });
+      assertEqual(movingUpdate.status, 200, 'C: update can claim another station\'s category');
+      const originalAfterUpdate = db.prepare('SELECT category_ids FROM kitchen_stations WHERE id = ?').get(stationId) as { category_ids: string };
+      assertEqual(originalAfterUpdate.category_ids, '[]', 'C: update removes the claimed category from the previous station');
+
+      db.prepare('UPDATE categories SET is_active = 0 WHERE id = ?').run('cat-bev');
+      db.prepare("UPDATE categories SET deleted_at = datetime('now') WHERE id = ?").run('cat-food');
+      const retainedRetiredCategories = await api(baseUrl, `/api/kitchen-stations/${prep.data.kitchenStation.id}`, {
+        method: 'PUT', body: { name: 'Prep Updated', category_ids: ['cat-food', 'cat-bev'] }, headers: authHeader,
+      });
+      assertEqual(retainedRetiredCategories.status, 200, 'C: station edits can retain categories deactivated after assignment');
+      assertEqual(retainedRetiredCategories.data.kitchenStation.name, 'Prep Updated', 'C: unrelated station edits still persist with retired categories assigned');
+
+      const newlyAssignedRetiredCategories = await api(baseUrl, `/api/kitchen-stations/${prep.data.kitchenStation.id}`, {
+        method: 'PUT', body: { category_ids: ['cat-food', 'cat-bev', 'cat-inactive', 'cat-deleted'] }, headers: authHeader,
+      });
+      assertEqual(newlyAssignedRetiredCategories.status, 400, 'C: update rejects newly assigned inactive or deleted categories');
+      const stationAfterRejectedRetiredAssignment = db.prepare('SELECT category_ids FROM kitchen_stations WHERE id = ?').get(prep.data.kitchenStation.id) as { category_ids: string };
+      assertEqual(stationAfterRejectedRetiredAssignment.category_ids, '["cat-food","cat-bev"]', 'C: rejected retired categories preserve existing station assignments');
+    }
+
+    console.log('\n─── Scenario D: printer updates preserve omitted fields and protect defaults ───');
+    {
+      const create = await api(baseUrl, '/api/printers', {
+        method: 'POST', body: { name: 'Receipt Printer', connection_type: 'network', ip_address: '192.168.1.71', port: 9200, is_default: true }, headers: authHeader,
+      });
+      assertEqual(create.status, 201, 'C: printer created');
+      const printerId = create.data.printer.id;
+
+      const invalidType = await api(baseUrl, `/api/printers/${printerId}`, {
+        method: 'PUT', body: { connection_type: 'serial' }, headers: authHeader,
+      });
+      assertEqual(invalidType.status, 400, 'C: rejects invalid connection type on update');
+      const invalidPort = await api(baseUrl, `/api/printers/${printerId}`, {
+        method: 'PUT', body: { port: 0 }, headers: authHeader,
+      });
+      assertEqual(invalidPort.status, 400, 'C: rejects invalid port on update');
+
+      const renamed = await api(baseUrl, `/api/printers/${printerId}`, {
+        method: 'PUT', body: { name: 'Renamed Printer' }, headers: authHeader,
+      });
+      assertEqual(renamed.status, 200, 'C: partial update succeeds');
+      assertEqual(renamed.data.printer.port, 9200, 'C: omitted port is preserved');
+      assertEqual(renamed.data.printer.ip_address, '192.168.1.71', 'C: omitted IP is preserved');
+
+      const second = await api(baseUrl, '/api/printers', {
+        method: 'POST', body: { name: 'Second Printer', connection_type: 'usb' }, headers: authHeader,
+      });
+      assertEqual(second.status, 201, 'C: second printer created');
+      const deleted = await api(baseUrl, `/api/printers/${printerId}`, { method: 'DELETE', headers: authHeader });
+      assertEqual(deleted.status, 200, 'C: default printer deletion succeeds with a replacement');
+      const printers = await api(baseUrl, '/api/printers', { headers: authHeader });
+      assertEqual(printers.data.printers.filter((p: any) => p.is_default === 1).length, 1, 'C: replacement default is selected');
+      const removeSeed = await api(baseUrl, '/api/printers/pr-bar', { method: 'DELETE', headers: authHeader });
+      assertEqual(removeSeed.status, 200, 'C: non-default printer can be deleted');
+      const soleDelete = await api(baseUrl, `/api/printers/${second.data.printer.id}`, { method: 'DELETE', headers: authHeader });
+      assertEqual(soleDelete.status, 409, 'C: prevents deleting the only default printer');
+    }
+
+    console.log('\n─── Scenario D: assigning staff to a station ───');
+    {
+      const res = await api(baseUrl, `/api/kitchen-stations/${stationId!}/users`, {
+        method: 'PUT',
+        body: { user_ids: ['u-bar-staff', 'u-bar-staff-2'] },
+        headers: authHeader,
+      });
+      assertEqual(res.status, 200, 'C: user assignment succeeds');
+      assertEqual(res.data.users.length, 2, 'C: multiple chefs can share one station');
+      assert(res.data.users.some((user: any) => user.id === 'u-bar-staff'), 'C: first chef is assigned');
+      assert(res.data.users.some((user: any) => user.id === 'u-bar-staff-2'), 'C: second chef is assigned');
+
+      const getRes = await api(baseUrl, `/api/kitchen-stations/${stationId!}`, { headers: authHeader });
+      assertEqual(getRes.data.kitchenStation.users.length, 2, 'C: GET station reflects all assigned chefs');
+    }
+
+    console.log('\n─── Scenario E: re-assigning replaces the previous set, not additive ───');
+    {
+      db.prepare(`INSERT INTO users (id, name, email, password, role) VALUES ('u-bar-staff-3', 'Bar Chef 3', 'bar3@test.com', 'x', 'chef')`).run();
+      const res = await api(baseUrl, `/api/kitchen-stations/${stationId!}/users`, {
+        method: 'PUT',
+        body: { user_ids: ['u-bar-staff-3'] },
+        headers: authHeader,
+      });
+      assertEqual(res.status, 200, 'D: re-assignment succeeds');
+      assertEqual(res.data.users.length, 1, 'D: exactly one user after replace');
+      assertEqual(res.data.users[0].id, 'u-bar-staff-3', 'D: the new user replaced the old set, not appended');
+    }
+
+    console.log('\n─── Scenario F: assigning an unknown user_id is rejected ───');
+    {
+      const res = await api(baseUrl, `/api/kitchen-stations/${stationId!}/users`, {
+        method: 'PUT',
+        body: { user_ids: ['nonexistent-user'] },
+        headers: authHeader,
+      });
+      assertEqual(res.status, 400, 'E: rejects an unknown user_id');
+    }
+
+  } finally {
+    server.close();
+    closeDatabase();
+    fs.rmSync(testDir, { recursive: true, force: true });
+  }
+
+  const { passed, failed, total } = getResults();
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`Results: ${passed}/${total} passed, ${failed} failed`);
+  if (failed > 0) {
+    console.error('FAILED');
+    process.exit(1);
+  } else {
+    console.log('ALL PASSED');
+  }
+}
+
+main().catch((err) => {
+  console.error('Test crashed:', err);
+  process.exit(1);
+});

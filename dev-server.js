@@ -1,0 +1,152 @@
+/**
+ * Standalone dev server — runs the Express + SQLite backend WITHOUT Electron.
+ * Mocks only the Electron APIs used by db.ts and server.ts.
+ * Usage: node dev-server.js
+ */
+
+// Load .env before anything else
+const fs = require('fs');
+const envPath = require('path').join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const match = line.match(/^\s*([^#=\s]+)\s*=\s*(.*)$/);
+    if (!match) continue;
+    let value = match[2].trim();
+    if (value.startsWith('"') && value.endsWith('"')) {
+      try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+    } else if (value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1);
+    } else {
+      value = value.replace(/\s+#.*$/, '').trim();
+    }
+    process.env[match[1]] = value;
+  }
+  console.log('[DevServer] Loaded .env');
+}
+
+const path = require('path');
+const os = require('os');
+const devUserDataPath = process.env.FLO_DEV_USER_DATA || __dirname;
+
+// ── Mock Electron's `app` module ──────────────────────────────────────────────
+const mockApp = {
+  isPackaged: Boolean(process.env.FLO_DEV_USER_DATA),
+  getPath: (name) => {
+    if (name === 'userData') return devUserDataPath;
+    if (name === 'documents') return os.homedir();
+    return os.tmpdir();
+  },
+  getVersion: () => require('./package.json').version,
+  getName: () => 'Flo (dev)',
+};
+
+require('module').Module._resolveFilename = (function (original) {
+  return function (request, ...args) {
+    if (request === 'electron') {
+      return __filename; // will be intercepted below
+    }
+    return original.call(this, request, ...args);
+  };
+})(require('module').Module._resolveFilename);
+
+// Intercept `require('electron')` before any dist file loads it
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function (request, parent, isMain) {
+  if (request === 'electron') {
+    return {
+      app: mockApp,
+      // Stub anything else that might be imported at module level
+      BrowserWindow: class {},
+      ipcMain: { handle: () => {}, on: () => {} },
+      dialog: {},
+      shell: {},
+      Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
+      Tray: class {},
+      nativeImage: { createFromPath: () => ({ resize: () => ({}) }) },
+    };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
+// ── Now load and start the compiled backend ───────────────────────────────────
+const { initDatabase, closeDatabase, beginDatabaseShutdown, waitForDatabaseRequests } = require('./dist/main/db');
+const { createExitCodeAwareShutdown, waitForHttpShutdownWork, isShutdownTimeout } = require('./dist/main/shutdown');
+const { startServer, stopServer, getServerPort } = require('./dist/main/server');
+const { startKdsServer, stopKdsServer, getKdsPort } = require('./dist/main/kds-server');
+const { startServerApp, stopServerApp, getServerAppPort } = require('./dist/main/server-app');
+const { shutdown: shutdownWhatsApp, requestShutdown: requestWhatsAppShutdown } = require('./dist/main/services/whatsapp');
+const { startStandaloneServers } = require('./dist/main/standalone-startup');
+
+let exitRequested = false;
+let shutdownRequested = false;
+const requestShutdown = createExitCodeAwareShutdown(async () => {
+  let cleanupFailed = false;
+  let databaseBlocked = false;
+  try { await stopServerApp(); } catch (err) { console.error('[DevServer] Server App shutdown failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
+  try { await stopServer(); } catch (err) { console.error('[DevServer] Main server shutdown failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
+  try { await stopKdsServer(); } catch (err) { console.error('[DevServer] KDS server shutdown failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
+  try { await shutdownWhatsApp(); } catch (err) { console.error('[DevServer] WhatsApp shutdown failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
+  try { await waitForHttpShutdownWork(); } catch (err) { console.error('[DevServer] HTTP handler cleanup failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
+  try { beginDatabaseShutdown(); await waitForDatabaseRequests(); } catch (err) { console.error('[DevServer] Database request drain failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
+  if (!databaseBlocked) {
+    try { closeDatabase(); } catch (err) { console.error('[DevServer] Database shutdown failed:', err); cleanupFailed = true; }
+  }
+  Module._load = originalLoad;
+  return cleanupFailed ? 1 : 0;
+}, {
+  onShutdownRequested: requestWhatsAppShutdown,
+  onFatalTimeout: () => process.exit(1),
+});
+
+async function shutdown(exitCode = 0) {
+  shutdownRequested = true;
+  const finalExitCode = await requestShutdown(exitCode);
+  if (!exitRequested) {
+    exitRequested = true;
+    process.exit(finalExitCode);
+  }
+}
+
+process.once('SIGINT', () => void shutdown(0));
+process.once('SIGTERM', () => void shutdown(0));
+if (process.platform === 'win32') {
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => {
+    if (chunk.includes('SIGTERM') || chunk.includes('SIGINT') || chunk.includes('SHUTDOWN')) {
+      void shutdown(0);
+    }
+  });
+}
+process.on('uncaughtException', (err) => {
+  console.error('[DevServer] Uncaught exception:', err);
+  void shutdown(1);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[DevServer] Unhandled rejection:', err);
+  void shutdown(1);
+});
+
+(async () => {
+  try {
+    console.log('[DevServer] Initializing database...');
+    console.log('[DevServer] Starting Express, KDS, and Server App servers...');
+    await startStandaloneServers({
+      initializeDatabase: initDatabase,
+      startServer,
+      startKdsServer,
+      startServerApp,
+      isShutdownRequested: () => shutdownRequested,
+    });
+
+    console.log(`[DevServer] ✅ Main API running on http://localhost:${getServerPort()}`);
+    console.log(`[DevServer] ✅ KDS Server running on http://localhost:${getKdsPort()}`);
+    console.log(`[DevServer] ✅ Server App running on http://localhost:${getServerAppPort()}`);
+    console.log('[DevServer]    Frontend dev server: http://localhost:3000');
+    console.log(`[DevServer]    API health: http://localhost:${getServerPort()}/api/health`);
+  } catch (err) {
+    console.error('[DevServer] Failed to start:', err);
+    const code = err && (err.code === 'ERR_SHUTDOWN_ABORTED' || err.code === 'ABORT_ERR' || err.name === 'AbortError') ? 0 : 1;
+    await shutdown(code);
+  }
+})();

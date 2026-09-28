@@ -1,0 +1,726 @@
+# Changelog
+
+All notable changes to Flo Cafe are documented here. Dates are release dates, not commit dates. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
+
+## [3.8.6] - 2026-09-13
+
+### Added
+
+- login-screen support menu with ticket submission + WhatsApp (#737)
+
+### Changed
+
+- Surface the actual refund failure reason instead of a generic toast (#738)
+- auto-promote stable releases to GitHub Latest (#736)
+
+## [3.8.5] - 2026-09-13
+
+### Changed
+
+- Allow refunds on completed orders, owner-only past the in-progress window (#733)
+
+### Fixed
+
+- support addon selection in tableside ordering (#734)
+
+## [3.8.1] - 2026-09-12
+
+### Changed
+
+- cover every runnable test script by default (#707)
+
+### Fixed
+
+- declare local-network usage, stop blocking Send on print (#731)
+
+## [3.8.0] - 2026-09-12
+
+### Changed
+
+- make harness output portable and accurate (#706)
+- remove confirmed dead UI modules (#709)
+- quiet routine migration logs (#708)
+
+### Fixed
+
+- improve dark-mode contrast across dashboard and POS (#691)
+- skip stable Latest assertion for ordinary publication (#701)
+- respect server app regional settings (#705)
+- batch of 5 low-hanging bug fixes (#723)
+- 5 more low-hanging bug fixes (#724)
+- orders are never ownership-gated (product decision) (#725)
+- friendlier offline error message and AI hand-off (#722)
+- drop icons from Dine In and Online order-type buttons (#727)
+- tableside KOT/bill printing, browser-print fallback, addon price on bill (#728)
+
+## [3.7.6] - 2026-09-10
+
+### Added
+
+- add configurable business day cutoff times (#695)
+
+### Changed
+
+- release 3.7.6 (#699)
+
+### Fixed
+
+- recover WhatsApp sessions and secure share handling (#688)
+- patch js-yaml advisory and link CLAUDE.md (#690)
+- keep LAN cashier payment keys unique (#698)
+
+## [3.7.5] - 2026-09-09
+
+### Added
+
+- day close with counted-vs-expected cash and numbered Z report (ref #649) (#666)
+- thermal receipt layout and raster (#675)
+- rename and delete floors (#674)
+
+### Changed
+
+- clean up and simplify comments (#668)
+- release 3.7.5 (#678)
+
+### Fixed
+
+- preserve GitHub Latest during publication (#667)
+- rate-limit public info endpoint (#677)
+- multilingual layout and settings saves (#676)
+- prevent settings request storms on nav (#679)
+- improve native select readability in dark mode (#683)
+
+## [3.7.2] - 2026-09-06
+
+### Fixed
+
+- resolve Fastfile paths relative to repo root, not fastlane/ (#664)
+
+## [3.7.1] - 2026-09-06
+
+### Fixed
+
+- downgrade CFPropertyList to unblock Ruby 3.3 on the MAS publish runner (#662)
+
+## [3.7.0] - 2026-09-06
+
+### Added
+
+- support native Latin code pages in thermal profiles (#652)
+- support fontless raster rendering with system fonts (#654)
+- multi-line item wrapping, raster font scaling, and code page preservation (#659)
+
+### Changed
+
+- warm Chromium raster singleton and system CJK font fallbacks (#653)
+- add physical hardware validation matrix and testing protocol (#658)
+
+### Fixed
+
+- harden print models and currency handling (#648)
+- exit process cleanly after cleanup on quit (#644) (#650)
+- run Linux matrix test suite under xvfb (#651)
+- sanitize PowerShell CLIXML stderr in Windows print failures (#655)
+- surface detailed printer error messages in user toasts (#656)
+- throttle large network print buffers to prevent microcontroller overrun (#657)
+
+## [3.5.7] - 2026-09-06
+
+### Added
+- Added capability-gated raster thermal printing for non-Latin scripts, rendered through isolated Chromium/Electron typed IPC, with fail-closed handling for financial documents and native/browser fallback preserved. Shipped raster profiles remain disabled by default pending hardware validation.
+
+### Fixed
+- The app now recovers from a renderer crash or an uncaught render exception with a friendly retry screen instead of a blank or frozen window, and automatically sends a diagnostic report so these issues are visible without a user needing to describe them. A GPU-process crash, or a renderer that keeps crashing, now makes the app relaunch with hardware acceleration disabled.
+
+## [3.3.0] - 2026-08-21
+
+### Added
+- Expanded locale/currency/dial-code coverage from 33 to 117 countries in the country registry, including Guatemala (GTQ, +502) and full Eurozone coverage (EUR), broadening the Setup wizard's country list and currency formatting. Tax-pack compliance remains a separate, per-country opt-in and is unaffected by this change.
+
+### Changed
+- Removed the Greptile badge from the README.
+
+## [3.2.3] - 2026-08-17
+
+### Added
+- Settings → Tax Config now has an owner-only "Reinstall plugin" action that re-downloads an already-installed tax plugin and rebuilds its categories, rules, and billing template in place, repairing a pack that shows as installed/active but is missing its billing template (e.g. after a database restore or an interrupted prior install) without requiring a version change.
+
+## [3.2.2] - 2026-08-17
+
+### Added
+- Added full Persian (Farsi) RTL layout support across the Setup wizard, auth screens, Settings, Dashboard, POS, and shared UI components, with logical direction utilities and isolated LTR islands for technical values (order numbers, phone numbers, URLs, IDs).
+- Completed Persian translation coverage to full parity with English, including Iranian Economic Code terminology for tax identification fields.
+- Windows releases now build and publish x64 and arm64 Microsoft Store AppX packages automatically.
+- Settings → Tax Config now shows the installed tax plugin's version and trust status, with a manual "Check for updates" action and a best-effort update check on startup.
+
+### Fixed
+- Iranian Rial ESC/POS receipts now preserve raw financial lines and print within correct column bounds on 58mm and 80mm printers.
+- Hardened static file path resolution across the main, server-app, and KDS HTTP servers and backup listing against directory traversal.
+- Bounded email and tax-ID input validation to prevent ReDoS.
+- Repaired databases that never created the `revoked_tokens` table because of a migration version-number collision shipped in release 2.9.0. Affected installs were failing every authenticated request closed; a new migration (v71) idempotently restores the table on upgrade.
+- Tax plugin update checks now resolve a pre-rename installed pack id (e.g. `official-in`) against the current catalog id (`official-india`), so stores that installed before the rename correctly see real updates instead of "up to date" forever.
+- Windows release verification no longer false-positives on the AppX manifest's `Publisher` identity attribute, which electron-builder emits with single quotes rather than double quotes.
+
+### Changed
+- CI test suite now shards across two parallel runners to speed up merge-ready checks.
+- Hardened the Microsoft Store publish step: gated to tag pushes only, explicit exit-code checks on the Store CLI, pinned publisher action, and per-package identity/publisher/version validation before upload.
+
+## [3.2.0] - 2026-08-15
+
+### Added
+- Added the Customer Display experience for showing order and payment status on a dedicated screen.
+- Added configurable invoice numbering settings with upgrade-safe defaults and focused regression coverage.
+- Added the Iran country profile and Persian/Farsi runtime foundation, including translation bundle plumbing and HTML language/direction metadata.
+- Added the Morocco country profile with MAD currency support.
+- Added paginated bill-history APIs for large order histories.
+
+### Changed
+- Catalog listing now batches child-category loading and normalizes catalog API contracts for stable string IDs and boolean flags.
+- POS cart identity and append retries are now collision-safe and idempotent across retry paths.
+- Shutdown, database recovery, and Windows uninstall flows now report partial or graceful outcomes more consistently.
+
+### Fixed
+- Category writes now trim and require non-empty names, validate active parents, reject self/ancestor cycles, and handle child categories explicitly during deletion or reassignment.
+- Product, category, and add-on catalog updates now distinguish omitted fields from explicit `null`, so nullable fields can be intentionally cleared.
+- Product add-on links are validated before writes, preventing duplicate, inactive, or unknown add-on group references from partially mutating products.
+- Barcode lookups, disabled discount-type visibility, split-check tax attribution, order cancellation, held-order restore, and menu CSV imports now behave deterministically across edge cases.
+- Phone-number validation, normalization, clearing, and repair are unified across backend routes and frontend views.
+- Receipt currency symbols are derived correctly for printer output.
+- Database import/export migrations preserve clearer failure and repair behavior.
+
+## [3.0.5] - 2026-08-12
+
+### Added
+- Printer settings now include bill template controls, footer text, and per-field bill visibility options for store details, customer details, table numbers, and tax breakdowns.
+- ESC/POS printer configuration now supports explicit printable-column widths per printer, with refresh and migration coverage for legacy printer records.
+
+### Fixed
+- Cloud account status, registration, preference, verification, and deletion-status flows now handle unregistered or manually stopped cloud services locally without leaking deletion status tokens or attempting unnecessary upstream calls.
+- Re-enabling Cloud Services after Stop All now restores sync, orders, reports, and command polling together so order changes resume reaching the cloud outbox.
+- Receipt, KOT, and tax-bill output now consistently use the selected printer width for wrapping, dividers, totals, add-ons, tax lines, and currency alignment.
+- Tax-bill content options now survive upgrades and preserve existing merchant template/footer choices.
+- Legacy USB printer records no longer keep the ignored `usb_device_path` column after upgrade, while preserving the printer row and selected paper width.
+- The in-app receipt branding website URL now points to `flopos.com`.
+
+## [3.0.0] - 2026-08-11
+
+### Added
+- Payment methods are now merchant-configurable, and checkout supports split payments across built-in, custom, and loyalty-wallet methods.
+- Split checks can be enabled for table checkout, with database defaults keeping the feature opt-in for upgraded stores.
+- A new Server App runs on the local network for waiter/tablet tableside ordering, with Settings pairing URLs, QR codes, role-limited login, and API forwarding to the local POS.
+
+### Changed
+- Checkout payment entry now shows one compact amount row per method instead of adding/removing split rows, making mixed tender faster for cashiers.
+- Discount controls in checkout are collapsed into a smaller panel while preserving manager-PIN approval and recalculation behavior.
+- Development restart/reset tooling and the backend dev server now include the Server App port.
+
+### Fixed
+- Held-order cleanup is now idempotent, so stale terminals or repeated cleanup requests no longer turn a completed sale into an error.
+- POS order placement and payment now await held-order cleanup and log cleanup failures without blocking the completed sale.
+- The Orders page Unpaid tab now includes orders that do not have a bill yet, so payable dine-in orders are no longer hidden before checkout starts.
+
+## [2.9.7] - 2026-08-10
+
+### Fixed
+- The manual tax builder now correctly moves tax overrides (product- and add-on-specific overrides, and store-wide packaging/delivery/service-charge overrides) onto a category's new default when that category is renamed or removed. Previously, checkout could reject an otherwise valid item whose override still pointed at a removed category.
+- The tax rate shown in the product tax-category picker now always matches the rate checkout actually applies.
+
+### Removed
+- A4/A5 paper sizes have been removed from browser-based bill printing; only thermal receipt widths (58mm/80mm) are supported. A browser that had A4 or A5 saved from before this change is automatically moved to the standard thermal size.
+
+### Security
+- Updated a bundled dependency (nanoid) to fix a high-severity denial-of-service issue.
+- Cloud account-deletion status tokens are now excluded from database exports, matching other cloud credentials.
+
+## [2.9.5] - 2026-08-09
+
+### Added
+- Settings → Tax Configuration now includes a manual tax builder: define your own tax categories for any country, each holding multiple independently named rate components (for example "Tax 1" + "Tax 2" on one category), for countries with no official tax pack or to replace one with your own rates. A three-way Turn Off Tax / Official Tax Pack / Manual Tax Rates control replaces the previous enable/disable banners.
+- The product "Tax rate group" selector now shows the resolved tax percentage next to each category (for example "Packaging (18%)"), on both the product edit form and the products list.
+- The store's TAX ID field is validated against the active country's known format (for example India's GSTIN) only while an official tax module is active for that country; manual and unconfigured setups have no format restriction.
+
+### Changed
+- Product-level loyalty cashback is now a single field: leave it blank to use the global rate, enter 0 to exclude the product, or enter any other value to override the rate for that product only. The products table shows each product's effective rate when loyalty is enabled.
+- Receipt printing now uses a single unified 58mm column width; the A4 and A5 paper size options have been removed.
+- The store details field previously labeled "Tax ID / Registration Number" is now simply "TAX ID".
+- Add-ons always follow their item's own tax category and are never taxed separately; the manual tax builder no longer offers a distinct default category for add-ons.
+- The Settings sidebar's "Store" group is renamed "General"; Printers and Tax Configuration are no longer indented under Store Details. Print Options is merged into the Printers page instead of being a separate tab.
+
+### Fixed
+- The Linux Snap package now includes the `browser-support` plug so it can access `/dev/shm`, and builds on core24 in LXD with the gnome extension.
+- The Tax Configuration page no longer logs expected "not found yet" lookups (manual pack, plugin request ticket) as console errors on a store that has never configured either.
+
+## [2.9.0] - 2026-08-07
+
+### Added
+- Support tickets now confirm delivery: after a request is queued, FloCafe polls for a support code once FloAdmin accepts the ticket, and shows it in place of the local request ID once delivered.
+- The Help & Support page and the in-POS "Get help" prompt (shown on print failures) can preview the exact diagnostics payload that will be attached before sending, pulled from the same code path used on submit so the preview can never drift from what's actually sent.
+- Settings navigation adds dedicated Mobile Access and OrderFlow tabs, and splits Loyalty and Discounts into separate sections instead of one combined page.
+- The printer status control in the POS toolbar now includes a shortcut straight to Settings → Receipts & Printers.
+
+### Changed
+- Upgraded stores that installed the original India/Thailand tax packs under their pre-rename ids (`official-in`/`official-th`) can enable them again; the legacy digest allowlist now covers both the old and renamed pack ids.
+- The sidebar header now shows the store's initial in place of the FloCafe logo image, with the redundant duplicate business-name line removed.
+- Settings navigation groups were renamed for clarity ("Integrations" replaces the former "Data" group; "Tax Config" replaces "Tax configuration").
+
+### Fixed
+- Print-failure support requests submitted from the POS screen now tag their category as `printer` so they route and diagnose the same way as tickets filed from the Help & Support page.
+
+## [2.8.0] - 2026-08-06
+
+### Added
+- A permanent Help & Support page is available from the sidebar to owners, managers, cashiers, waiters, and chefs. Merchants can request general help, report bugs and printer/account/tax problems, or submit feature requests with urgency and a detailed description.
+- Support requests prefill the restaurant and contact profile and attach safe technical context including app version, platform, architecture, database schema, country/timezone, and cloud status. Customer records, order contents, credentials, and API keys are excluded.
+
+### Changed
+- All support requests use FloCafe's durable offline outbox and retry automatically when connectivity returns.
+
+### Fixed
+- FloCafe now sends contact details using FloAdmin's nested contact contract, so merchant name, email, and phone are no longer silently dropped from printer, tax, or general support tickets.
+
+## [2.7.8] - 2026-08-05
+
+### Added
+- New installations receive an immediate welcome and email-verification request after cloud registration; owners can resend verification and see verified/pending status from Settings.
+- Product-update and marketing email preferences are separate, optional, unchecked choices with unsubscribe support. Essential service and security notices remain transactional.
+- Settings now provides explicit controls to stop all cloud services and anonymous telemetry without touching the local POS database.
+- Owners can submit a cloud-data deletion request using the Master PIN and typed confirmation. Requests stop cloud activity immediately, remain visible with status in FloCafe, and require manual approval in FloAdmin before irreversible deletion.
+
+### Changed
+- Cloud deletion uses a reviewed request lifecycle with duplicate-request protection, cancellation, approval/rejection notes, and a private status token that remains usable after the store API key is deleted.
+- Cloud order events require the explicit cloud-orders switch. Outbound order/report snapshots strip customer records, customer identifiers, payment details, and free-text fields that could contain personal data, including legacy queued snapshots.
+
+### Fixed
+- Settings and its Account section now show an attention badge while contact email verification or a cloud deletion request requires action.
+- Approved deletion removes store-linked API keys, presence, pairing data, diagnostics, support tickets, integrations, email preferences/outbox entries, and request nonces while preserving all local orders, bills, products, customers, and database backups.
+
+## [2.7.2] - 2026-08-05
+
+### Changed
+- Cloud registration now sends the complete support profile FloAdmin understands: outlet and contact names, email, phone, address, country, currency, timezone, platform, architecture, and app version.
+- Anonymous telemetry now sends the configured ISO country directly instead of relying only on IP geolocation.
+
+### Fixed
+- Fresh installs no longer create a blank FloAdmin store before first-run setup. The completed outlet profile is registered immediately after setup and refreshed after business or country changes.
+- Telemetry delivery now treats non-success HTTP responses as failures and only records a daily ping as sent after the collector confirms it, allowing failed pings to retry instead of disappearing for 24 hours.
+- Payments and retries are now atomic, cent-precise, user-scoped, and idempotent; cash change no longer inflates paid totals, loyalty balances remain consistent, and reports flatten split/legacy payments correctly.
+- Print-failure diagnostics retain the actionable OS/driver detail and failing stage across network, CUPS/USB, and Windows dispatch paths.
+
+## [2.7.0] - 2026-08-04
+
+### Added
+- RevFlo pairing now shows the short-lived numeric code beside a scannable QR code. The RevFlo plan documents scanner support with manual entry as a fallback.
+- Store diagnostics are enabled by default for new installs. Existing owner opt-outs remain unchanged, and diagnostics can still be disabled in Settings → Privacy.
+
+### Changed
+- Cloud store IDs, API keys, and platform webhook URLs are now managed internally and hidden from Settings instead of being presented as merchant-editable configuration.
+- Tax setup now assigns the country pack's standard tax group to uncategorized products and add-ons automatically. Specialist tools—test calculations, charge categories, merchant overrides, pack details, and audit history—are grouped under a collapsed Advanced section.
+- Patched vulnerable transitive frontend development dependencies; both production and full dependency audits now report zero known vulnerabilities.
+
+### Fixed
+- Settings → WhatsApp now opens the WhatsApp page instead of falling through the static export's root route and redirecting to Dashboard.
+- Upgraded stores can enable the original bundled India and Thailand tax packs again. Only byte-for-byte-equivalent legacy artifacts are trusted without a signature; modified or downloaded packs still require a valid trusted Ed25519 signature.
+
+## [2.6.2] - 2026-08-03
+
+### Fixed
+- Windows printer detection ("Installed on this computer" in Settings → Printers) used `wmic`, which Microsoft removed starting with Windows 11 24H2 — affected machines silently showed "No installed printers found" even with a printer installed and set as default, forcing manual configuration. Detection now uses `Get-CimInstance` against the same underlying `Win32_Printer` data, delivered the same GPO-safe way the raw ESC/POS print path already is.
+
+## [2.6.1] - 2026-08-03
+
+### Fixed
+- Print failures on every connection type (network, USB/CUPS, USB/Windows) now carry the actual OS/driver reason (e.g. "printer is set to 'Use Printer Offline'", "cannot open printer 'X' (Win32 error N)", a CUPS queue problem, a network timeout) all the way to the error shown in Settings — previously this detail was only ever written to the log file and every failure showed a generic "Printer did not respond or print failed" instead, including on the **Test Print** button, which is the one most people reach for while troubleshooting. This detail also now reaches Tier 2 diagnostics (2.6.0) for stores that opted in, instead of falling back to a generic placeholder in nearly every real failure.
+- Added **Help → Open Logs Folder** to the app menu, so a merchant can find and share `main.log` without knowing the OS-specific path by heart.
+
+## [2.6.0] - 2026-08-03
+
+### Added
+- Print failures now report an anonymous, aggregate event (which stage failed, on which connection type) so we can see fleet-wide printer failure rates without any store identity attached.
+- New opt-in "Store diagnostics" toggle in Settings → Privacy (off by default, separate from anonymous telemetry): when a merchant turns it on, typed error events (e.g. which printer step failed) are attributed to their store so support can diagnose a reported problem without asking them to reproduce it. Never includes customer data, order contents, or raw log files.
+
+### Changed
+- Large-scale database performance overhaul for high-volume installs (#208, thanks @carvalab): 11 new indexes, batched order/item hydration replacing hundreds of per-row queries, and CTE-based rewrites of the customers list and kitchen/KDS active-order queries. Measured on a synthetic 100k+ order database: the customers list dropped from ~40s to ~12ms, and every daily-report query improved 25x-3,200x. The orders list and single-order views now share one batched hydration path instead of firing a query per related row.
+- All stored timestamps are now normalized to one consistent format (matching SQLite's own `CURRENT_TIMESTAMP`); a prior mix of two timestamp formats in the same columns could sort incorrectly across day boundaries and shift daily "today" boundaries by several hours depending on timezone. Existing data is normalized automatically on upgrade.
+
+### Fixed
+- A print failure's diagnostics report could no longer throw past the actual printer error — any issue reporting the failure itself is now caught and logged rather than replacing the real error shown to the cashier.
+
+## [2.5.1] - 2026-08-03
+
+### Fixed
+- Verification-only release: no user-facing changes beyond 2.5.0. `release-mac`'s own post-build check failed v2.5.0's macOS build — Windows and Linux published, macOS did not. `mac.target` builds both `dmg` and `zip` for each architecture, and electron-builder's update manifest (`latest-mac.yml`) lists all of them under `files:`, not just `zip`; the check counted every entry (4) against the number of `.zip` files on disk (2) and failed a build that was actually complete and correctly signed. Confirmed by reproducing the exact build locally before changing anything. The check now counts only `.zip` entries, which is what `electron-updater`'s `MacUpdater` actually reads.
+
+## [2.5.0] - 2026-08-03
+
+### Added
+- New installs now register with the cloud automatically on first boot — no pending state, no human approval queue, no claim step. Pairing a phone (RevFlo) uses a server-issued 8-digit code, valid 24 hours, without disconnecting devices already paired; only an explicit "disconnect everyone" action does that.
+- Printer, sync, and other critical failures now carry a correlation ID and a structured failing stage, and expose a **Get help** button that shows the exact support payload before sending, queues it locally if offline, and retries with backoff. Nothing is sent unless the button is pressed.
+- Automatic country tax plugins: turning on taxes in Business Settings now resolves, verifies, downloads, and activates the matching country's tax pack with no manual catalog or download step. If no verified plugin exists yet for a country, taxes stay off and one support ticket is queued automatically.
+- Loyalty: products can now set their own earning rate, inherit a new store-wide global rate, or be explicitly excluded from earning — instead of a single per-item percentage with no fallback. Existing products keep their current earning behavior exactly; nothing changes automatically. Settings → Loyalty shows how many products are still on the old "earns nothing" default and offers a one-click, fully-reversible way to switch them onto the global rate if that's what you want (#81, thanks @khaira777).
+
+### Changed
+- Anonymous usage telemetry is on by default for new installs. First-run setup no longer presents a pre-ticked consent checkbox — a pre-ticked box isn't valid consent under GDPR or India's DPDPA, and FloCafe ships across roughly 34 countries — it now plainly discloses what's sent, with the full field list one tap away, and points at the one-click off switch in Settings → Privacy. Installs that already made a choice, including turning it off, are left exactly as they were.
+
+### Fixed
+- Live reports (dashboard, hourly, sales, items, payments) requested from RevFlo are now correctly versioned, correlation-tracked, and bounded, and a request that times out can no longer be overwritten by a stray late result from the POS. Reports are never stored server-side.
+
+## [2.4.7] - 2026-07-29
+
+### Fixed
+- `release-windows` was hard-failing every release at "Verify Windows signing credentials" since no `WINDOWS_CERTS`/`WINDOWS_CERTS_PASSWORD` secret has ever been configured — v2.4.1 through v2.4.6 all shipped without a Windows installer as a result. Since June 2023 CA/Browser Forum rules require new code-signing keys to live on a hardware token or cloud HSM, a portable `.pfx` isn't something to just go buy anymore; this needs a real signing-service integration (a free option for OSS projects like this one is the SignPath Foundation) before Windows builds can be signed. Until then, `release-windows` now logs a warning and ships an unsigned installer instead of failing outright — users will see a SmartScreen "Windows protected your PC" prompt on first run.
+
+## [2.4.6] - 2026-07-28
+
+### Fixed
+- Verification-only release: no user-facing changes. v2.4.4/v2.4.5's `release-mac` signed correctly but failed notarization with a misleading `HTTP 401: Your Apple ID has been locked` — confirmed via `xcrun notarytool history` that the same Apple ID/password/team combination works fine run interactively from a trusted Mac, meaning this was Apple-side fraud/automation detection on password-based auth from CI, not a real credential problem. Switched `release-mac` notarization to an App Store Connect API key (`APPLE_API_KEY`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER`), which is Apple's and electron-builder's own recommended approach for CI and doesn't hit this failure mode. Documented in CONTRIBUTING.md (#168).
+
+## [2.4.5] - 2026-07-28
+
+### Fixed
+- Verification-only release: no user-facing changes. v2.4.4's `release-mac` got past code signing (confirmed: it actually signed with the new Developer ID Application cert) but failed at notarization with an Apple ID lock (401) — now resolved, with a fresh app-specific password in `APPLE_APP_SPECIFIC_PASSWORD`.
+- Scoped `CSC_IDENTITY_AUTO_DISCOVERY: false` (added workflow-wide in `bbc0470`, apparently intended for the new Windows signing step alongside it) down to just the `release-windows` job's "Build Windows" step. Left workflow-wide, it risked silently skipping macOS code signing again — electron-builder still exhibits this even with `CSC_LINK`/`CSC_KEY_PASSWORD` explicitly set (electron-userland/electron-builder#7515) — which would have undone the fix this release is trying to prove (#168).
+
+## [2.4.4] - 2026-07-28
+
+### Fixed
+- Verification-only release: no user-facing changes. v2.4.1–v2.4.3's `release-mac` failures traced back to a real `MAC_CERTS` problem, not a CI environment issue: the secret only ever contained a Mac App Distribution certificate (for the Mac App Store channel), never a Developer ID Application certificate, so electron-builder silently skipped code signing on every direct-distribution (DMG/zip) build — including every prior "successful" release. `MAC_CERTS`/`MAC_CERTS_PASSWORD` now hold a freshly issued Developer ID Application certificate for Codify Apps Private Limited (BKDY677XJA). This release exists to confirm the `release-mac` pipeline — real signing, notarization, and stapling — finally passes end-to-end against a published artifact (#168).
+
+## [2.4.3] - 2026-07-28
+
+### Fixed
+- Root cause of the `release-mac` failures in v2.4.1/v2.4.2, found via v2.4.2's diagnostics (#168): Electron 43 removed its automatic postinstall download as a supply-chain hardening measure ([electron/electron#49328](https://github.com/electron/electron/pull/49328)) — it now only fetches its binary lazily, the first time the `electron` CLI is actually launched. `npm ci` in CI never launches `electron`, so `node_modules/electron/dist` stayed empty and `verify-electron-runtime.sh` correctly failed. `postinstall` now runs the replacement `install-electron` bin script first to force an eager download, matching what happens locally once you've ever run `npm run dev`. Reverted v2.4.2's temporary `--foreground-scripts` CI diagnostics now that the cause is known.
+
+## [2.4.2] - 2026-07-28
+
+### Fixed
+- Verification-only release: no user-facing changes. v2.4.1's `release-mac` job failed at `verify-electron-runtime.sh` — `node_modules/electron/dist` had no `*.app` bundle after `npm ci` on the GitHub-hosted macOS runner, reproduced identically on a second attempt. This release adds temporary `--foreground-scripts` diagnostics to the `release-mac` "Install npm dependencies" step to see what the `electron` package's own postinstall actually did (#168).
+
+## [2.4.1] - 2026-07-28
+
+### Fixed
+- Verification-only release: no user-facing changes. Cut specifically to run the `release-mac` pipeline end-to-end on a real macOS GitHub Actions runner with live signing credentials, exercising the `verify-electron-runtime.sh` gate and the post-upload `codesign --verify --deep --strict` / `spctl --assess` / `xcrun stapler validate` checks against the actual published artifact added in `e2d4cd0` (#168).
+
+## [2.4.0] - 2026-07-26
+
+### Fixed
+- Cleared 36 accumulated `eslint-plugin-react-hooks`/React Compiler lint errors (state updates inside effect bodies, an inline component defined during render, a few functions referenced before their declaration, one non-memoizable `Date.now()` read) across ~20 frontend files. These were failing the `linux-baseline` CI job at the "Frontend lint" step, which meant "Build frontend" and "Core test suite" never even ran in that job — this was accumulated tech debt, not caused by any single feature.
+- Two backend tests (`first-run-setup`, `database-tools-api`) asserted the current schema version as a literal number, which broke the moment migration v34 shipped in 2.2.0; both now derive the expectation from the migrations list instead.
+
+## [2.3.0] - 2026-07-26
+
+### Added
+- Brazilian Portuguese (pt-BR) as a third UI language alongside English and Spanish — 1548 keys with full three-way parity across the setup wizard, POS, KDS, settings, orders, tables, staff, WhatsApp, and print-test surfaces. Browser-language auto-detection and plural rules cover `pt`; the demo seed data gained a pt-BR branch. New `lib/i18n-enums.ts` centralizes backend-enum-to-label mapping (roles, order/item/table/tenant/payment statuses, business types) with a safe fallback to the raw value for anything not yet translated, so an unmapped status renders in English instead of crashing. (#153, thanks @paulovnas)
+
+### Fixed
+- A handful of hardcoded English strings (print-test labels, order history headers, an image-cropper title) now route through `t()` instead of always rendering in English regardless of the selected language.
+
+## [2.2.0] - 2026-07-26
+
+### Added
+- Orders page can now void an item that's already `preparing`/`ready` on the kitchen display, not just `pending` ones — the trash icon becomes a 🚫 icon for in-progress items and opens a manager-PIN prompt (same override pattern as whole-order cancel) instead of a plain confirm. Voiding leaves the original line on the bill and adds a mirrored negative line for the same amount, so the refund/comp is visible instead of the item just disappearing; inventory is left alone since the ingredients were already consumed. The item is marked `voided` — a locked, terminal status — and shows struck through on every KDS surface (dashboard Kanban/Tabs, standalone kitchen device, WebSocket feed) for 15 minutes before dropping off the board, the same grace period a served item gets. (#150)
+- Settings → POS Workflow has a new pairing block mirroring the existing KDS pairing card: scan a QR code or type the shown local-network IP to open the same POS on a second cashier's device, backed by a new `GET /api/pos-info` endpoint.
+
+## [2.1.0] - 2026-07-26
+
+### Added
+- Configurable order number format: owners/managers can set a custom prefix, toggle the date segment, and choose whether the sequence resets daily at store-timezone midnight or keeps climbing (`GET`/`PUT /settings/order-numbering`, new "Order Number Format" section in Settings).
+- KDS order type badges (dine-in/takeaway/delivery/online) on both the Kanban and Tabs views, plus a live-ticking elapsed-time display (HH:MM:SS) that updates every second instead of showing a static "Xm" snapshot.
+- macOS releases are now code-signed and notarized end to end (Developer ID Application cert + Apple notarization), fixing "'Flo Cafe' has been blocked because it may reduce your privacy... move it to the Bin" for anyone downloading the DMG/zip.
+
+### Fixed
+- LAN login: the desktop client now derives its API base URL from `window.location.origin` instead of a build-time-baked `NEXT_PUBLIC_API_URL`, so loading the app over LAN (e.g. `http://192.168.x.x:3001`) no longer fails with `ERR_CONNECTION_REFUSED`.
+- POS product grid category filter chips now wrap onto multiple lines instead of scrolling off-screen.
+- KDS: item names, quantity, special instructions, timer, and column headers were undersized (10-14px) for kitchen-tablet readability; bumped up across both Kanban and Tabs views.
+- KDS: the table badge was missing on orders delivered over the WebSocket push (the primary path — REST is only a 5s fallback) because the live-order broadcast built a flat `table_name` field instead of the nested `table: { name }` shape the frontend reads; brought in line with the REST path, which already did this correctly.
+- Upgraded Electron 31.7.7 -> 43.2.0: Apple had revoked the notarization ticket for the `electron@31.7.7` prebuilt binary itself (confirmed on a clean re-download, unrelated to any local machine issue), which is what caused local `npm run dev` to be Gatekeeper-blocked with no "Open Anyway" option. Electron 31 was also long past Electron's supported window.
+- Upgraded `better-sqlite3` 12.11.1 -> 13.0.1 (now N-API based, ABI-stable across Node/Electron versions) and `uuid` 11.1.1 -> 14.0.1.
+- Upgraded Express 4.22.2 -> 5.2.1. Fixed two breaking changes surfaced by the bump: a bare wildcard route (`app.get('*', ...)`) in the KDS SPA fallback, which Express 5's router now rejects at startup and needs a named wildcard (`/*splat`); and `req.body` no longer defaulting to `{}` when a request has no parseable body (body-parser 2.x, bundled with Express 5) — restored the old default via middleware rather than patching every route.
+
+## [2.0.12] - 2026-07-24
+
+### Fixed
+- Snap Store publishing now uses Snapcraft's supported register and upload arguments for amd64 and arm64 builds.
+
+## [2.0.11] - 2026-07-24
+
+### Fixed
+- Linux snap builds no longer depend on the GNOME extension or LXD and now run Snapcraft in destructive host mode.
+
+## [2.0.10] - 2026-07-24
+
+### Fixed
+- Linux snap builds never actually shipped despite 2.0.5 wiring the publish step. The chain was: (a) release runners were stuck on `ubuntu-22.04` which can't host core24 destructive builds (`ERR_ELECTRON_BUILDER_CANNOT_EXECUTE — Ubuntu 24.04 builds cannot be performed on this Ubuntu 22.04 system`); (b) once runners moved to `ubuntu-24.04` / `ubuntu-24.04-arm64`, destructive mode ran but the `gnome` extension can't resolve its `command-chain` source on a host build (`/usr/share/snapcraft/extensions/desktop/command-chain` lives in the snapcraft snap, not on the host). Switched to `useLXD: true`: snapcraft now runs inside an LXD container that matches the core24 base and has the gnome SDK + command-chain source mounted. Release runners remain on `ubuntu-24.04` / `ubuntu-24.04-arm64`; the LXD install + init step is restored in the workflow.
+
+### Changed
+- Linux AppImage, deb, rpm and snap are now built on `ubuntu-24.04` and `ubuntu-24.04-arm64`. Every release ships the full target quartet (AppImage + deb + rpm + snap) for **both** `x86_64` / `amd64` and `arm64`. The arm64 build was previously declared but never ran.
+- Linux snap is now actually published to the Snap Store as part of the release pipeline. 2.0.5 added the wiring, but 2.0.6 (the first attempt) failed at the snapcraft step and shipped without a snap. 2.0.10 is the first release with a working snap upload under the `flocafe` name, on `amd64` and `arm64` revisions.
+
+## [2.0.6] - 2026-07-24
+
+### Fixed
+- Both standalone uninstaller scripts (`uninstall-windows.ps1`, `uninstall-macos.sh`) were purging the wrong folder: Electron's actual userData directory comes from package.json's top-level `name` (`flo-desktop`), not the electron-builder `productName` (`Flo Cafe`) used for the installer/shortcuts. `-PurgeData` / `--purge-data` could silently no-op against a folder that never held your database, backups, or Master PIN, making it look like your data survived an uninstall when it never had a chance to be touched in the first place. Both scripts now target the real folder (and still sweep the old name in case anything was ever written there).
+- Same scripts also used to report a path as "removed" right after attempting deletion, even if a locked file (most often the app not being fully quit yet) made it silently fail. They now wait for the app process to fully exit, verify the path is actually gone afterward, retry briefly, and warn explicitly if something's still stuck instead of falsely claiming success.
+- First-run `/setup` only checked whether a Master PIN was configured, not whether setup had already been completed — so on an already-initialized install it would let you fill out the entire multi-step wizard before rejecting at the very last step with "Setup already complete. This endpoint is disabled." It now checks up front and redirects straight to login if an owner already exists.
+
+### Removed
+- Windows no longer ships a portable `.exe` build — only the NSIS installer (direct download) and the Microsoft Store build remain.
+
+## [2.0.5] - 2026-07-23
+
+### Added
+- Linux release pipeline now ships a signed `.snap` to the Snap Store on every release tag, using the `core24` base with the GNOME extension (mirrors the `snapcrafters/signal-desktop` recipe). One-time repo secret `SNAPCRAFT_STORE_CREDENTIALS` (a snapcraft macaroon from `snapcraft export-login`) is all that is needed: the release workflow self-registers the snap name on first run and uploads subsequent revisions automatically.
+- Linux release job is now a matrix on `ubuntu-22.04` and `ubuntu-22.04-arm64`. Each entry builds and uploads its full target set (AppImage + deb + rpm + snap) for its host architecture, and both publish their snap to Snap Store under the same `flocafe` name as a multi-arch revision. Net result of every release: `flocafe-<version>-x86_64.AppImage` + `_amd64.deb` + `_x86_64.rpm` + `_amd64.snap` + the same quartet on `_arm64`.
+- AppImageHub catalog compatibility: `linux.artifactName` is now an explicit lowercase template (`flocafe-<version>-<arch>.<ext>`) instead of electron-builder's default `Flo Cafe-<version>-<arch>.<ext>`, so the AppImageHub catalog's auto-discovery filename regex picks the binary up on its next release scan; the AppStream metainfo at `assets/com.flo.desktop.metainfo.xml` is now wired into the AppImage at the spec-correct `/usr/share/metainfo/` path via `linux.extraFiles` so the catalog CI's `appstreamcli validate` passes and GNOME Software / KDE Discover display the listing correctly.
+
+### Fixed
+- Linux snap builds under strict confinement were silently broken: the legacy `build.snap` block replaced electron-builder's default plug set, leaving the snap without `home`, `x11`, `wayland`, or `network-bind`. Result was that the Express server on `0.0.0.0:3001` and the KDS server on `0.0.0.0:3002` couldn't bind under confined snap, and the renderer couldn't open a window on X11 or Wayland. Plug list now uses `"default"` to extend instead of replace, and adds `network-bind` and `screen-inhibit-control` explicitly.
+- AppStream metainfo (`assets/com.flo.desktop.metainfo.xml`) shipped with a stale `1.7.1` release entry in every build, so AppImageHub / GNOME Software / KDE Discover showed a years-old version. The release job now runs `scripts/update-metainfo.js` which prepends a fresh `<release>` block with the current version + date + CHANGELOG notes before each build. Idempotent; the on-disk source file is rewritten but not auto-committed.
+
+## [2.0.4] - 2026-07-23
+
+### Fixed
+- Paying a prepaid order in full marks it "completed" immediately, which was yanking it off the Orders-active tab and every KDS view (WebSocket, standalone REST, dashboard REST, station display) the instant it was paid — often before the kitchen had even started cooking it. A completed order now stays visible in those views as long as it still has order items the kitchen hasn't served.
+- Standalone Kitchen Display: item status changes now broadcast over the shared KDS websocket, so moving an item to the next stage shows up live instead of needing a manual refresh. Also fixed the login screen flashing briefly before a saved session finished being checked, including a case where a slow/failed websocket handshake could leave it stuck loading forever.
+- Removed `DELETE /customers/:id` entirely — customer order history and loyalty standing are worth more than reclaiming a stale row, and nothing in the UI called this endpoint anyway.
+
+### Added
+- "Keep me logged in" checkbox on the KDS and main login screens — issues a 10-day session instead of the default 24 hours.
+- Dashboard now has a "Payment Methods" breakdown, and fixes a bug where a bill paid with a split payment (part-cash/part-card) was being collapsed into a single NULL-keyed group instead of counted per method.
+- POS: customer phone/name entry now commits on blur instead of requiring an explicit Add/Select click; an optional POS Workflow setting auto-advances focus from phone to name once a valid number is typed; cart items get an Edit button to reopen and adjust addons/instructions after the item's already in the cart; clicking a selected customer's name opens a popup to correct their name/phone (cashiers can now do this too, not just owner/manager), and the topbar shows pending loyalty points and dietary/behavior tags for the selected customer.
+
+## [2.0.3] - 2026-07-23
+
+### Fixed
+- Standalone Kitchen Display (the separate device page served on port 3002, as opposed to the dashboard-embedded KDS) failed to log in with "Login failed — the database may have an error" — the frontend was calling the main server's API paths (`/auth/login`, `/kitchen/orders`, `/order-items/:id/status`, `/auth/me`), none of which exist on the standalone KDS server, which exposes its own smaller route set. The standalone page now talks to the correct paths, and the standalone server gained the `/api/auth/me` route it was missing (needed to restore a session after a page reload instead of forcing a fresh login every time).
+
+### Added
+- Standalone uninstaller scripts for macOS and Windows, attached to this and every future release. Useful when the packaged per-platform uninstaller is missing or a reinstall needs a clean slate. Removes the app and its support files (preferences, caches, shortcuts, auto-update state); leaves your database, backups, and Master PIN alone unless you explicitly pass `--purge-data` / `-PurgeData`.
+
+## [2.0.2] - 2026-07-23
+
+### Security
+- Fixed stored XSS in bill printing: product/customer names, special instructions, and other database-sourced values are now HTML-entity-encoded before being written into the print window, closing a path for staff-injected script payloads to run when a bill is printed.
+- KDS server login (port 3002) is now rate-limited the same as the main server's login — it previously had no brute-force protection at all.
+- `GET /api/held-orders` now requires the same owner/manager/cashier/waiter role as its POST/DELETE siblings; any authenticated user (including chefs) could previously read held-order customer data and table assignments.
+- The legacy (pre-Base64) product image endpoint no longer redirects to arbitrary stored URLs — it now requires HTTPS and blocks private/internal/link-local addresses, closing an unauthenticated open-redirect path.
+- Global error handlers no longer echo raw exception messages (internal paths, DB schema details) back to API clients.
+- Bumped `sharp` to 0.35.3, resolving four libvips memory-corruption CVEs (CVE-2026-33327/33328/35590/35591).
+
+## [2.0.1] - 2026-07-22
+
+### Fixed
+- **Windows auto-update had the same silent-breakage bug as macOS in 2.0.0**: the release pipeline only uploaded the `.exe` installer, not the `latest.yml` manifest + `.exe.blockmap` electron-updater needs to find and apply updates. Both macOS and Windows release jobs now verify the auto-update assets actually got uploaded before a release is considered done, so this can't silently ship broken again.
+- Pre-migration auto-backup now runs before *every* upgrade, not just two specific hardcoded versions — an install that's been stuck for a long time and jumps through a dozen+ migrations at once is now just as protected as one applying a single routine update.
+- "Check for Updates" (Settings → Updates) did nothing when clicked on Linux — no error, no spinner, no message, because the button's handler never sent anything back to the screen for that platform. It now explains that Linux (AppImage/deb) isn't covered by auto-updates and points to GitHub Releases.
+- WhatsApp: a status could reach "read" while still showing blank "sent"/"delivered" timestamps, because Baileys sometimes skips straight from ack to read. Earlier timestamps now backfill together with the one that actually arrived (carvalab, #139).
+- WhatsApp: a packaging issue with the logging library (`pino`) could crash the app at startup — not just for WhatsApp, for every route, whether WhatsApp was enabled or not. It now falls back to a no-op logger instead of failing the whole process.
+
+### Added
+- WhatsApp e-billing is now opt-in: enable it from Settings → WhatsApp, and the sidebar entry stays hidden until you do, instead of being on and visible for every operator by default (carvalab, #139).
+- Backup History (Settings → Database Tools) now has a delete button per backup, and shows each backup's schema version (#120).
+
+### Changed
+- RevFlo was split across a generic "More Apps" card and a separate "Mobile App" pairing-code card. It's now one consolidated section in Settings → Integrations: download/QR, app (pairing) code, and paired devices together.
+- "Enable bill sync to FloAdmin" is renamed to "Enable sales sync to FloAdmin" — it was never syncing full bills, only live sales totals and order status for RevFlo's reports.
+- Anonymous telemetry is now on by default for new installs (still fully opt-out anytime in Settings → Integrations → Privacy).
+- Removed the OrderFlow "How it works" steps in Settings → Integrations — that flow hasn't actually been decided yet and the steps shown didn't reflect anything real.
+
+## [2.0.0] - 2026-07-22
+
+### Fixed
+- **Critical**: macOS auto-update has been silently broken since v1.6.7 — every install has been permanently stuck on whichever version it originally shipped with, and every "check for update" has failed with a 404 on `latest-mac.yml`. The mac build only produced a `.dmg`, but silent background updates require a `.zip` artifact plus that manifest file, and the release pipeline never uploaded either. All previous releases have been removed from GitHub (binaries only — the version history and changelog stay) and republished cleanly starting with this version, so every existing Mac install can finally update again.
+- Forgot-password recovery page was unreachable — a logged-out user clicking "Forgot password?" was bounced straight back to the login screen before the PIN form could render (missing route in the auth guard's public-path whitelist). Also now shows upfront whether recovery is available on this device, instead of only after filling in the whole form.
+
+### Added
+- If the database has already been migrated by a newer app version than the one currently running (e.g. a stale/un-updated install sharing a database with an updated one), the app now fails at startup with a clear "please update" message instead of crashing later mid-order on a column a later migration already dropped.
+- Startup failures — including the schema-version case above — are now reported through the existing anonymous telemetry pipe (opt-in only), with the app/DB schema version numbers attached, so installs stuck on a stale build can be spotted without waiting on a support ticket.
+
+## [1.9.11] - 2026-07-22
+
+### Changed
+- The POS no longer sends any customer data (name, phone, email) to the cloud under any circumstance. Cross-store customer recognition (introduced in 1.9.9 as the one thing kept when bill/order/payment sync was removed) is retired along with it — accepted tradeoff, not a bug.
+
+## [1.9.10] - 2026-07-22
+
+### Added
+- Password recovery: an owner locked out of their account can now reset their password from the login screen using their Master PIN, with no existing session required (#127). First-run setup now explains that the Master PIN doubles as recovery, and adds an optional Cloud Services opt-in step with clear guidance on what depends on it (#128).
+
+## [1.9.9] - 2026-07-22
+
+### Added
+- Kitchen Display System and KOT (kitchen ticket) printing now have independent on/off toggles, for businesses that only use one or neither (#133).
+- Barcode scanning for product lookup at the POS (#137).
+- Optional automated database backups to Google Drive, alongside the existing local backup history (#129).
+- WhatsApp-based e-billing: send bills to customers over WhatsApp, with ban-avoidance safeguards on the underlying connection.
+
+### Changed
+- Cloud registration no longer asks for an owner email — it was never actually stored or used on the receiving end, and owners don't log into the cloud admin panel. Registering is now a single click.
+- The POS no longer sends bill, order, or payment details to the cloud under any circumstance. Customer name/phone/email still sync for cross-store recognition, through a dedicated endpoint that never carries financial data.
+- Zero-touch cloud registration announces itself automatically again on startup for installs that have already opted into cloud sync (previously required a manual click every time).
+- Mobile pairing code (Settings → Mobile App): the code now displays in uppercase, and failure messages explain the actual reason (e.g. this install hasn't been claimed yet) instead of a generic error.
+
+### Fixed
+- Barcode search box didn't accept manual/typed entry, only actual scanner input (#137).
+- Mobile pairing code generation could fail if attempted in the brief moment before the app finished checking whether the store was cloud-registered.
+
+## [1.9.8] - 2026-07-21
+
+### Fixed
+- **Critical**: fixed "Initialization error: Failed to start Flo: SQLite error: no such column: country_code" — any install upgrading from before that column existed on `customers` failed to start entirely. A second instance of the same bug (`customers.tag_counts`, missing the same way) would have crashed on the first order placed for a returning customer instead; fixed the same way.
+- Orders: selected addons are now read from a single normalized table everywhere (list, detail, KDS, kitchen display, printing, cloud sync) instead of a JSON column some paths trusted and others didn't; the JSON column itself has been removed (#125).
+
+## [1.9.7] - 2026-07-21
+
+### Added
+- Kitchen Stations: route order items to per-category prep stations (bar, dessert, pizza, etc.), each with its own printer and assigned staff logins. KOT printing now splits an order across stations automatically; orders with no stations configured print exactly as before (#134).
+
+### Fixed
+- Settings: creating a kitchen station now actually assigns it an id — it previously left the row unfetchable after creation.
+
+## [1.9.4] - 2026-07-20
+
+### Added
+- Dashboard: Average Order Value, Top Staff, Top Categories, and a Business Patterns panel (busiest/quietest hour and day of week, computed in the tenant's local timezone); a date picker to view any past day's totals instead of only today (#77).
+- Settings: Backup Management & History panel — lists past backups, restores from any of them through the existing Master PIN flow, and supports choosing a custom save location for a backup (#120).
+- Orders: selected addons are now also snapshotted into a normalized `order_item_addons` table alongside the existing JSON column, enabling indexed addon reporting (#125).
+
+### Fixed
+- Orders: new orders are now attributed to the authenticated staff member server-side. Previously every order was created with `user_id` unset, so a waiter could never see their own orders in the Orders list.
+
+## [1.9.2] - 2026-07-15
+
+### Added
+- Products: "Out of Stock" badges, a "Low Stock Threshold" field, and required-field indicators on product forms and modals.
+
+### Changed
+- Settings: reorganized into five groups (Store, Operations, Customers, Data, Account), unified global save, and various layout/UI fixes — sidebar active-state for shortcut items, unsaved-changes popup animation, app version always visible in the Updates tab.
+
+### Fixed
+- Loyalty: legacy point-expiry dates no longer collapse a customer's wallet balance; the now-meaningless "Next Expiry" UI is removed (#78).
+- Addon Groups: min/max selection bounds are now validated on save, and removing or deactivating an addon that would break a group's minimum selection is blocked (#82).
+- i18n: native currency symbols restored globally.
+
+## [1.9.1] - 2026-07-14
+
+### Fixed
+- Windows: Fix `better_sqlite3.node is not a valid Win32 application` error by ensuring native dependencies are correctly built for the Electron target runtime using `electron-builder install-app-deps`.
+
+## [1.9.0] - 2026-07-14
+
+### Added
+- Full Spanish/English internationalization: 727 translation keys with verified EN/ES parity, migrated from a 2014-line inline i18n file to a JSON-backed loader with ICU plural support.
+- Language-first setup wizard with country-driven business profiles; Argentina profile wires local IVA tax handling end-to-end, including a matching bilingual demo restaurant seed.
+- Master PIN protection for sensitive actions (database reset, critical settings changes), with its own backend service, middleware, and Settings UI.
+- Database health check and repair tooling, exposed via a new Database Tools API and the Settings → Data tab.
+- Cloud sync, reports, and command polling now enabled by default, with reworked Cloud Sync settings copy, a register confirmation step, and zero-touch device registration against FloAdmin (register → pending → claim).
+
+### Changed
+- README rewritten to be version-agnostic, with donationware/RevFlo messaging.
+
+### Fixed
+- Addon groups: editing a group no longer clobbers each addon's active/inactive state (#86).
+- Various lint and TypeScript build errors resolved (login page, Sidebar, and other preexisting warnings).
+- Settings: unescaped single quote in JSX corrected.
+
+## [1.8.7] - 2026-07-12
+
+### Added
+- POS: "New Order" button on a customer's order card copies their profile straight into a fresh POS order.
+- POS: Enter key now confirms customer selection, and the auto-select-after-timeout behavior was removed in favor of explicit selection.
+
+### Changed
+- Settings: General tab save buttons merged into a single inline footer card.
+- Orders: action buttons on order cards now wrap and stretch on narrow viewports instead of overflowing.
+- Orders: postpaid unpaid orders now follow their own flow, decoupled from the standard button layout.
+- Products: form modals widened and the drag-and-drop image uploader redesigned for clarity; scrollbars no longer protrude through rounded corners.
+- POS: table fetching is skipped when table settings are disabled, reducing unnecessary requests.
+
+### Fixed
+- Orders: receipts now auto-print when checkout is completed from the orders list.
+- Security: the local rate limiter no longer throttles requests from loopback and private-subnet IPs.
+- Data: table "active" UI checks, soft-deleted customer/addon leaks, and CSV reactivation edge cases corrected.
+
+## [1.8.6] - 2026-07-12
+
+### Changed
+- Customers, dine-in tables, staff, addon groups, and kitchen stations are no longer hard-deleted — matching the existing products/categories behavior, they're now deactivated instead, so historical orders/bills/reports never lose a name to a deletion.
+- Dine-in tables gained a proper active/inactive state: a Deactivate/Reactivate toggle on the Tables page, and the POS table picker's `active` filter (previously a no-op) now actually excludes deactivated tables.
+
+### Fixed
+- Deactivating the sole remaining owner account is now blocked (previously only blocked on the old hard-delete path, not on deactivate).
+
+## [1.8.5] - 2026-07-12
+
+### Added
+- Product image upload and display: full upload pipeline with compression and cropping, thumbnails on the POS grid and Products list, and colored placeholder tiles with product initials for items without images.
+
+### Fixed
+- Long order cards now expand properly in grid view on the Orders page.
+- Products are hidden from POS when their category is disabled.
+- `is_active` is now coerced to an integer for SQLite category updates, with added error logging.
+- Deleting a category with active products no longer throws a console 400 — product count is checked client-side first.
+- Image caching bug that prevented overwritten product images from updating in the UI.
+- Deleting an existing product image no longer fails.
+
+## [1.8.3] - 2026-07-12
+
+### Added
+- Zero-touch cloud registration on the POS side (register → pending → claim flow against FloAdmin).
+- Reference/demo dashboard pages for a masonry-style KDS board and a settled-order history grid, for layout comparison against the live pages.
+
+### Fixed
+- KDS order cards no longer stretch to match the tallest card in their grid row — a 1-item ticket now sizes to its own content instead of a 6-item neighbor's height.
+- `GET /tables` no longer queries the nonexistent `is_active` column; added back an `active` query param for frontend API compatibility.
+- Category deletion now warns and offers reassign-or-bulk-delete when a category still has active products, instead of orphaning them.
+- Table checkout modal edge case that could leave bad data in place if no matching branch applied.
+- Table list now refreshes after holding or restoring an order in POS.
+
+### Known issues
+- **Orders page grid layout (WIP):** re-restored the 2-3 column grid on the Orders and Held Orders tabs after it was reverted to a vertical list with no explanation. Not yet re-verified visually as working correctly — treat as work in progress.
+
+## [1.8.2] - 2026-07-11
+
+### Added
+- Cross-device held orders synchronization via the backend, complete with a resume button in POS.
+- Dynamic IP detection and Tailscale/VPN/Mesh network support for Kitchen Display System (KDS) pairing.
+- Bill-style order cards on the Orders page for a more intuitive layout.
+- Dashboard insights and owner-restricted analytics.
+- Cart quantity aggregation for product grid badges in POS.
+
+### Fixed
+- Reverted all order tabs (including held orders) to the standard vertical list layout.
+- Corrected an invalid column reference (`t.name` to `t.number`) in the `recentOrders` SQL query.
+- Linux restore from tray issues and implemented a singleton lock mechanism for graceful resource cleanup on force exit.
+- Ensured a unique ID is assigned when creating a new category.
+- Improved POS phone lookup to show the matched customer name before auto-selecting.
+
+## [1.8.0] - 2026-07-09
+
+### Added
+- Classic receipt template redesigned: header now shows the store name in a large Font A, followed by the customer's name (Font B) and mobile number when the bill has a customer attached.
+- Loyalty points on the printed bill: redeemed points shown above the subtotal, and a new "Points Earned" / "Points Balance" section sourced from the loyalty ledger.
+- Footer now prints store address, phone, and Instagram handle (new `Settings → General → Instagram Handle` field) instead of a plain "Thank you!" line. Every optional line — customer info, discount, points, each footer field — is only printed when that data actually exists.
+- Real ESC/POS Font A/Font B switching in the thermal printer driver.
+
+### Fixed
+- Amount columns on thermal receipts no longer wrap a trailing "00" onto the next line. The currency symbol is now resolved to its final printed form (unicode symbol or 2-letter ASCII code, e.g. `Rs`) *before* column padding is computed, instead of being swapped in afterwards and silently overflowing the line width.
+- Business address and phone number were silently blank on every printed bill — the print route was reading them from settings keys that are never written. Fixed to read the keys the Settings page actually saves to.
+- Inclusive tax was being double-counted against order totals and discounts (#66).
+
+## [1.7.9] - 2026-07-07
+
+### Added
+- Split payments, discounts, and wallet (loyalty) redemption in cart checkout.
+
+### Fixed
+- Discount edits no longer clobber existing payment splits; hardened the discount PIN flow.
+- Bill printing now actually attempts the print before reporting success; added a reprint banner.
+- Stopped discount tax compounding and blocked restoring items on already-paid orders.
+- Restored first-run restaurant onboarding flow.
+
+### Changed
+- Simplified the loyalty program to fixed cashback/redemption rates.
+
+---
+
+Older releases: see [GitHub Releases](https://github.com/FreeOpenSourcePOS/FloCafe/releases).

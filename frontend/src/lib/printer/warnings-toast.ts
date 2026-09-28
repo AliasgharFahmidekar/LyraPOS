@@ -1,0 +1,82 @@
+/** Toast shown after a print job skipped lines it could not render. */
+
+import toast from 'react-hot-toast';
+import { createTranslator } from 'use-intl/core';
+import type { PrintLanguageCode } from '@print/types';
+import type { PrintWarning } from './warnings';
+import { hasArabicScript } from './warnings';
+import { getCachedMessages } from '@/lib/i18n/loader';
+import { LANGUAGES, type Language } from '@/lib/i18n/languages';
+import { usePosSettingsStore } from '@/store/pos-settings';
+
+/** Max skipped-line excerpts listed before collapsing into "…and N more". */
+const MAX_LISTED_LINES = 8;
+
+function resolveLanguage(): Language {
+  try {
+    return usePosSettingsStore.getState().language ?? 'en';
+  } catch {
+    return 'en';
+  }
+}
+
+/** Same translator bootstrap as web-print.ts: cached bundle, English fallback. */
+function getTranslator(lang: Language): (key: string, values?: Record<string, unknown>) => string {
+  const locale = LANGUAGES[lang]?.locale ?? 'en';
+  const messages = getCachedMessages(lang) ?? getCachedMessages('en') ?? {};
+  return createTranslator({ locale, messages }) as unknown as
+    (key: string, values?: Record<string, unknown>) => string;
+}
+
+/** Shows one amber toast listing every line a print job skipped, if any. */
+export function showPrintWarningsToast(warnings: PrintWarning[]): void {
+  if (warnings.length === 0) return;
+
+  const localeWarnings = warnings.filter((warning) => warning.kind === 'locale');
+  if (localeWarnings.length > 0) {
+    showPrintLanguageLoadErrorsToast(localeWarnings.map((warning) => warning.text as PrintLanguageCode));
+  }
+
+  const printableWarnings = warnings.filter((warning) => warning.kind !== 'locale');
+  if (printableWarnings.length === 0) return;
+
+  const t = getTranslator(resolveLanguage());
+  const lineWarnings = printableWarnings.filter((warning) => warning.kind !== 'configuration');
+  const templateWarnings = printableWarnings.filter((warning) => warning.kind === 'configuration');
+  const sections: string[] = [];
+  if (templateWarnings.length > 0) sections.push(t('printWarnings.templateFallback'));
+  if (lineWarnings.length > 0) {
+    const hasArabic = lineWarnings.some((warning) => hasArabicScript(warning.text));
+    sections.push(t('printWarnings.title', { count: lineWarnings.length }));
+    sections.push(hasArabic ? t('printWarnings.arabicShapingHint') : t('printWarnings.genericHint'));
+  }
+
+  const texts = printableWarnings.map((warning) => warning.message || warning.text).filter(Boolean);
+  if (texts.length > 0) {
+    const listed = texts.slice(0, MAX_LISTED_LINES);
+    if (texts.length > MAX_LISTED_LINES) {
+      listed.push(t('printWarnings.moreLines', { count: texts.length - MAX_LISTED_LINES }));
+    }
+    sections.push(listed.join('\n'));
+  }
+
+  toast(sections.join('\n\n'), {
+    duration: 7000,
+    style: {
+      background: '#fffbeb',
+      color: '#b45309',
+      border: '1px solid #fcd34d',
+      whiteSpace: 'pre-line',
+    },
+  });
+}
+
+export function showPrintLanguageLoadErrorsToast(languages: readonly PrintLanguageCode[]): void {
+  if (languages.length === 0) return;
+
+  const t = getTranslator(resolveLanguage());
+  toast.error(
+    t('printWarnings.languageLoadError', { languages: languages.join(', ') }),
+    { duration: 7000, id: 'print-language-load-errors' },
+  );
+}
