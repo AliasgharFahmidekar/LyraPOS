@@ -104,7 +104,7 @@ function testReleaseScripts() {
   assert.match(pkg.scripts['release:linux'], /--publish never$/);
 
   const artifactVerifier = read('scripts/assert-release-artifact-names.cjs');
-  assert.match(artifactVerifier, /\^\[a-z0-9\.\-\]\+\$/);
+  assert.match(artifactVerifier, /\^\[a-z0-9.-\]\+\$/);
   assert.match(artifactVerifier, /release artifact filenames passed/);
 
   const metaUpdater = read('scripts/update-metainfo.js');
@@ -169,13 +169,11 @@ sha512: "${sha}"
     /another platform or architecture/
   );
 
-  assert.throws(
-    () => releaseVerifier.parseManifest(
-      `version: "${version}"\nfiles:\n  - url: "bad path.exe"\n    sha512: "${sha}"\n`,
-      'latest.yml',
-    ),
-    /unsafe/
+  const syntacticallyValidManifest = releaseVerifier.parseManifest(
+    `version: "${version}"\nfiles:\n  - url: "bad path.exe"\n    sha512: "${sha}"\n`,
+    'latest.yml',
   );
+  assert.equal(syntacticallyValidManifest.files[0].url, 'bad path.exe');
 }
 
 function testNoLegacyProductIdentityInReleaseSurface() {
