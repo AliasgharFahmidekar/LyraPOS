@@ -232,7 +232,7 @@
     "test:identity": "ts-node --transpile-only -P tests/tsconfig.json tests/lyrapos-identity.test.ts",
     "test:ui-identity": "ts-node --transpile-only -P tests/tsconfig.json tests/lyrapos-ui-identity.test.ts",
     "test:localization-identity": "ts-node --transpile-only -P tests/tsconfig.json tests/lyrapos-localization-identity.test.ts",
-    "test:windows-packaging-identity": "ts-node --transpile-only -P tests/tsconfig.json tests/lyrapos-windows-packaging.test.ts",
+    "test:windows-packaging-identity": "ts-node --transpile-only -P tests/tsconfig.json tests/lyrapos-windows-packaging.test.ts",\n    "test:unix-packaging-identity": "ts-node --transpile-only -P tests/tsconfig.json tests/lyrapos-unix-packaging.test.ts",
     "test:wordpress-bridge": "ts-node --transpile-only -P tests/tsconfig.json tests/wordpress-bridge-contract.test.ts"
   },
   "author": {
