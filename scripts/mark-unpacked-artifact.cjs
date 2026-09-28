@@ -40,5 +40,5 @@ if (candidates.length !== 1) {
 }
 
 const markerPath = path.join(candidates[0], markerName);
-fs.writeFileSync(markerPath, 'FloCafe unpacked development artifact\n', 'utf8');
+fs.writeFileSync(markerPath, 'LyraPOS unpacked development artifact\n', 'utf8');
 console.log(`Marked unpacked artifact: ${markerPath}`);
