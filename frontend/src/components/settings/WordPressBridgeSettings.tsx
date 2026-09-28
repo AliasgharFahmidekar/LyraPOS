@@ -168,8 +168,8 @@ export function WordPressBridgeSettings() {
           <div>
             <h2 className="font-semibold text-foreground text-lg">WordPress / WooCommerce</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Connect the built-in FloCafe Bridge to the CafeFlo Connect WordPress plugin.
-              Product creation and edits in FloCafe are the authoritative source and are pushed automatically.
+              Connect LyraPOS to the CafeFlo Connect WordPress plugin.
+              Product creation and edits in LyraPOS are the authoritative source and are pushed automatically.
             </p>
           </div>
           <div className="shrink-0">
