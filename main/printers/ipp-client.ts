@@ -239,7 +239,7 @@ const REQUESTED_PRINTER_ATTRIBUTES: IppAttribute = {
 /** Enumerates every printer CUPS knows about (queues for USB and network printers alike). */
 export async function ippGetPrinters(signal?: AbortSignal): Promise<IppAttributeGroup[]> {
   const response = await ippRequest('/', OP_CUPS_GET_PRINTERS, [
-    { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
+    { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['lyrapos'] },
     REQUESTED_PRINTER_ATTRIBUTES,
   ], undefined, signal);
   return response.groups;
