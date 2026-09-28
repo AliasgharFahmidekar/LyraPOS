@@ -3,7 +3,7 @@
 /** Setting key persisting the in-app beta channel opt-in. */
 export const BETA_CHANNEL_SETTING_KEY = 'updates.beta_channel_enabled';
 
-/** The only prerelease identifier FloCafe treats as a real update channel (#503). */
+/** The only prerelease identifier LyraPOS treats as a real update channel (#503). */
 export type SupportedPrereleaseChannel = 'beta';
 
 export interface ResolvedUpdateChannel {
