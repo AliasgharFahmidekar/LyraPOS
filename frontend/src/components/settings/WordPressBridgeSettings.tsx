@@ -142,7 +142,7 @@ export function WordPressBridgeSettings() {
   };
 
   const disconnect = async () => {
-    if (!window.confirm('Disconnect this FloCafe installation from the WordPress site?')) return;
+    if (!window.confirm('Disconnect this LyraPOS installation from the WordPress site?')) return;
     setDisconnecting(true);
     try {
       const { data } = await api.post<BridgeStatus>('/wordpress-bridge/disconnect', {});
