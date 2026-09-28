@@ -1,0 +1,84 @@
+name: LyraPOS Unix Packaging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lyrapos-unix-packaging
+  cancel-in-progress: false
+
+jobs:
+  validate-unix-identity:
+    name: Validate Linux/macOS identity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run Unix packaging identity guard
+        run: npm run test:unix-packaging-identity
+
+  build-linux:
+    name: Build LyraPOS Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Linux packages
+        run: npm run release:linux
+      - name: Verify artifact names
+        run: npm run verify:release-artifacts
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrapos-linux
+          path: |
+            release/lyrapos-*
+          if-no-files-found: error
+
+  build-macos:
+    name: Build LyraPOS macOS package
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build unsigned packaging validation
+        run: npm run build:frontend && npm run build && npx electron-builder --mac --publish never --config.mac.notarize=false --config.mac.gatekeeperAssess=false
+      - name: Verify artifact names
+        run: npm run verify:release-artifacts
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrapos-macos
+          path: |
+            release/lyrapos-*
+          if-no-files-found: error
