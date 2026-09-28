@@ -1,5 +1,5 @@
 {
-  "name": "flo-desktop",
+  "name": "lyrapos-desktop",
   "version": "3.11.0",
   "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
   "engines": {
@@ -295,8 +295,8 @@
     "ws": "^8.21.2"
   },
   "build": {
-    "appId": "com.flo.desktop",
-    "productName": "Flo Cafe",
+    "appId": "ir.lyradesgin.lyrapos",
+    "productName": "LyraPOS",
     "icon": "assets/icon-512.png",
     "afterPack": "scripts/afterPack.js",
     "asar": true,
@@ -311,8 +311,8 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "FreeOpenSourcePOS",
-      "repo": "FloCafe",
+      "owner": "AliasgharFahmidekar",
+      "repo": "LyraPOS",
       "releaseType": "release",
       "channel": "latest"
     },
@@ -345,15 +345,15 @@
         }
       ],
       "icon": "assets/icon.ico",
-      "artifactName": "flocafe-${version}-win-${arch}.${ext}"
+      "artifactName": "lyrapos-${version}-win-${arch}.${ext}"
     },
     "appx": {
-      "applicationId": "FloCafe",
+      "applicationId": "LyraPOS",
       "backgroundColor": "#1e1e2e",
       "publisherDisplayName": "Codify Apps Private Limited",
-      "identityName": "CodifyAppsPrivateLimited.FloCafe",
+      "identityName": "CodifyAppsPrivateLimited.LyraPOS",
       "publisher": "CN=34AFD24D-EC88-44B8-B309-08BB8A6BB5F7",
-      "displayName": "Flo Cafe",
+      "displayName": "LyraPOS",
       "languages": [
         "en-US"
       ]
@@ -383,7 +383,7 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "notarize": true,
-      "artifactName": "flocafe-${version}-mac-${arch}.${ext}",
+      "artifactName": "lyrapos-${version}-mac-${arch}.${ext}",
       "extendInfo": {
         "NSLocalNetworkUsageDescription": "Flo Cafe connects to thermal printers, KDS displays, and the Waiter & Table Terminal on your local network.",
         "NSBonjourServices": [
@@ -454,11 +454,11 @@
       ],
       "icon": "assets",
       "category": "Office",
-      "executableName": "flocafe",
-      "artifactName": "flocafe-${version}-linux.${ext}",
+      "executableName": "lyrapos",
+      "artifactName": "lyrapos-${version}-linux.${ext}",
       "extraFiles": [
         {
-          "from": "assets/com.flo.desktop.metainfo.xml",
+          "from": "assets/ir.lyradesgin.lyrapos.metainfo.xml",
           "to": "usr/share/metainfo/com.flo.desktop.metainfo.xml"
         },
         {
@@ -468,16 +468,16 @@
       ],
       "desktop": {
         "entry": {
-          "Name": "Flo Cafe",
-          "Comment": "Free, open-source POS for cafes and restaurants",
+          "Name": "LyraPOS",
+          "Comment": "LyraPOS — Point of Sale for cafes and restaurants",
           "GenericName": "Point of Sale",
           "Keywords": "pos;point of sale;restaurant;cafe;billing;invoice;",
-          "StartupWMClass": "flo-desktop"
+          "StartupWMClass": "lyrapos-desktop"
         }
       }
     },
     "appImage": {
-      "artifactName": "flocafe-${version}-linux.appimage"
+      "artifactName": "lyrapos-${version}-linux.appimage"
     },
     "snapcraft": {
       "base": "core24",
