@@ -238,7 +238,7 @@ function run(): void {
       `DirectionalToaster must set position="top-right" for ${ltrLang}, got: ${renderedLtr.position}`
     );
     assert(
-      renderedLtr.containerStyle?.top === 'calc(var(--flo-sidebar-block-start, 0px) + 16px)',
+      renderedLtr.containerStyle?.top === 'calc(var(--lyra-sidebar-block-start, 0px) + 16px)',
       `DirectionalToaster must set containerStyle.top with titlebar offset, got: ${renderedLtr.containerStyle?.top}`
     );
     assert(
