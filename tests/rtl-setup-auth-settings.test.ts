@@ -322,7 +322,7 @@ async function run(): Promise<void> {
   const tFa = createTranslator({ locale: 'fa-IR', messages: i18nModule.getCachedMessages('fa') });
   const tUr = createTranslator({ locale: 'ur-PK', messages: i18nModule.getCachedMessages('ur') });
   const tEn = createTranslator({ locale: 'en', messages: i18nModule.getCachedMessages('en') });
-  assert(tUr('setup.welcome') === 'FloCafe میں خوش آمدید', 'Urdu setup welcome message is localized');
+  assert(tUr('setup.welcome') === 'LyraPOS میں خوش آمدید', 'Urdu setup welcome message is localized');
   assert(tFa('setup.languagePersian') === 'فارسی', 'setup.languagePersian in fa must be فارسی');
   assert(tFa('settings.languageFa') === 'فارسی (FA)', 'settings.languageFa in fa must be فارسی (FA)');
   assert(tEn('setup.languagePersian') === 'Persian', 'setup.languagePersian in en must be Persian');
