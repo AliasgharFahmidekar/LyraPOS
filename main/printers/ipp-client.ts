@@ -288,7 +288,7 @@ export async function ippPrintRaw(printerName: string, data: Buffer, signal?: Ab
   const response = await ippRequest(`/printers/${encodeURIComponent(printerName)}`, OP_PRINT_JOB, [
     { tag: VALUE_TAG.uri, name: 'printer-uri', values: [`ipp://localhost/printers/${encodeURIComponent(printerName)}`] },
     { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
-    { tag: VALUE_TAG.nameWithoutLanguage, name: 'job-name', values: ['FloCafe receipt'] },
+    { tag: VALUE_TAG.nameWithoutLanguage, name: 'job-name', values: ['LyraPOS receipt'] },
     { tag: VALUE_TAG.mimeMediaType, name: 'document-format', values: ['application/octet-stream'] },
   ], data, signal);
 
