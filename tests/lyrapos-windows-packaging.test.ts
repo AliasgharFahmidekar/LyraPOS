@@ -6,11 +6,15 @@ const root = path.resolve(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
 const build = pkg.build;
+const mainIndex = fs.readFileSync(path.join(root, 'main', 'index.ts'), 'utf8');
 
 assert.equal(pkg.name, 'lyrapos-desktop');
 assert.equal(lock.name, 'lyrapos-desktop');
 assert.equal(lock.packages[''].name, 'lyrapos-desktop');
 assert.equal(build.appId, 'ir.lyradesgin.lyrapos');
+assert.match(mainIndex, /app\.setAppUserModelId\(['"]ir\.lyradesgin\.lyrapos['"]\)/);
+assert.doesNotMatch(mainIndex, /flo-unpacked-dev\.marker/);
+assert.doesNotMatch(mainIndex, /--flo-runtime-relaunch-attempt/);
 assert.equal(build.productName, 'LyraPOS');
 assert.ok(Array.isArray(build.win.target));
 assert.ok(build.win.target.some((t: any) => t.target === 'nsis'));
