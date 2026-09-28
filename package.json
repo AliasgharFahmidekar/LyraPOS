@@ -171,7 +171,7 @@
     "test:database-tools-api": "node tests/run-electron-node-test.cjs tests/database-tools-api.test.ts && node tests/run-electron-node-test.cjs tests/database-maintenance-lock.test.ts",
     "test:issue-127-password-recovery": "node tests/run-electron-node-test.cjs tests/issue-127-password-recovery.test.ts",
     "test:server-app-server-role": "node tests/run-electron-node-test.cjs tests/server-app-server-role.test.ts",
-    "test:customer-soft-reactivate-bindings": "ts-node --transpile-only -P tests/tsconfig.json tests/customer-soft-reactivate-bindings.test.ts",
+    "test:customer-soft-reactivate-bindings": "node tests/run-electron-node-test.cjs tests/customer-soft-reactivate-bindings.test.ts",
     "test:customer-phone-search": "node tests/run-electron-node-test.cjs tests/customer-phone-search.test.ts",
     "test:customer-pagination": "node tests/run-electron-node-test.cjs tests/customer-pagination.test.ts",
     "test:phone-search-integration": "node tests/run-electron-node-test.cjs tests/phone-search-integration.test.ts",
