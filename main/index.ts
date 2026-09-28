@@ -485,7 +485,7 @@ async function showRuntimeStuckDialog(reason: string): Promise<void> {
       `URL: ${lastWindowLoadFailure.validatedURL ?? `http://localhost:${getServerPort()}`}`,
     );
   }
-  detailLines.push(`Platform: ${process.platform} | Flo: ${app.getVersion()}`);
+  detailLines.push(`Platform: ${process.platform} | LyraPOS: ${app.getVersion()}`);
 
   const { response } = await dialog.showMessageBox({
     type: 'error',
@@ -568,6 +568,8 @@ function requestRuntimeRelaunch(reason: string): void {
 const requestRuntimeRelaunchOnce = createRelaunchGate(requestRuntimeRelaunch);
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+// Explicit Windows App User Model ID: LyraPOS is a separate application identity from FloCafe.\napp.setAppUserModelId('ir.lyradesgin.lyrapos');
 
 let gotSingleInstanceLock = false;
 
@@ -1108,7 +1110,7 @@ function createMenu(): void {
     {
       label: 'Window',
       submenu: [
-        { label: 'Flo Cafe', click: () => { if (showMainWindow()) mainWindow?.focus(); } },
+        { label: 'LyraPOS', click: () => { if (showMainWindow()) mainWindow?.focus(); } },
         { type: 'separator' },
         { role: 'minimize' },
         ...(process.platform === 'darwin' ? [
@@ -1121,7 +1123,7 @@ function createMenu(): void {
     {
       label: 'Help',
       submenu: [
-        ...(process.platform !== 'darwin' ? [{ label: 'About Flo', click: () => showAbout() }] : []),
+        ...(process.platform !== 'darwin' ? [{ label: 'About LyraPOS', click: () => showAbout() }] : []),
         ...(isStoreBuild
           ? []
           : [{ label: 'Check for Updates', click: () => checkForUpdates() }]),
@@ -1185,7 +1187,7 @@ async function initialize(): Promise<void> {
     await startServer();
     if (isShutdownRequested()) return;
 
-    // WordPress Bridge is optional and must never block core Flo startup.
+    // WordPress Bridge is optional and must never block core LyraPOS startup.
     wordpressBridge.start();
 
     cloudSync.start();
@@ -1345,7 +1347,7 @@ async function initialize(): Promise<void> {
       }
       return;
     }
-    dialog.showErrorBox('Initialization Error', `Failed to start Flo: ${error}`);
+    dialog.showErrorBox('Initialization Error', `Failed to start LyraPOS: ${error}`);
 
     // Report fatal startup error to telemetry on a best-effort basis.
     try {
