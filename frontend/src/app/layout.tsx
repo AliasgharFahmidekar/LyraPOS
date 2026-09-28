@@ -24,13 +24,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Flo",
+  title: "LyraPOS",
   description: "Smart Point of Sale for restaurants",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Flo",
+    title: "LyraPOS",
   },
   icons: {
     icon: [
@@ -65,7 +65,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html:
               "(function(){try{var p=new URLSearchParams(location.search).get('theme');" +
-              "var t=(p==='dark'||p==='light')?p:localStorage.getItem('flo-theme-resolved');" +
+              "var t=(p==='dark'||p==='light')?p:localStorage.getItem('lyrapos-theme-resolved');" +
               "if(t==='dark'||(t!=='light'&&window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)){" +
               'document.documentElement.classList.add(\'dark\');}}catch(e){}})();',
           }}
