@@ -34,13 +34,6 @@
   <url type="bugtracker">https://github.com/AliasgharFahmidekar/LyraPOS/issues</url>
   <url type="help">https://github.com/AliasgharFahmidekar/LyraPOS/discussions</url>
 
-  <screenshots>
-    <screenshot type="default">
-      <image>https://raw.githubusercontent.com/AliasgharFahmidekar/LyraPOS/main/docs/images/lyrapos-pos.webp</image>
-      <caption>Point of Sale interface</caption>
-    </screenshot>
-  </screenshots>
-
   <content_rating type="oars-1.1" />
 
   <releases>
