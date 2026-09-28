@@ -248,7 +248,7 @@ export async function ippGetPrinters(signal?: AbortSignal): Promise<IppAttribute
 /** Returns the CUPS-configured default printer's name, or null if none is set. */
 export async function ippGetDefaultPrinterName(signal?: AbortSignal): Promise<string | null> {
   const response = await ippRequest('/', OP_CUPS_GET_DEFAULT, [
-    { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
+    { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['lyrapos'] },
     REQUESTED_PRINTER_ATTRIBUTES,
   ], undefined, signal);
   const name = response.groups[0]?.['printer-name']?.[0];
