@@ -28,6 +28,7 @@ const app = {
   commandLine: { appendSwitch() {} },
   name: 'flo-test',
   setPath() {},
+  setAppUserModelId() {},
   getPath: () => testDir,
   getVersion: () => 'test',
   getName: () => 'Flo Test',
