@@ -175,7 +175,7 @@ function expectedManifestNames(channel) {
 }
 
 function assertManifestPlatformMapping(manifestName, version, files, selectedPath) {
-  const base = `flocafe-${version}`;
+  const base = `lyrapos-${version}`;
   const urls = files.map((file) => file.url);
   let allowed;
   let required;
