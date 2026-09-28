@@ -489,9 +489,9 @@ async function showRuntimeStuckDialog(reason: string): Promise<void> {
 
   const { response } = await dialog.showMessageBox({
     type: 'error',
-    title: 'Flo needs to restart',
-    message: 'Flo could not recover automatically. This usually means another program '
-      + '(antivirus, firewall, or a leftover Flo process) is blocking its local server.\n\n'
+    title: 'LyraPOS needs to restart',
+    message: 'LyraPOS could not recover automatically. This usually means another program '
+      + '(antivirus, firewall, or a leftover LyraPOS process) is blocking its local server.\n\n'
       + 'Please quit and reopen the app. If this keeps happening, sending a diagnostic '
       + 'report helps us fix it — it contains no order, customer, or business data.',
     detail: detailLines.join('\n'),
@@ -513,7 +513,7 @@ async function showRuntimeStuckDialog(reason: string): Promise<void> {
 
   await dialog.showMessageBox({
     type: sent ? 'info' : 'warning',
-    title: 'Flo',
+    title: 'LyraPOS',
     message: sent
       ? 'Diagnostic report sent. Thank you.'
       : 'Could not send the diagnostic report (diagnostics may be disabled in '
@@ -547,7 +547,7 @@ function requestRuntimeRelaunch(reason: string): void {
       return;
     }
     try {
-      log.info('[Lifecycle] Runtime cleanup finished; relaunching Flo');
+      log.info('[Lifecycle] Runtime cleanup finished; relaunching LyraPOS');
       performAppRelaunch();
       app.exit(0);
     } catch (error) {
@@ -577,8 +577,8 @@ if (process.env.FLO_E2E_USER_DATA_DIR) {
   app.setPath('userData', path.resolve(process.env.FLO_E2E_USER_DATA_DIR));
 } else if (process.platform === 'linux') {
   // Set explicit paths on Linux to avoid temporary mount directories.
-  app.name = 'flo-desktop';
-  app.setPath('userData', path.join(os.homedir(), '.config', 'flo-desktop'));
+  app.name = 'lyrapos-desktop';
+  app.setPath('userData', path.join(os.homedir(), '.config', 'lyrapos-desktop'));
 }
 
 gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -673,9 +673,9 @@ function createWindow(): void {
     if (localWindowResponse) return localWindowResponse;
 
     if (isSafeExternalUrl(url)) {
-      shell.openExternal(url).catch((err) => console.warn('[Flo] Failed to open external URL:', err?.message || err));
+      shell.openExternal(url).catch((err) => console.warn('[LyraPOS] Failed to open external URL:', err?.message || err));
     } else {
-      console.warn('[Flo] Blocked unsafe external URL scheme:', url);
+      console.warn('[LyraPOS] Blocked unsafe external URL scheme:', url);
     }
     return { action: 'deny' };
   });
@@ -940,7 +940,7 @@ function createTray(): void {
         },
       ]);
 
-      tray.setToolTip('Flo Cafe');
+      tray.setToolTip('LyraPOS');
       tray.setContextMenu(linuxMenu);
       // Single-click also shows the window on Linux (no double-click standard).
       tray.on('click', () => {
@@ -966,12 +966,12 @@ function createTray(): void {
     tray = new Tray(icon.resize({ width: 16, height: 16 }));
 
     const contextMenu = Menu.buildFromTemplate([
-      { label: 'Open Flo', click: () => { showMainWindow(); } },
+      { label: 'Open LyraPOS', click: () => { showMainWindow(); } },
       { type: 'separator' },
       { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
     ]);
 
-    tray.setToolTip('Flo');
+    tray.setToolTip('LyraPOS');
     tray.setContextMenu(contextMenu);
     tray.on('double-click', () => { showMainWindow(); });
   } catch {
@@ -983,16 +983,16 @@ function startMdns(): void {
   try {
     bonjour = new Bonjour();
     bonjour.publish({
-      name: 'Flo',
+      name: 'LyraPOS',
       type: 'http',
       port: getServerPort(),
-      host: 'flo',   // resolves as flo.local on the LAN
+      host: 'lyrapos',   // resolves as lyrapos.local on the LAN
       txt: { version: app.getVersion(), kds: `/kds`, kds_port: String(getKdsPort()), server_app: '/server-standalone', server_app_port: String(getServerAppPort()) },
     });
     const ip = getLocalIP();
-    console.log(`[mDNS] Advertising flo.local:${getServerPort()}  (IP fallback: http://${ip}:${getServerPort()})`);
-    console.log(`[mDNS] KDS available at http://flo.local:${getKdsPort()}  (IP fallback: http://${ip}:${getKdsPort()})`);
-    console.log(`[mDNS] Server App available at http://flo.local:${getServerAppPort()}  (IP fallback: http://${ip}:${getServerAppPort()})`);
+    console.log(`[mDNS] Advertising lyrapos.local:${getServerPort()}  (IP fallback: http://${ip}:${getServerPort()})`);
+    console.log(`[mDNS] KDS available at http://lyrapos.local:${getKdsPort()}  (IP fallback: http://${ip}:${getKdsPort()})`);
+    console.log(`[mDNS] Server App available at http://lyrapos.local:${getServerAppPort()}  (IP fallback: http://${ip}:${getServerAppPort()})`);
   } catch (err) {
     console.warn('[mDNS] Could not start Bonjour:', err);
   }
@@ -1150,8 +1150,8 @@ function showAbout(): void {
   const serverAppPort = getServerAppPort();
   dialog.showMessageBox({
     type: 'info',
-    title: 'About Flo',
-    message: 'Flo Cafe',
+    title: 'About LyraPOS',
+    message: 'LyraPOS',
     detail: [
       `Version: ${app.getVersion()}`,
       `Electron: ${process.versions.electron}`,
@@ -1160,9 +1160,9 @@ function showAbout(): void {
       'A self-hosted, offline-first Point of Sale system.',
       'Your data stays yours.',
       '',
-      `POS URL: http://flo.local:${getServerPort()}`,
-      `KDS URL: http://flo.local:${kdsPort}`,
-      `Server App URL: http://flo.local:${serverAppPort}`,
+      `POS URL: http://lyrapos.local:${getServerPort()}`,
+      `KDS URL: http://lyrapos.local:${kdsPort}`,
+      `Server App URL: http://lyrapos.local:${serverAppPort}`,
       '',
       `KDS IP fallback: http://${ip}:${kdsPort}`,
       `Server App IP fallback: http://${ip}:${serverAppPort}`,
@@ -1175,13 +1175,13 @@ async function initialize(): Promise<void> {
   log.info('[Lifecycle] Runtime is starting');
   try {
     if (isShutdownRequested()) return;
-    console.log('[Flo] Initializing...');
+    console.log('[LyraPOS] Initializing...');
 
-    console.log('[Flo] Initializing database...');
+    console.log('[LyraPOS] Initializing database...');
     initDatabase();
     if (isShutdownRequested()) return;
 
-    console.log('[Flo] Starting local server...');
+    console.log('[LyraPOS] Starting local server...');
     await startServer();
     if (isShutdownRequested()) return;
 
@@ -1192,26 +1192,26 @@ async function initialize(): Promise<void> {
     telemetry.start();
     googleDrive.start();
 
-    console.log('[Flo] Starting KDS server on port 3002...');
+    console.log('[LyraPOS] Starting KDS server on port 3002...');
     await startKdsServer();
     if (isShutdownRequested()) return;
 
-    console.log('[Flo] Starting Server App on port 3003...');
+    console.log('[LyraPOS] Starting Server App on port 3003...');
     await startServerApp();
     if (isShutdownRequested()) return;
 
     // Native E2E owns an offline fixture; optional LAN discovery must not
     // contend with a developer session or keep the test process alive.
     if (process.env.FLO_E2E_SKIP_OPTIONAL_NETWORK !== '1') {
-      console.log('[Flo] Starting mDNS advertisement...');
+      console.log('[LyraPOS] Starting mDNS advertisement...');
       startMdns();
     }
 
-    console.log('[Flo] Initializing printer...');
+    console.log('[LyraPOS] Initializing printer...');
     await initPrinter();
     if (isShutdownRequested()) return;
 
-    console.log('[Flo] Registering IPC handlers...');
+    console.log('[LyraPOS] Registering IPC handlers...');
     registerIpcHandlers(shutdownSignal, () => mainWindow, showMainWindow, () => currentEffectiveIsDark);
 
     ipcMain.handle('get-update-status', () =>
@@ -1307,7 +1307,7 @@ async function initialize(): Promise<void> {
       }
       return { success: true };
     });
-    console.log('[Flo] Creating window...');
+    console.log('[LyraPOS] Creating window...');
     createWindow();
     registerPowerMonitorRecovery();
     registerChildProcessCrashTelemetry();
@@ -1327,11 +1327,11 @@ async function initialize(): Promise<void> {
       setTimeout(() => { void checkTaxPackUpdatesOnStartup(); }, 5000);
     }
 
-    console.log('[Flo] Ready!');
+    console.log('[LyraPOS] Ready!');
   } catch (error) {
     runtimeState = 'failed';
     log.error('[Lifecycle] Runtime initialization failed:', error);
-    console.error('[Flo] Initialization error:', error);
+    console.error('[LyraPOS] Initialization error:', error);
     const errorDetails = error as { code?: unknown; name?: unknown } | null;
     const expectedShutdownCancellation = errorDetails?.code === 'ERR_SHUTDOWN_ABORTED'
       || errorDetails?.code === 'ABORT_ERR'
@@ -1341,7 +1341,7 @@ async function initialize(): Promise<void> {
       try {
         await runCleanup();
       } catch (cleanupError) {
-        console.error('[Flo] Cleanup after interrupted initialization failed:', cleanupError);
+        console.error('[LyraPOS] Cleanup after interrupted initialization failed:', cleanupError);
       }
       return;
     }
@@ -1358,14 +1358,14 @@ async function initialize(): Promise<void> {
       }
       await sendTelemetryEvent('startup_failed', payload);
     } catch (telemetryError) {
-      console.error('[Flo] Failed to report startup error via telemetry:', telemetryError);
+      console.error('[LyraPOS] Failed to report startup error via telemetry:', telemetryError);
     }
 
     isQuitting = true;
     try {
       await runCleanup();
     } catch (cleanupError) {
-      console.error('[Flo] Cleanup after initialization failure failed:', cleanupError);
+      console.error('[LyraPOS] Cleanup after initialization failure failed:', cleanupError);
     }
     // Cleanup has settled (or reported its bounded failure) before exiting.
     app.exit(1);
@@ -1449,14 +1449,14 @@ const { runCleanup, isShutdownRequested, shutdownSignal } = createShutdownEntryp
   process: process as unknown as ShutdownEntrypointProcess,
   cleanup: async () => {
     log.info('[Lifecycle] Cleanup started');
-    console.log('[Flo] Running cleanup...');
+    console.log('[LyraPOS] Running cleanup...');
     try {
       await cleanupCoordinator();
       log.info('[Lifecycle] Cleanup completed');
-      console.log('[Flo] Goodbye!');
+      console.log('[LyraPOS] Goodbye!');
     } catch (error) {
       log.error('[Lifecycle] Cleanup failed:', error);
-      console.error('[Flo] Cleanup failed:', error);
+      console.error('[LyraPOS] Cleanup failed:', error);
       throw error;
     }
   },
@@ -1470,15 +1470,15 @@ const { runCleanup, isShutdownRequested, shutdownSignal } = createShutdownEntryp
   },
   isInstallingUpdate: () => isInstallingUpdate,
   reportFailure: (context, error) => {
-    console.error(`[Flo] Cleanup failed before ${context}:`, error);
+    console.error(`[LyraPOS] Cleanup failed before ${context}:`, error);
   },
   getSignalExitCode: () => startupFailure ? 1 : 0,
   getQuitExitCode: () => startupFailure ? 1 : 0,
 });
 
 process.on('uncaughtException', (error) => {
-  log.error('[Flo] Uncaught exception:', error);
-  console.error('[Flo] Uncaught exception:', error);
+  log.error('[LyraPOS] Uncaught exception:', error);
+  console.error('[LyraPOS] Uncaught exception:', error);
   void sendTelemetryEvent('main_uncaught_exception', {
     message: error?.message?.slice(0, 500),
     stack: error?.stack?.slice(0, 4000),
@@ -1486,8 +1486,8 @@ process.on('uncaughtException', (error) => {
 });
 
 process.on('unhandledRejection', (reason) => {
-  log.error('[Flo] Unhandled rejection:', reason);
-  console.error('[Flo] Unhandled rejection:', reason);
+  log.error('[LyraPOS] Unhandled rejection:', reason);
+  console.error('[LyraPOS] Unhandled rejection:', reason);
   const message = reason instanceof Error ? reason.message : String(reason);
   const stack = reason instanceof Error ? reason.stack : undefined;
   void sendTelemetryEvent('main_unhandled_rejection', {
