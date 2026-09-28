@@ -283,8 +283,8 @@ export function WordPressBridgeSettings() {
       </div>
 
       <div className="bg-muted/30 rounded-xl border border-border p-5 text-sm text-muted-foreground">
-        <strong className="text-foreground">Important:</strong> FloCafe remains the source of truth for the connected catalog.
-        When a product is created or edited in FloCafe, its stable FloCafe ID is used to update the matching WooCommerce product;
+        <strong className="text-foreground">Important:</strong> LyraPOS remains the source of truth for the connected catalog.
+        When a product is created or edited in LyraPOS, its stable integration ID is used to update the matching WooCommerce product;
         products are never matched by name.
       </div>
     </div>
