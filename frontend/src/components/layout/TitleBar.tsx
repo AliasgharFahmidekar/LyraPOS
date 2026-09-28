@@ -76,12 +76,12 @@ export default function TitleBar() {
   return (
     <header
       data-testid="desktop-title-bar"
-      className="flo-title-bar hidden shrink-0 md:flex"
+      className="lyra-title-bar hidden shrink-0 md:flex"
       aria-label={businessName}
     >
-      <div className="flo-title-bar__safe-area pointer-events-none flex w-full items-center justify-between">
+      <div className="lyra-title-bar__safe-area pointer-events-none flex w-full items-center justify-between">
         {/* Leading edge: Sidebar toggle button (placed after traffic lights on macOS, top-left on Windows/Linux) */}
-        <div className="flo-title-bar__interactive pointer-events-auto flex items-center translate-y-[1.5px]">
+        <div className="lyra-title-bar__interactive pointer-events-auto flex items-center translate-y-[1.5px]">
           <SidebarTrigger
             aria-label={tNav('toggleSidebar')}
             className="size-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
@@ -89,7 +89,7 @@ export default function TitleBar() {
         </div>
 
         {/* Trailing edge: Update badge */}
-        <div className="flo-title-bar__interactive pointer-events-auto ms-auto flex items-center">
+        <div className="lyra-title-bar__interactive pointer-events-auto ms-auto flex items-center">
           <UpdateBadge />
         </div>
       </div>
