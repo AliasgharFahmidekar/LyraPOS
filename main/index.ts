@@ -569,7 +569,8 @@ const requestRuntimeRelaunchOnce = createRelaunchGate(requestRuntimeRelaunch);
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
-// Explicit Windows App User Model ID: LyraPOS is a separate application identity from FloCafe.\napp.setAppUserModelId('ir.lyradesgin.lyrapos');
+// Explicit Windows App User Model ID: LyraPOS is a separate application identity from FloCafe.
+app.setAppUserModelId('ir.lyradesgin.lyrapos');
 
 let gotSingleInstanceLock = false;
 
