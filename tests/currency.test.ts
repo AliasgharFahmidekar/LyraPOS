@@ -40,10 +40,10 @@ test('formatCurrencyForTenant: US tenant uses en-US locale', () => {
   assert.equal(formatCurrencyForTenant(1234.5, 'US', 'USD'), '$1,234.50');
 });
 
-test('formatCurrencyForTenant: COP uses zero fraction digits', () => {
+test('formatCurrencyForTenant: COP follows ISO 4217 two-digit precision', () => {
   const out = formatCurrencyForTenant(11000, 'CO', 'COP');
-  assert.match(out, /11\.000/);
-  assert.doesNotMatch(out, /[,.]00(?:\D|$)/);
+  assert.match(out, /11\.000,00/);
+  assert.equal(getCurrencyFractionDigits('COP'), 2);
 });
 
 test('formatCurrencyForTenant: KWD uses three fraction digits', () => {
@@ -103,7 +103,7 @@ test('getCurrencyFractionDigits: resolves ISO 4217 standard precision', () => {
 });
 
 test('getCurrencyUnitAdapter: zero-decimal currencies use whole integer steps', () => {
-  const { getCurrencyUnitAdapter } = require('../main/countries');
+  const { getCurrencyUnitAdapter, getCurrencyFractionDigits } = require('../main/countries');
   const jpyAdapter = getCurrencyUnitAdapter('JPY', 'JP');
   assert.equal(jpyAdapter.scale, 1);
   assert.equal(jpyAdapter.label, 'JPY');
