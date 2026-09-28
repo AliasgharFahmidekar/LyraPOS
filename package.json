@@ -401,7 +401,7 @@
       "entitlements": "build/entitlements.mas.plist",
       "entitlementsInherit": "build/entitlements.mas.inherit.plist",
       "entitlementsLoginHelper": "build/entitlements.mas.loginhelper.plist",
-      "provisioningProfile": "build/lyrapos.provisionprofile",
+      "provisioningProfile": "build/flo.provisionprofile",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "type": "distribution",
