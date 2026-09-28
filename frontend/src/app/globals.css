@@ -202,7 +202,7 @@ html[data-lyra-desktop-titlebar='true'] {
 }
 
 /* Modern minimalist toast styling (Linear / Sonner aesthetic) */
-.flo-toast-card {
+.lyra-toast-card {
   position: relative !important;
   overflow: hidden !important;
   background: rgba(255, 255, 255, 0.96) !important;
@@ -223,7 +223,7 @@ html[data-lyra-desktop-titlebar='true'] {
   max-width: 380px !important;
 }
 
-.dark .flo-toast-card {
+.dark .lyra-toast-card {
   background: rgba(24, 24, 27, 0.94) !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
   color: #fafafa !important;
@@ -231,7 +231,7 @@ html[data-lyra-desktop-titlebar='true'] {
 
 /* Toast time-drain progress bar: visual indicator running out linearly from 100% to 0%.
  * Pauses on hover in sync with react-hot-toast's dismiss timer. */
-@keyframes flo-toast-drain {
+@keyframes lyra-toast-drain {
   from {
     transform: scaleX(1);
   }
@@ -240,7 +240,7 @@ html[data-lyra-desktop-titlebar='true'] {
   }
 }
 
-.flo-toast-drain {
+.lyra-toast-drain {
   position: absolute;
   inset-block-end: 0;
   inset-inline-start: 0;
@@ -248,31 +248,31 @@ html[data-lyra-desktop-titlebar='true'] {
   block-size: 2.5px;
   background-color: var(--sidebar-primary, #3248FF);
   transform-origin: left center;
-  animation-name: flo-toast-drain;
+  animation-name: lyra-toast-drain;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
   pointer-events: none;
 }
 
-html[dir='rtl'] .flo-toast-drain {
+html[dir='rtl'] .lyra-toast-drain {
   transform-origin: right center;
 }
 
-.flo-toast-card:hover .flo-toast-drain,
-div:hover > .flo-toast-drain,
-[data-rht-toaster]:hover .flo-toast-drain {
+.lyra-toast-card:hover .lyra-toast-drain,
+div:hover > .lyra-toast-drain,
+[data-rht-toaster]:hover .lyra-toast-drain {
   animation-play-state: paused;
 }
 
-.flo-toast-drain--success {
+.lyra-toast-drain--success {
   background-color: #10b981;
 }
 
-.flo-toast-drain--error {
+.lyra-toast-drain--error {
   background-color: #f43f5e;
 }
 
-.flo-toast-drain--blank {
+.lyra-toast-drain--blank {
   background-color: var(--sidebar-primary, #3248FF);
 }
 
