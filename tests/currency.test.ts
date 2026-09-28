@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatCurrency, formatCurrencyForTenant } from '../main/countries';
+import { formatCurrency, formatCurrencyForTenant, getCurrencyFractionDigits } from '../main/countries';
 
 test('formatCurrency: en-US / USD', () => {
   assert.equal(formatCurrency(1234.5, 'USD', 'en-US'), '$1,234.50');
