@@ -4,10 +4,10 @@ import * as path from 'node:path';
 
 const root = path.join(__dirname, '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const updater = fs.readFileSync(path.join(root, '../main/index.ts'), 'utf8');
-const channel = fs.readFileSync(path.join(root, '../main/update-channel.ts'), 'utf8');
-const verifier = fs.readFileSync(path.join(root, '../scripts/verify-release-assets.cjs'), 'utf8');
-const marker = fs.readFileSync(path.join(root, '../scripts/mark-unpacked-artifact.cjs'), 'utf8');
+const updater = fs.readFileSync(path.join(root, 'main/index.ts'), 'utf8');
+const channel = fs.readFileSync(path.join(root, 'main/update-channel.ts'), 'utf8');
+const verifier = fs.readFileSync(path.join(root, 'scripts/verify-release-assets.cjs'), 'utf8');
+const marker = fs.readFileSync(path.join(root, 'scripts/mark-unpacked-artifact.cjs'), 'utf8');
 
 assert.equal(pkg.build.publish.provider, 'github');
 assert.equal(pkg.build.publish.owner, 'AliasgharFahmidekar');
