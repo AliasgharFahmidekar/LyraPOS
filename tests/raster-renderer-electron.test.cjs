@@ -3,6 +3,8 @@ const path = require('node:path');
 const { app, BrowserWindow } = require('electron');
 const { ChromiumRasterRenderer, getSharedRasterRenderer, destroySharedRasterRenderer } = require('../dist/main/printers/raster-renderer.js');
 
+// This test creates a real BrowserWindow; CI supplies a virtual X display via xvfb.
+
 const font = { family: 'FloRaster', dataUrl: 'data:font/woff2;base64,AA==' };
 
 function area(unit) {
