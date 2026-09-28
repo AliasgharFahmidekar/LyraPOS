@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const releaseDir = path.resolve(__dirname, '../release');
-const markerName = 'flo-unpacked-dev.marker';
+const markerName = 'lyrapos-unpacked-dev.marker';
 
 function findResourceDirectories(currentDir, found = []) {
   let entries;
