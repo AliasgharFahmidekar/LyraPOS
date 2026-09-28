@@ -30,13 +30,13 @@
   <launchable type="desktop-id">lyrapos-desktop.desktop</launchable>
 
   <url type="homepage">https://lyradesgin.ir</url>
-  <url type="vcs-browser">https://github.com/LyraDesgin/FloCafe</url>
-  <url type="bugtracker">https://github.com/LyraDesgin/FloCafe/issues</url>
-  <url type="help">https://github.com/LyraDesgin/FloCafe/discussions</url>
+  <url type="vcs-browser">https://github.com/AliasgharFahmidekar/LyraPOS</url>
+  <url type="bugtracker">https://github.com/AliasgharFahmidekar/LyraPOS/issues</url>
+  <url type="help">https://github.com/AliasgharFahmidekar/LyraPOS/discussions</url>
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/LyraDesgin/FloCafe/main/docs/images/flo-cafe-pos.webp</image>
+      <image>https://raw.githubusercontent.com/AliasgharFahmidekar/LyraPOS/main/docs/images/lyrapos-pos.webp</image>
       <caption>Point of Sale interface</caption>
     </screenshot>
   </screenshots>
