@@ -185,7 +185,7 @@
     "test:i18n-ssr-timezone": "ts-node --transpile-only -P tests/tsconfig.json tests/i18n-ssr-timezone.test.ts",
     "test:issue-241-localized-errors": "ts-node --transpile-only -P tests/tsconfig.json tests/issue-241-localized-errors.test.ts",
     "test:payment-modal-currency-adapter": "ts-node --transpile-only -P tests/tsconfig.json tests/payment-modal-currency-adapter.test.ts",
-    "test:printer-fallback-and-popup-verification": "ts-node --transpile-only -P tests/tsconfig.json tests/printer-fallback-and-popup-verification.ts",
+    "test:printer-fallback-and-popup-verification": "node tests/run-electron-node-test.cjs tests/printer-fallback-and-popup-verification.ts",
     "test:kot-locale-cold-start": "ts-node --transpile-only -P tests/tsconfig.json tests/kot-locale-cold-start.test.ts",
     "test:phase6-locale-loading": "ts-node --transpile-only -P tests/tsconfig.json tests/phase6-locale-loading.test.ts",
     "test:phase7-setup-i18n": "node tests/run-electron-node-test.cjs tests/phase7-setup-i18n.test.ts",
