@@ -43,5 +43,18 @@ jobs:
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
 
+      - name: Start virtual display for Electron renderer tests
+        run: |
+          Xvfb :99 -screen 0 1280x1024x24 -ac +extension GLX +render -noreset > /tmp/lyrapos-xvfb.log 2>&1 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          for attempt in {1..20}; do
+            if xdpyinfo -display :99 >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 0.25
+          done
+          cat /tmp/lyrapos-xvfb.log
+          exit 1
+
       - name: Run original test suite unchanged
         run: npm test
