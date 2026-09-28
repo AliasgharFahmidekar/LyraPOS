@@ -14,68 +14,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Extract uploaded source ZIP
         shell: bash
         run: |
           set -euo pipefail
-
           ZIP="FloCafe-Bridge-main.zip"
           WORKDIR="${RUNNER_TEMP}/lyrapos-source"
-
           test -f "$ZIP"
           rm -rf "$WORKDIR"
           mkdir -p "$WORKDIR"
-
           unzip -q "$ZIP" -d "$WORKDIR"
-
-          # Support ZIPs containing one top-level project directory.
           shopt -s dotglob nullglob
           entries=("$WORKDIR"/*)
-
-          if [ "${#entries[@]}" -eq 1 ] && [ -d "${entries[0]}" ]; then
-            SOURCE_DIR="${entries[0]}"
-          else
-            SOURCE_DIR="$WORKDIR"
-          fi
-
+          if [ "${#entries[@]}" -eq 1 ] && [ -d "${entries[0]}" ]; then SOURCE_DIR="${entries[0]}"; else SOURCE_DIR="$WORKDIR"; fi
           test -f "$SOURCE_DIR/package.json"
-
-          # Copy the real project into the repository root.
-          # Keep this bootstrap workflow intact so it can be re-run safely.
-          rsync -a --delete \
-            --exclude '.git/' \
-            --exclude '.github/workflows/bootstrap-extract.yml' \
-            "$SOURCE_DIR/" ./
-
+          rsync -a --delete --exclude '.git/' --exclude '.github/workflows/' "$SOURCE_DIR/" ./
           rm -f "$ZIP"
-
           test -f package.json
-          echo "Source extraction completed successfully."
-
-      - name: Show extracted project summary
-        shell: bash
-        run: |
-          echo "Root files:"
-          find . -maxdepth 2 -type f \
-            ! -path './.git/*' \
-            ! -path './node_modules/*' \
-            | sort | head -200
-
       - name: Commit extracted source
         shell: bash
         run: |
           set -euo pipefail
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add -A
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m "chore: extract LyraPOS source archive"
           git push origin HEAD:main
