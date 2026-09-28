@@ -662,7 +662,7 @@ class WordPressBridgeService {
 
   private localRequest(path: string, init: RequestInit = {}, signal?: AbortSignal): Promise<any> {
     const port = getServerPort();
-    if (!port) throw new Error('FloCafe local server is not ready');
+    if (!port) throw new Error('LyraPOS local server is not ready');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     const onAbort = () => controller.abort();
