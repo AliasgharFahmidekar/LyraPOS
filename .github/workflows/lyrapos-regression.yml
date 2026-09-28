@@ -43,5 +43,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm --prefix frontend ci
 
-      - name: Run original test suite unchanged
+      - name: Verify canonical i18n and generated print labels
+        run: npm run i18n:check
+
+      - name: Run original test suite unchanged under virtual display
         run: xvfb-run -a npm test
