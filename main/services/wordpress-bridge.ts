@@ -410,7 +410,7 @@ class WordPressBridgeService {
 
         const flocafeOrder = result?.order ?? result;
         const flocafeOrderId = String(flocafeOrder?.id || '');
-        if (!flocafeOrderId) throw new Error('FloCafe did not return an order ID');
+        if (!flocafeOrderId) throw new Error('LyraPOS did not return an order ID');
 
         this.upsertOrderMap(order.external_order_id, order.woo_order_id, flocafeOrderId, String(flocafeOrder.status || 'pending'));
         await this.wp.ackOrder(order.woo_order_id, {
