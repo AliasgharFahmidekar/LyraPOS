@@ -229,7 +229,7 @@
     "test:units": "ts-node --transpile-only -P tests/tsconfig.json tests/units.test.ts",
     "test:supplies-service": "node tests/run-electron-node-test.cjs tests/supplies-service.test.ts",
     "test:recipe-order-lifecycle": "node tests/run-electron-node-test.cjs tests/recipe-order-lifecycle.test.ts",
-    "test:identity": "node --test tests/lyrapos-identity.test.ts"
+    "test:identity": "ts-node --transpile-only -P tests/tsconfig.json tests/lyrapos-identity.test.ts"
   },
   "author": {
     "name": "Flo",
