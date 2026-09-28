@@ -86,7 +86,7 @@ const isMsixBuild =
 
 // Either store build: skip third-party auto-updater entirely.
 const isStoreBuild = isMasBuild || isMsixBuild;
-const UNPACKED_DEV_MARKER = 'flo-unpacked-dev.marker';
+const UNPACKED_DEV_MARKER = 'lyrapos-unpacked-dev.marker';
 
 log.initialize();
 log.transports.file.level = 'info';
@@ -436,7 +436,7 @@ function recoverFailedWindow(failedWindow: BrowserWindow): void {
 }
 
 // Flag passed in argv to prevent infinite relaunch loops across process restarts.
-const RUNTIME_RELAUNCH_ATTEMPT_FLAG = '--flo-runtime-relaunch-attempt';
+const RUNTIME_RELAUNCH_ATTEMPT_FLAG = '--lyrapos-runtime-relaunch-attempt';
 
 function hasAlreadyAttemptedRuntimeRelaunch(): boolean {
   return hasRelaunchAttemptFlag(process.argv, RUNTIME_RELAUNCH_ATTEMPT_FLAG);
