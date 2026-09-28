@@ -680,7 +680,7 @@ class WordPressBridgeService {
       const text=await response.text();
       let body:any=null; try{body=text?JSON.parse(text):null;}catch{body=text;}
       if(!response.ok){
-        const error=new Error(`FloCafe ${response.status}: ${typeof body==='string'?body:(body?.error||JSON.stringify(body))}`) as Error & {status?:number};
+        const error=new Error(`LyraPOS ${response.status}: ${typeof body==='string'?body:(body?.error||JSON.stringify(body))}`) as Error & {status?:number};
         error.status=response.status;
         throw error;
       }
