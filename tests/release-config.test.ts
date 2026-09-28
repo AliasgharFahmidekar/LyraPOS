@@ -164,7 +164,7 @@ function run() {
   const build = pkg.build;
   const releaseVerifier = require('../scripts/verify-release-assets.cjs');
 
-  assert.equal(pkg.engines?.node, '>=22.12.0', 'root Node engine must match Electron 43 minimum');
+  assert.equal(pkg.engines?.node, '>=22.13.0', 'root Node engine must satisfy the current dependency/tooling floor');
   assert.equal(pkg.scripts?.['verify:electron'], 'node scripts/verify-electron-runtime.cjs', 'Electron runtime verification must be cross-platform');
   assert.equal(pkg.scripts?.['verify:release-artifacts'], 'node scripts/assert-release-artifact-names.cjs', 'release artifact filename assertion must be available to CI');
   assert.ok(fs.existsSync(path.join(__dirname, '../scripts/verify-electron-runtime.cjs')), 'cross-platform Electron runtime verifier must exist');
