@@ -231,7 +231,7 @@ function assertManifestPlatformMapping(manifestName, version, files, selectedPat
 }
 
 function expectedArtifactNames(version) {
-  const base = `flocafe-${version}`;
+  const base = `lyrapos-${version}`;
   return [
     'uninstall-macos.sh',
     'uninstall-windows.ps1',
