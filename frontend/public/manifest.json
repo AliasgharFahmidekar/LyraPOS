@@ -1,6 +1,6 @@
 {
-  "name": "Flo",
-  "short_name": "Flo",
+  "name": "LyraPOS",
+  "short_name": "LyraPOS",
   "description": "Smart Point of Sale for restaurants, salons, and retail",
   "start_url": "/dashboard",
   "display": "standalone",
