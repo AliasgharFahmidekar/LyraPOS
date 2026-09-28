@@ -232,16 +232,16 @@
     "test:identity": "ts-node --transpile-only -P tests/tsconfig.json tests/lyrapos-identity.test.ts"
   },
   "author": {
-    "name": "Flo",
-    "email": "support@flo.local"
+    "name": "LyraDesgin",
+    "email": "support@lyradesgin.ir"
   },
-  "homepage": "https://flopos.com",
+  "homepage": "https://lyradesgin.ir",
   "repository": {
     "type": "git",
-    "url": "https://github.com/FreeOpenSourcePOS/FloCafe.git"
+    "url": "https://github.com/AliasgharFahmidekar/LyraPOS.git"
   },
   "bugs": {
-    "url": "https://github.com/FreeOpenSourcePOS/FloCafe/issues"
+    "url": "https://github.com/AliasgharFahmidekar/LyraPOS/issues"
   },
   "license": "MIT",
   "overrides": {
@@ -386,7 +386,7 @@
       "notarize": true,
       "artifactName": "lyrapos-${version}-mac-${arch}.${ext}",
       "extendInfo": {
-        "NSLocalNetworkUsageDescription": "Flo Cafe connects to thermal printers, KDS displays, and the Waiter & Table Terminal on your local network.",
+        "NSLocalNetworkUsageDescription": "LyraPOS connects to thermal printers, KDS displays, and the Waiter & Table Terminal on your local network.",
         "NSBonjourServices": [
           "_http._tcp"
         ]
@@ -404,7 +404,7 @@
       "type": "distribution",
       "extendInfo": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocalNetworkUsageDescription": "Flo Cafe connects to thermal printers, KDS displays, and the Waiter & Table Terminal on your local network.",
+        "NSLocalNetworkUsageDescription": "LyraPOS connects to thermal printers, KDS displays, and the Waiter & Table Terminal on your local network.",
         "NSBonjourServices": [
           "_http._tcp"
         ]
@@ -422,7 +422,7 @@
     },
     "linux": {
       "synopsis": "Self-hosted Point of Sale for cafes and restaurants",
-      "description": "Flo is a free, open-source point-of-sale system for cafes, restaurants, and small kitchens. Local-first, offline-capable, no cloud lock-in, no per-seat fees.",
+      "description": "LyraPOS is a free, open-source point-of-sale system for cafes, restaurants, and small kitchens. Local-first, offline-capable, no cloud lock-in, no per-seat fees.",
       "target": [
         {
           "target": "AppImage",
@@ -512,7 +512,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support."
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true,
