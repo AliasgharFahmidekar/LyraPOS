@@ -1,7 +1,7 @@
 {
   "name": "lyrapos-desktop",
   "version": "3.11.0",
-  "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
+  "description": "LyraPOS — Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -401,7 +401,7 @@
       "entitlements": "build/entitlements.mas.plist",
       "entitlementsInherit": "build/entitlements.mas.inherit.plist",
       "entitlementsLoginHelper": "build/entitlements.mas.loginhelper.plist",
-      "provisioningProfile": "build/flo.provisionprofile",
+      "provisioningProfile": "build/lyrapos.provisionprofile",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "type": "distribution",
@@ -463,7 +463,7 @@
       "extraFiles": [
         {
           "from": "assets/ir.lyradesgin.lyrapos.metainfo.xml",
-          "to": "usr/share/metainfo/com.flo.desktop.metainfo.xml"
+          "to": "usr/share/metainfo/ir.lyradesgin.lyrapos.metainfo.xml"
         },
         {
           "from": "assets/icons",
