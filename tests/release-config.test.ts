@@ -67,7 +67,7 @@ function testCurrentWorkflows() {
   });
   assert.equal(regression.jobs.test['runs-on'], 'ubuntu-latest');
   assert.equal(regression.jobs.test.steps[1].with['node-version'], '22.13.0');
-  assert.equal(regression.jobs.test.steps.at(-1).run, 'npm test');
+  assert.equal(regression.jobs.test.steps.at(-1).run, 'xvfb-run -a npm test');
 
   const windows = loadWorkflow('.github/workflows/lyrapos-windows.yml');
   assert.equal(windows.jobs['build-windows'].name, 'Build LyraPOS Windows');
