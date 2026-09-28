@@ -213,7 +213,7 @@ export function WordPressBridgeSettings() {
               className="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-brand"
             />
             <span className="mt-1.5 block text-xs text-muted-foreground">
-              FloCafe stores this credential using the operating system secure credential store.
+              LyraPOS stores this credential using the operating system secure credential store.
             </span>
           </label>
         </div>
