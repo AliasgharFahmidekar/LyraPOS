@@ -19,11 +19,11 @@ test('USD/2: en-US prefix, comma group, dot decimal', () => {
   assert.equal(snap.timezone, 'America/New_York');
 });
 
-test('COP/0: es-CO prefix, dot group, comma decimal, zero fraction digits', () => {
+test('COP/2: es-CO prefix, dot group, comma decimal, two fraction digits', () => {
   const snap = resolveRegionalSnapshot({ country: 'CO', currency: 'COP' });
   assert.equal(snap.currencySymbol, '$');
   assert.equal(snap.currencyPosition, 'prefix');
-  assert.equal(snap.currencyFractionDigits, 0);
+  assert.equal(snap.currencyFractionDigits, 2);
   assert.equal(snap.decimalSeparator, ',');
   assert.equal(snap.groupSeparator, '.');
   // Assert the required formatted parts rather than the exact joined string —
@@ -37,7 +37,8 @@ test('COP/0: es-CO prefix, dot group, comma decimal, zero fraction digits', () =
   assert.ok(currencyIndex >= 0 && currencyIndex < integerIndex, 'symbol renders before the amount, matching currencyPosition');
   assert.equal(parts[currencyIndex].value, '$');
   assert.equal(parts.filter((p) => p.type === 'integer' || p.type === 'group').map((p) => p.value).join(''), '11.000');
-  assert.equal(parts.find((p) => p.type === 'fraction'), undefined, '0 fraction digits means no fraction part');
+  assert.equal(parts.find((p) => p.type === 'decimal')?.value, ',', 'COP uses the locale decimal separator');
+  assert.equal(parts.find((p) => p.type === 'fraction')?.value, '00', 'COP renders two fraction digits');
 });
 
 test('EUR with comma input: de-DE suffix, dot group, comma decimal', () => {
