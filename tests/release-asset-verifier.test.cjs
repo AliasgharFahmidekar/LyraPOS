@@ -38,34 +38,34 @@ function makeFixture() {
     ...MANIFESTS,
     'uninstall-macos.sh',
     'uninstall-windows.ps1',
-    `flocafe-${VERSION}-win-x64.exe`,
-    `flocafe-${VERSION}-win-x64.exe.blockmap`,
-    `flocafe-${VERSION}-win-x64.appx`,
-    `flocafe-${VERSION}-win-arm64.appx`,
-    `flocafe-${VERSION}-mac-x64.dmg`,
-    `flocafe-${VERSION}-mac-arm64.dmg`,
-    `flocafe-${VERSION}-mac-x64.zip`,
-    `flocafe-${VERSION}-mac-arm64.zip`,
-    `flocafe-${VERSION}-mac-x64.zip.blockmap`,
-    `flocafe-${VERSION}-mac-arm64.zip.blockmap`,
-    `flocafe-${VERSION}-linux-x64.appimage`,
-    `flocafe-${VERSION}-linux-arm64.appimage`,
-    `flocafe-${VERSION}-linux-x64.deb`,
-    `flocafe-${VERSION}-linux-arm64.deb`,
-    `flocafe-${VERSION}-linux-x64.rpm`,
-    `flocafe-${VERSION}-linux-arm64.rpm`,
-    `flocafe-${VERSION}-linux-x64.snap`,
-    `flocafe-${VERSION}-linux-arm64.snap`,
+    `lyrapos-${VERSION}-win-x64.exe`,
+    `lyrapos-${VERSION}-win-x64.exe.blockmap`,
+    `lyrapos-${VERSION}-win-x64.appx`,
+    `lyrapos-${VERSION}-win-arm64.appx`,
+    `lyrapos-${VERSION}-mac-x64.dmg`,
+    `lyrapos-${VERSION}-mac-arm64.dmg`,
+    `lyrapos-${VERSION}-mac-x64.zip`,
+    `lyrapos-${VERSION}-mac-arm64.zip`,
+    `lyrapos-${VERSION}-mac-x64.zip.blockmap`,
+    `lyrapos-${VERSION}-mac-arm64.zip.blockmap`,
+    `lyrapos-${VERSION}-linux-x64.appimage`,
+    `lyrapos-${VERSION}-linux-arm64.appimage`,
+    `lyrapos-${VERSION}-linux-x64.deb`,
+    `lyrapos-${VERSION}-linux-arm64.deb`,
+    `lyrapos-${VERSION}-linux-x64.rpm`,
+    `lyrapos-${VERSION}-linux-arm64.rpm`,
+    `lyrapos-${VERSION}-linux-x64.snap`,
+    `lyrapos-${VERSION}-linux-arm64.snap`,
   ];
   const payloads = new Map(names.map((name) => [name, Buffer.from(`uploaded:${name}`)]));
   const filesByManifest = {
-    'latest.yml': [`flocafe-${VERSION}-win-x64.exe`],
+    'latest.yml': [`lyrapos-${VERSION}-win-x64.exe`],
     'latest-mac.yml': [
-      `flocafe-${VERSION}-mac-x64.zip`,
-      `flocafe-${VERSION}-mac-arm64.zip`,
+      `lyrapos-${VERSION}-mac-x64.zip`,
+      `lyrapos-${VERSION}-mac-arm64.zip`,
     ],
-    'latest-linux.yml': [`flocafe-${VERSION}-linux-x64.appimage`],
-    'latest-linux-arm64.yml': [`flocafe-${VERSION}-linux-arm64.appimage`],
+    'latest-linux.yml': [`lyrapos-${VERSION}-linux-x64.appimage`],
+    'latest-linux-arm64.yml': [`lyrapos-${VERSION}-linux-arm64.appimage`],
   };
   for (const [manifestName, fileNames] of Object.entries(filesByManifest)) {
     payloads.set(manifestName, Buffer.from(manifestFor(fileNames.map((url) => ({
@@ -105,7 +105,7 @@ assert.throws(
 assert.throws(
   () => assertReleaseAssetInventory([
     ...assets,
-    { name: `flocafe-3.2.9-win-x64.exe`, size: 1 },
+    { name: `lyrapos-3.2.9-win-x64.exe`, size: 1 },
   ], MANIFESTS, VERSION),
   /unexpected assets:.*3\.2\.9/,
 );
@@ -113,10 +113,10 @@ assert.throws(
 const parsedManifest = parseManifest(fixture.payloads.get('latest.yml').toString('utf8'), 'latest.yml');
 assert.deepEqual(parsedManifest, {
   version: VERSION,
-  path: `flocafe-${VERSION}-win-x64.exe`,
+  path: `lyrapos-${VERSION}-win-x64.exe`,
   files: [{
-    url: `flocafe-${VERSION}-win-x64.exe`,
-    sha512: sha512(fixture.payloads.get(`flocafe-${VERSION}-win-x64.exe`)),
+    url: `lyrapos-${VERSION}-win-x64.exe`,
+    sha512: sha512(fixture.payloads.get(`lyrapos-${VERSION}-win-x64.exe`)),
   }],
 });
 assert.throws(
@@ -129,59 +129,59 @@ assert.throws(
 );
 
 assert.doesNotThrow(() => assertManifestPlatformMapping('latest.yml', VERSION, [
-  { url: `flocafe-${VERSION}-win-x64.exe` },
-], `flocafe-${VERSION}-win-x64.exe`));
+  { url: `lyrapos-${VERSION}-win-x64.exe` },
+], `lyrapos-${VERSION}-win-x64.exe`));
 assert.throws(
   () => assertManifestPlatformMapping('latest.yml', VERSION, [
-    { url: `flocafe-${VERSION}-win-x64.exe` },
+    { url: `lyrapos-${VERSION}-win-x64.exe` },
   ]),
   /updater path must/,
 );
 assert.doesNotThrow(() => assertManifestPlatformMapping('latest-mac.yml', VERSION, [
-  { url: `flocafe-${VERSION}-mac-x64.zip` },
-  { url: `flocafe-${VERSION}-mac-arm64.zip` },
-  { url: `flocafe-${VERSION}-mac-x64.dmg` },
-  { url: `flocafe-${VERSION}-mac-arm64.dmg` },
-], `flocafe-${VERSION}-mac-x64.zip`));
+  { url: `lyrapos-${VERSION}-mac-x64.zip` },
+  { url: `lyrapos-${VERSION}-mac-arm64.zip` },
+  { url: `lyrapos-${VERSION}-mac-x64.dmg` },
+  { url: `lyrapos-${VERSION}-mac-arm64.dmg` },
+], `lyrapos-${VERSION}-mac-x64.zip`));
 assert.throws(
   () => assertManifestPlatformMapping('latest-mac.yml', VERSION, [
-    { url: `flocafe-${VERSION}-mac-x64.zip` },
-    { url: `flocafe-${VERSION}-mac-arm64.zip` },
-  ], `flocafe-${VERSION}-mac-x64.dmg`),
+    { url: `lyrapos-${VERSION}-mac-x64.zip` },
+    { url: `lyrapos-${VERSION}-mac-arm64.zip` },
+  ], `lyrapos-${VERSION}-mac-x64.dmg`),
   /updater path must/,
 );
 assert.doesNotThrow(() => assertManifestPlatformMapping('latest-linux.yml', VERSION, [
-  { url: `flocafe-${VERSION}-linux-x64.appimage` },
+  { url: `lyrapos-${VERSION}-linux-x64.appimage` },
   // electron-builder lists every Linux target from the same invocation (#468).
-  { url: `flocafe-${VERSION}-linux-x64.deb` },
-  { url: `flocafe-${VERSION}-linux-x64.rpm` },
-], `flocafe-${VERSION}-linux-x64.appimage`));
+  { url: `lyrapos-${VERSION}-linux-x64.deb` },
+  { url: `lyrapos-${VERSION}-linux-x64.rpm` },
+], `lyrapos-${VERSION}-linux-x64.appimage`));
 assert.doesNotThrow(() => assertManifestPlatformMapping('latest-linux-arm64.yml', VERSION, [
-  { url: `flocafe-${VERSION}-linux-arm64.appimage` },
-  { url: `flocafe-${VERSION}-linux-arm64.deb` },
-], `flocafe-${VERSION}-linux-arm64.appimage`));
+  { url: `lyrapos-${VERSION}-linux-arm64.appimage` },
+  { url: `lyrapos-${VERSION}-linux-arm64.deb` },
+], `lyrapos-${VERSION}-linux-arm64.appimage`));
 assert.throws(
   () => assertManifestPlatformMapping('latest.yml', VERSION, [
-    { url: `flocafe-${VERSION}-mac-x64.zip` },
+    { url: `lyrapos-${VERSION}-mac-x64.zip` },
   ]),
   /another platform or architecture/,
 );
 assert.throws(
   () => assertManifestPlatformMapping('latest-linux-arm64.yml', VERSION, [
-    { url: `flocafe-${VERSION}-linux-x64.appimage` },
-  ], `flocafe-${VERSION}-linux-x64.appimage`),
+    { url: `lyrapos-${VERSION}-linux-x64.appimage` },
+  ], `lyrapos-${VERSION}-linux-x64.appimage`),
   /another platform or architecture/,
 );
 assert.throws(
   () => assertManifestPlatformMapping('latest-linux.yml', VERSION, [
-    { url: `flocafe-${VERSION}-linux-x64.appimage` },
-    { url: `flocafe-${VERSION}-linux-x64.deb` },
-  ], `flocafe-${VERSION}-linux-x64.deb`),
+    { url: `lyrapos-${VERSION}-linux-x64.appimage` },
+    { url: `lyrapos-${VERSION}-linux-x64.deb` },
+  ], `lyrapos-${VERSION}-linux-x64.deb`),
   /updater path must/,
 );
 assert.throws(
   () => assertManifestPlatformMapping('latest-mac.yml', VERSION, [
-    { url: `flocafe-${VERSION}-mac-x64.zip` },
+    { url: `lyrapos-${VERSION}-mac-x64.zip` },
   ]),
   /missing required platform artifacts/,
 );
@@ -196,9 +196,9 @@ assert.throws(
     },
   });
   assert.ok(requestedAssets.includes('uninstall-macos.sh'), 'non-manifest assets must be availability-checked');
-  assert.ok(requestedAssets.includes(`flocafe-${VERSION}-win-x64.exe`), 'Windows representative must be downloaded and hashed');
-  assert.ok(requestedAssets.includes(`flocafe-${VERSION}-mac-x64.zip`), 'macOS representative must be downloaded and hashed');
-  assert.ok(requestedAssets.includes(`flocafe-${VERSION}-linux-x64.appimage`), 'Linux representative must be downloaded and hashed');
+  assert.ok(requestedAssets.includes(`lyrapos-${VERSION}-win-x64.exe`), 'Windows representative must be downloaded and hashed');
+  assert.ok(requestedAssets.includes(`lyrapos-${VERSION}-mac-x64.zip`), 'macOS representative must be downloaded and hashed');
+  assert.ok(requestedAssets.includes(`lyrapos-${VERSION}-linux-x64.appimage`), 'Linux representative must be downloaded and hashed');
 
   const candidateManifest = await createCandidateManifest({
     release: fixture.release,
@@ -246,7 +246,7 @@ assert.throws(
   );
 
   const badUrl = makeFixture();
-  const badUrlName = `flocafe-${VERSION}-win-x64.exe`;
+  const badUrlName = `lyrapos-${VERSION}-win-x64.exe`;
   badUrl.payloads.set('latest.yml', Buffer.from(manifestFor([{
     url: badUrlName,
     sha512: sha512(badUrl.payloads.get(badUrlName)),
