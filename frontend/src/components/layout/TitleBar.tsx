@@ -25,30 +25,30 @@ export default function TitleBar() {
 
   useEffect(() => {
     if (isElectron) {
-      document.documentElement.dataset.floDesktopTitlebar = 'true';
+      document.documentElement.dataset.lyraDesktopTitlebar = 'true';
       if (window.electronAPI?.platform) {
-        document.documentElement.dataset.floPlatform = window.electronAPI.platform;
+        document.documentElement.dataset.lyraPlatform = window.electronAPI.platform;
       }
     } else {
-      delete document.documentElement.dataset.floDesktopTitlebar;
-      delete document.documentElement.dataset.floPlatform;
+      delete document.documentElement.dataset.lyraDesktopTitlebar;
+      delete document.documentElement.dataset.lyraPlatform;
     }
   }, [isElectron]);
 
   useEffect(() => {
     const handleFocus = () => {
-      document.documentElement.dataset.floWindowFocused = 'true';
+      document.documentElement.dataset.lyraWindowFocused = 'true';
     };
     const handleBlur = () => {
-      document.documentElement.dataset.floWindowFocused = 'false';
+      document.documentElement.dataset.lyraWindowFocused = 'false';
     };
-    document.documentElement.dataset.floWindowFocused = typeof document !== 'undefined' && document.hasFocus() ? 'true' : 'false';
+    document.documentElement.dataset.lyraWindowFocused = typeof document !== 'undefined' && document.hasFocus() ? 'true' : 'false';
     window.addEventListener('focus', handleFocus);
     window.addEventListener('blur', handleBlur);
     return () => {
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('blur', handleBlur);
-      delete document.documentElement.dataset.floWindowFocused;
+      delete document.documentElement.dataset.lyraWindowFocused;
     };
   }, []);
 
