@@ -17,7 +17,7 @@ test.afterAll(async () => {
 
 test('real Electron mounts the root drag surface before authentication', async () => {
   await expect(harness.page.getByTestId('desktop-drag-surface')).toBeVisible();
-  await expect(harness.page.locator('html')).toHaveAttribute('data-flo-desktop-titlebar', 'true');
+  await expect(harness.page.locator('html')).toHaveAttribute('data-lyra-desktop-titlebar', 'true');
   if (process.env.FLO_E2E_EVIDENCE_DIR) {
     await harness.page.screenshot({
       path: `${process.env.FLO_E2E_EVIDENCE_DIR}/01-native-electron-login-screen.png`,
@@ -63,7 +63,7 @@ test('real preload, renderer, and main boundaries reach an authenticated dashboa
   expect(runtime.titleBarDocumentNonce).toMatch(/^[0-9a-f-]{36}$/i);
   expect(runtime.focusedAttribute).toBe('true');
   expect(runtime.desktopAttribute).toBe('true');
-  expect(runtime.appInfo).toMatchObject({ name: 'flo-desktop', platform: process.platform });
+  expect(runtime.appInfo).toMatchObject({ name: 'lyrapos-desktop', platform: process.platform });
   expect(runtime.updateStatus.status).toBeTruthy();
   expect(runtime.updateStatus.info.version).toBeTruthy();
   expect(runtime.readiness).toEqual({ success: true });
@@ -139,7 +139,7 @@ test('POS topbar fullscreen toggle stays synchronized with native window state',
 });
 
 test('native window lifecycle is observable through the Electron boundary', async () => {
-  test.skip(!['darwin', 'win32', 'linux'].includes(process.platform), 'FloCafe native window lifecycle is unsupported on this platform');
+  test.skip(!['darwin', 'win32', 'linux'].includes(process.platform), 'LyraPOS native window lifecycle is unsupported on this platform');
   test.skip(process.platform === 'linux', 'Linux CI uses Xvfb without a window manager, so native minimize/restore is not observable');
   await harness.app.evaluate(({ app, BrowserWindow }) => {
     app.focus({ steal: true });
