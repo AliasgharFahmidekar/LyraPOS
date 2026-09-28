@@ -46,10 +46,10 @@
   --sidebar-ring: #3248FF;
 
   /* Hoisted to :root so fixed app chrome can offset below the title bar;
-   * consumed by both .flo-title-bar and the sidebar inset rules below. */
-  --flo-titlebar-height: 40px;
-  --flo-titlebar-fallback-controls-width: 132px;
-  --flo-sidebar-block-start: 0px;
+   * consumed by both .lyra-title-bar and the sidebar inset rules below. */
+  --lyra-titlebar-height: 40px;
+  --lyra-titlebar-fallback-controls-width: 132px;
+  --lyra-sidebar-block-start: 0px;
 }
 
 body {
@@ -83,10 +83,10 @@ input[type="number"] {
  * The safe-area env values exclude native buttons and update on geometrychange;
  * physical positioning is intentional for WCO's physical x/width values while
  * content spacing and flow use logical properties for RTL locales. */
-.flo-title-bar {
+.lyra-title-bar {
   position: relative;
-  block-size: var(--flo-titlebar-height);
-  min-block-size: var(--flo-titlebar-height);
+  block-size: var(--lyra-titlebar-height);
+  min-block-size: var(--lyra-titlebar-height);
   align-items: center;
   overflow: hidden;
   border-block-end: 1px solid var(--border);
@@ -97,16 +97,16 @@ input[type="number"] {
   transition: opacity 150ms ease;
 }
 
-html[data-flo-window-focused='false'] .flo-title-bar {
+html[data-lyra-window-focused='false'] .lyra-title-bar {
   opacity: 0.6;
 }
 
-.flo-title-bar__safe-area {
+.lyra-title-bar__safe-area {
   position: absolute;
   inset-block-start: env(titlebar-area-y, 0px);
   left: env(titlebar-area-x, 0px);
   inline-size: env(titlebar-area-width, 100%);
-  block-size: env(titlebar-area-height, var(--flo-titlebar-height));
+  block-size: env(titlebar-area-height, var(--lyra-titlebar-height));
   max-inline-size: 100%;
   box-sizing: border-box;
   display: flex;
@@ -118,7 +118,7 @@ html[data-flo-window-focused='false'] .flo-title-bar {
 /* macOS uses native traffic lights on the top-left (occupying ~68px).
  * Traffic lights stay physically on the left even in RTL locales.
  * Safe area spans full width with 96px left padding (leaving 28px gap after green light) and 0.75rem right padding. */
-html[data-flo-platform='darwin'] .flo-title-bar__safe-area {
+html[data-lyra-platform='darwin'] .lyra-title-bar__safe-area {
   left: 0;
   right: 0;
   inline-size: 100%;
@@ -126,20 +126,20 @@ html[data-flo-platform='darwin'] .flo-title-bar__safe-area {
   padding-right: 0.75rem;
 }
 
-body:has(.flo-title-bar__fallback-controls) .flo-title-bar__safe-area {
+body:has(.lyra-title-bar__fallback-controls) .lyra-title-bar__safe-area {
   left: auto;
   right: auto;
   inset-inline-start: 0;
-  inset-inline-end: var(--flo-titlebar-fallback-controls-width);
+  inset-inline-end: var(--lyra-titlebar-fallback-controls-width);
   inline-size: auto;
 }
 
-.flo-title-bar__interactive,
-.flo-title-bar button,
-.flo-title-bar a,
-.flo-title-bar [role='button'],
-.flo-title-bar__fallback-controls,
-.flo-title-bar__fallback-controls button {
+.lyra-title-bar__interactive,
+.lyra-title-bar button,
+.lyra-title-bar a,
+.lyra-title-bar [role='button'],
+.lyra-title-bar__fallback-controls,
+.lyra-title-bar__fallback-controls button {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -148,17 +148,17 @@ body:has(.flo-title-bar__fallback-controls) .flo-title-bar__safe-area {
  * overlay is unavailable ('html-fallback'). Logical properties keep them on
  * the trailing edge for RTL locales; sizes echo standard caption-button hit
  * targets while staying consistent with the 40px bar height. */
-.flo-title-bar__fallback-controls {
+.lyra-title-bar__fallback-controls {
   position: fixed;
   inset-block-start: 0;
   inset-inline-end: 0;
-  block-size: var(--flo-titlebar-height);
+  block-size: var(--lyra-titlebar-height);
   display: flex;
   align-items: stretch;
   z-index: 30;
 }
 
-.flo-title-bar__fallback-button {
+.lyra-title-bar__fallback-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -169,17 +169,17 @@ body:has(.flo-title-bar__fallback-controls) .flo-title-bar__safe-area {
   color: var(--muted-foreground);
 }
 
-.flo-title-bar__fallback-button:hover {
+.lyra-title-bar__fallback-button:hover {
   background: var(--accent);
   color: var(--accent-foreground);
 }
 
-.flo-title-bar__fallback-button--close:hover {
+.lyra-title-bar__fallback-button--close:hover {
   background: #e81123;
   color: #ffffff;
 }
 
-.flo-title-bar--root-drag {
+.lyra-title-bar--root-drag {
   position: fixed;
   inset-block-start: 0;
   inset-inline: 0;
@@ -193,12 +193,12 @@ body:has(.flo-title-bar__fallback-controls) .flo-title-bar__safe-area {
 }
 
 /* Under Electron the fixed app sidebar must start below the custom title bar
- * instead of sliding beneath it. data-flo-desktop-titlebar is set on <html>
+ * instead of sliding beneath it. data-lyra-desktop-titlebar is set on <html>
  * only when window.electronAPI exists (TitleBar.tsx), so browser/LAN keeps
- * the viewport-top geometry (--flo-sidebar-block-start stays 0px). Block-axis
+ * the viewport-top geometry (--lyra-sidebar-block-start stays 0px). Block-axis
  * logical properties are direction-independent, keeping RTL correct. */
-html[data-flo-desktop-titlebar='true'] {
-  --flo-sidebar-block-start: var(--flo-titlebar-height);
+html[data-lyra-desktop-titlebar='true'] {
+  --lyra-sidebar-block-start: var(--lyra-titlebar-height);
 }
 
 /* Modern minimalist toast styling (Linear / Sonner aesthetic) */
