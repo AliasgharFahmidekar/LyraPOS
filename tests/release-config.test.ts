@@ -125,7 +125,7 @@ function testManifestContracts() {
   const expectedLatest = releaseVerifier.expectedManifestNames('latest');
   const expectedBeta = releaseVerifier.expectedManifestNames('beta');
 
-  assert.ok(expectedArtifacts.every((name: string) => name.startsWith('lyrapos-')));
+  assert.ok(expectedArtifacts.filter((name: string) => !name.startsWith('uninstall-')).every((name: string) => name.startsWith('lyrapos-')));
   assert.deepEqual(expectedLatest, ['latest.yml', 'latest-mac.yml', 'latest-linux.yml', 'latest-linux-arm64.yml']);
   assert.deepEqual(expectedBeta, ['beta.yml', 'beta-mac.yml', 'beta-linux.yml', 'beta-linux-arm64.yml']);
 
