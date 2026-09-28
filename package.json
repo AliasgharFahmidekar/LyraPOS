@@ -518,8 +518,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    },
-    "description": "Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support."
+    }
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true,
