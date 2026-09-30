@@ -38,7 +38,7 @@ type CatalogSnapshot = {
   revision: number;
   source_instance_id: string;
   generated_at: string;
-  full_snapshot: true;
+  full_snapshot?: boolean;
   currency: string;
   categories: Array<{
     id: string;
@@ -322,30 +322,35 @@ class WordPressBridgeService {
     const config = this.readConfig();
     if (!this.isConfigured(config)) throw new Error('WordPress connection is not configured');
     await this.sendHeartbeat(signal);
-    const catalog = await this.syncCatalog(signal);
+    const catalog = await this.syncCatalog(signal, { forceFull: true });
     await this.pollOrders(signal);
     await this.pollOrderStatuses(signal);
     return { ok: true, catalog };
   }
 
-  async syncCatalog(signal?: AbortSignal): Promise<any> {
+  async syncCatalog(signal?: AbortSignal, options: { forceFull?: boolean } = {}): Promise<any> {
     const config = this.readConfig();
     if (!this.isConfigured(config)) return { skipped: true, reason: 'not_configured' };
     const key = this.decryptApiKey(config.api_key_encrypted);
     this.wp.set(config.site_url, key);
-    const snapshot = this.buildCatalogSnapshot();
-    if (config.last_catalog_sync && Number(snapshot.revision) <= Number(config.applied_catalog_revision)) {
-      return { skipped: true, reason: 'already_applied', revision: snapshot.revision };
+
+    const payload = options.forceFull || !config.last_catalog_sync || Number(config.applied_catalog_revision) <= 0
+      ? this.buildCatalogSnapshot()
+      : this.buildIncrementalCatalogPayload(Number(config.applied_catalog_revision));
+
+    if (!payload) {
+      return { skipped: true, reason: 'already_applied', revision: this.sourceRevision() };
     }
+
     const outboxId = this.ensureCatalogOutbox();
     if (!outboxId) return { skipped: true, reason: 'retry_backoff' };
     try {
-      const response = await this.wp.syncCatalog(snapshot, signal);
+      const response = await this.wp.syncCatalog(payload, signal);
       if (response?.mappings?.products) {
-        for (const map of response.mappings.products) this.upsertMapping('product', String(map.flocafe_product_id), Number(map.woo_product_id), snapshot.revision);
+        for (const map of response.mappings.products) this.upsertMapping('product', String(map.flocafe_product_id), Number(map.woo_product_id), payload.revision);
       }
       if (response?.mappings?.categories) {
-        for (const map of response.mappings.categories) this.upsertMapping('category', String(map.flocafe_category_id), Number(map.woo_category_id), snapshot.revision);
+        for (const map of response.mappings.categories) this.upsertMapping('category', String(map.flocafe_category_id), Number(map.woo_category_id), payload.revision);
       }
       const db = getDatabase();
       db.prepare(`
@@ -353,16 +358,15 @@ class WordPressBridgeService {
         SET applied_catalog_revision = ?, last_catalog_sync = ?, last_error = NULL, last_error_at = NULL,
             updated_at = ?
         WHERE id = 1
-      `).run(snapshot.revision, nowIso(), nowIso());
+      `).run(payload.revision, nowIso(), nowIso());
       if (outboxId) this.completeOutbox(outboxId);
-      return { ...response, source_revision: snapshot.revision };
+      return { ...response, source_revision: payload.revision, full_snapshot: payload.full_snapshot === true };
     } catch (error) {
       if (outboxId) this.failOutbox(outboxId, extractError(error));
       this.recordError(error);
       throw error;
     }
   }
-
   async pollOrders(signal?: AbortSignal): Promise<void> {
     const config = this.readConfig();
     if (!this.isConfigured(config)) return;
@@ -577,6 +581,76 @@ class WordPressBridgeService {
     };
   }
 
+  private buildIncrementalCatalogPayload(afterRevision: number): CatalogSnapshot | null {
+    const db = getDatabase();
+    const changes = db.prepare(`
+      SELECT revision, entity_type, entity_id, action
+      FROM integration_catalog_changes
+      WHERE revision > ?
+      ORDER BY revision ASC
+      LIMIT 500
+    `).all(afterRevision) as Array<{ revision: number; entity_type: 'category' | 'product'; entity_id: string; action: 'created' | 'updated' | 'deleted' }>;
+
+    if (changes.length === 0) return null;
+
+    // The WordPress endpoint accepts partial catalog payloads, but deletion
+    // reconciliation is only performed for full snapshots.
+    if (changes.some(change => change.action === 'deleted')) {
+      return this.buildCatalogSnapshot();
+    }
+
+    const productIds = [...new Set(changes.filter(change => change.entity_type === 'product').map(change => String(change.entity_id)))];
+    const categoryIds = [...new Set(changes.filter(change => change.entity_type === 'category').map(change => String(change.entity_id)))];
+
+    const categories = categoryIds.length
+      ? db.prepare(`
+          SELECT id, name, description, parent_id, slug, color, icon, is_active
+          FROM categories
+          WHERE deleted_at IS NULL AND id IN (${categoryIds.map(() => '?').join(',')})
+          ORDER BY sort_order ASC, name ASC
+        `).all(...categoryIds) as any[]
+      : [];
+
+    const products = productIds.length
+      ? db.prepare(`
+          SELECT id, category_id, name, description, price, sku, image_url, sort_order, is_active, sale_unit, tags
+          FROM products
+          WHERE deleted_at IS NULL AND id IN (${productIds.map(() => '?').join(',')})
+          ORDER BY sort_order ASC, name ASC
+        `).all(...productIds) as any[]
+      : [];
+
+    const revision = Number(changes[changes.length - 1].revision);
+    return {
+      revision,
+      source_instance_id: this.readConfig().bridge_id,
+      generated_at: nowIso(),
+      full_snapshot: false,
+      currency: getSettingValue('currency') || '',
+      categories: categories.map(row => ({
+        id: String(row.id), name: String(row.name),
+        description: row.description == null ? null : String(row.description),
+        parent_id: row.parent_id == null ? null : String(row.parent_id),
+        slug: row.slug == null ? null : String(row.slug),
+        color: row.color == null ? null : String(row.color),
+        icon: row.icon == null ? null : String(row.icon),
+        is_active: Number(row.is_active) === 1,
+      })),
+      products: products.map(row => ({
+        id: String(row.id),
+        category_id: row.category_id == null ? null : String(row.category_id),
+        name: String(row.name),
+        description: row.description == null ? null : String(row.description),
+        price: Number(row.price || 0),
+        sku: row.sku == null || row.sku === '' ? null : String(row.sku),
+        image_url: row.image_url == null || row.image_url === '' ? null : String(row.image_url),
+        is_available: Number(row.is_active) === 1,
+        sort_order: Number(row.sort_order || 0),
+        sale_unit: row.sale_unit == null || row.sale_unit === '' ? null : String(row.sale_unit),
+        tags: this.parseTags(row.tags),
+      })),
+    };
+  }
   private parseTags(value: unknown): string[] {
     if (typeof value !== 'string' || !value) return [];
     try {
