@@ -593,6 +593,12 @@ class WordPressBridgeService {
 
     if (changes.length === 0) return null;
 
+    const currentRevision = this.sourceRevision();
+    const firstRevision = Number(changes[0].revision);
+    if (currentRevision < afterRevision || firstRevision > afterRevision + 1) {
+      return this.buildCatalogSnapshot();
+    }
+
     // The WordPress endpoint accepts partial catalog payloads, but deletion
     // reconciliation is only performed for full snapshots.
     if (changes.some(change => change.action === 'deleted')) {
