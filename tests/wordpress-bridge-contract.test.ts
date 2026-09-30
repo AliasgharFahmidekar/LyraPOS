@@ -49,3 +49,15 @@ for (const uiContract of [
 ]) assert(settings.includes(uiContract), `WordPress Bridge UI lost API call: ${uiContract}`);
 
 console.log('WordPress Bridge contract regression checks passed.');
+
+const incrementalContract = [
+  'buildIncrementalCatalogPayload',
+  'integration_catalog_changes',
+  "action === 'deleted'",
+  'full_snapshot: false',
+  'syncCatalog(signal?: AbortSignal, options: { forceFull?: boolean }',
+  'syncCatalog(signal, { forceFull: true })',
+];
+for (const contract of incrementalContract) {
+  assert(service.includes(contract), `WordPress Bridge lost incremental catalog sync contract: ${contract}`);
+}
