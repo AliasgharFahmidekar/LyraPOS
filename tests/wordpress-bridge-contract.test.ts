@@ -57,6 +57,8 @@ const incrementalContract = [
   'full_snapshot: false',
   'syncCatalog(signal?: AbortSignal, options: { forceFull?: boolean }',
   'syncCatalog(signal, { forceFull: true })',
+  'firstRevision > afterRevision + 1',
+  'currentRevision < afterRevision',
 ];
 for (const contract of incrementalContract) {
   assert(service.includes(contract), `WordPress Bridge lost incremental catalog sync contract: ${contract}`);
