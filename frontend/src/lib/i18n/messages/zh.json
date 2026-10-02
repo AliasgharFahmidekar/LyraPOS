@@ -1187,7 +1187,8 @@
     "taxDetails": "税费明细",
     "taxIncluded": "适用时价格已含税",
     "thankYou": "感谢光临！",
-    "totalTax": "税金合计"
+    "totalTax": "税金合计",
+    "tableCharge": "餐桌费"
   },
   "restore": {
     "failedWith": "恢复失败：{error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "楼层已重命名",
     "floorRenameFailed": "重命名楼层失败",
     "floorDeleted": "楼层已删除",
-    "floorDeleteFailed": "删除楼层失败"
+    "floorDeleteFailed": "删除楼层失败",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "税务包已激活",
