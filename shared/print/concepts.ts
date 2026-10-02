@@ -79,6 +79,7 @@ export const PRINT_CONCEPT_IDS = [
   'receipt.totalTax',
   'receipt.serviceCharge',
   'receipt.tableCharge',
+  'receipt.takeawayCharge',
   'receipt.taxDetails',
   'receipt.payments',
   'receipt.cashReceived',
