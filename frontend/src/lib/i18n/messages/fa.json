@@ -1188,7 +1188,8 @@
     "taxIncluded": "مالیات در صورت اعمال، شامل شده است",
     "thankYou": "از بازدید شما سپاسگزاریم!",
     "totalTax": "مالیات کل",
-    "tableCharge": "هزینه میز"
+    "tableCharge": "هزینه میز",
+    "takeawayCharge": "هزینه بیرون‌بر"
   },
   "restore": {
     "failedWith": "بازگردانی انجام نشد: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "پوسته",
     "themeLight": "روشن",
     "themeDark": "تاریک",
-    "themeSystem": "سیستم"
+    "themeSystem": "سیستم",
+    "takeawayCharge": "هزینه بیرون‌بر",
+    "takeawayChargeHint": "مبلغ ثابتی که به‌صورت خودکار به سفارش‌های بیرون‌بر اضافه می‌شود."
   },
   "setup": {
     "alreadyCompleted": "راه‌اندازی در این نصب پیش‌تر انجام شده است. در حال بازگشت به ورود…",
