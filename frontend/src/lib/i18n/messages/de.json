@@ -1187,7 +1187,8 @@
     "taxDetails": "Steuerdetails",
     "taxIncluded": "Steuer enthalten, sofern zutreffend",
     "thankYou": "Vielen Dank für Ihren Besuch!",
-    "totalTax": "Gesamtsteuer"
+    "totalTax": "Gesamtsteuer",
+    "tableCharge": "Tischgebühr"
   },
   "restore": {
     "failedWith": "Wiederherstellung fehlgeschlagen: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Etage umbenannt",
     "floorRenameFailed": "Etage konnte nicht umbenannt werden",
     "floorDeleted": "Etage gelöscht",
-    "floorDeleteFailed": "Etage konnte nicht gelöscht werden"
+    "floorDeleteFailed": "Etage konnte nicht gelöscht werden",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "Steuerpaket aktiviert",
