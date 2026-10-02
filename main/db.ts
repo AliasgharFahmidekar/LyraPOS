@@ -5416,6 +5416,21 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
+    version: 98,
+    name: 'add_fixed_takeaway_charge',
+    up: () => {
+      const orderColumns = getColumns(db, 'orders');
+      if (!orderColumns.includes('takeaway_charge')) {
+        db.exec('ALTER TABLE orders ADD COLUMN takeaway_charge REAL DEFAULT 0');
+      }
+
+      const billColumns = getColumns(db, 'bills');
+      if (!billColumns.includes('takeaway_charge')) {
+        db.exec('ALTER TABLE bills ADD COLUMN takeaway_charge REAL DEFAULT 0');
+      }
+    },
+  },
+  {
     version: 97,
     name: 'add_floor_table_charge',
     up: () => {
@@ -5734,6 +5749,7 @@ function createSchema(): void {
       delivery_charge REAL DEFAULT 0,
       service_charge REAL DEFAULT 0,
       table_charge REAL DEFAULT 0,
+      takeaway_charge REAL DEFAULT 0,
       status TEXT DEFAULT 'pending',
       subtotal REAL DEFAULT 0,
       tax_amount REAL DEFAULT 0,
@@ -5803,6 +5819,7 @@ function createSchema(): void {
       packaging_charge REAL DEFAULT 0,
       service_charge REAL DEFAULT 0,
       table_charge REAL DEFAULT 0,
+      takeaway_charge REAL DEFAULT 0,
       round_off REAL DEFAULT 0,
       total REAL DEFAULT 0,
       paid_amount REAL DEFAULT 0,
