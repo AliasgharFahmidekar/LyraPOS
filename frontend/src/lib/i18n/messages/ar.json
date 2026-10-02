@@ -1187,7 +1187,8 @@
     "taxDetails": "تفاصيل الضرائب",
     "taxIncluded": "الضريبة مشمولة حيثما ينطبق ذلك",
     "thankYou": "شكرًا على زيارتكم!",
-    "totalTax": "إجمالي الضريبة"
+    "totalTax": "إجمالي الضريبة",
+    "tableCharge": "رسوم الطاولة"
   },
   "restore": {
     "failedWith": "فشل الاستعادة: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "تم تغيير اسم الطابق",
     "floorRenameFailed": "فشل إعادة تسمية الطابق",
     "floorDeleted": "تم حذف الطابق",
-    "floorDeleteFailed": "فشل حذف الطابق"
+    "floorDeleteFailed": "فشل حذف الطابق",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "تم تفعيل الحزمة",
