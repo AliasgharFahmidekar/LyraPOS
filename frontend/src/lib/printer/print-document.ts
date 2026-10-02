@@ -175,6 +175,7 @@ export function buildBillPrintData(bill: Bill, opts: BillBusinessOptions = {}): 
       total: Number(bill?.total) || 0,
       serviceCharge: Number(bill?.service_charge) || 0,
       tableCharge: Number(bill?.table_charge) || 0,
+      takeawayCharge: Number(bill?.takeaway_charge) || 0,
       deliveryCharge: Number(bill?.delivery_charge) || 0,
       packagingCharge: Number(bill?.packaging_charge) || 0,
       taxComponents: resolveTaxComponents(bill),
