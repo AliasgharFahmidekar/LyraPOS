@@ -1347,6 +1347,12 @@ placeholder={tOrders('managerPin')}
                     <span className="text-foreground">{fmt(Number(discountModal.order.table_charge))}</span>
                   </div>
                 )}
+                {Number(discountModal.order.takeaway_charge) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">{tReceipt('takeawayCharge')}</span>
+                    <span className="text-foreground">{fmt(Number(discountModal.order.takeaway_charge))}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-purple-600">
                     {tCommon('discount')}
