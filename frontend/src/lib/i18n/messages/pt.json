@@ -1188,7 +1188,8 @@
     "taxIncluded": "Impostos incluídos quando aplicável",
     "thankYou": "Obrigado pela sua visita!",
     "totalTax": "Imposto total",
-    "tableCharge": "Taxa de mesa"
+    "tableCharge": "Taxa de mesa",
+    "takeawayCharge": "Taxa para viagem"
   },
   "restore": {
     "failedWith": "Falha na restauração: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Claro",
     "themeDark": "Escuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "takeawayCharge": "Taxa para viagem",
+    "takeawayChargeHint": "Valor fixo adicionado automaticamente aos pedidos para viagem."
   },
   "setup": {
     "alreadyCompleted": "A configuração já foi concluída nesta instalação. Redirecionando para o login…",
