@@ -1342,7 +1342,7 @@ placeholder={tOrders('managerPin')}
                 </div>
                 {Number(discountModal.order.table_charge) > 0 && (
                   <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">{tCommon('tableCharge')}</span>
+                    <span className="text-muted-foreground">{tReceipt('tableCharge')}</span>
                     <span className="text-foreground">{fmt(Number(discountModal.order.table_charge))}</span>
                   </div>
                 )}
