@@ -984,7 +984,7 @@ function isPrintDocumentBlock(value: unknown): value is PrintDocumentBlock {
       return ['subtotal', 'grandTotal'].every((key) => isRecord(value[key])
         && isSemanticLabel(value[key].label)
         && isFiniteNumber(value[key].amount))
-        && ['discount', 'tax', 'serviceCharge', 'tableCharge', 'deliveryCharge', 'packagingCharge'].every((key) => value[key] === null || (isRecord(value[key]) && isSemanticLabel(value[key].label) && isFiniteNumber(value[key].amount)))
+        && ['discount', 'tax', 'serviceCharge', 'tableCharge', 'takeawayCharge', 'deliveryCharge', 'packagingCharge'].every((key) => value[key] === null || (isRecord(value[key]) && isSemanticLabel(value[key].label) && isFiniteNumber(value[key].amount)))
         && ['pointsRedeemed', 'pointsEarned', 'pointsBalance'].every((key) => value[key] === null || (isRecord(value[key]) && isSemanticLabel(value[key].label) && isFiniteNumber(value[key].points)));
     case 'payments':
       return isSemanticLabel(value.heading)
