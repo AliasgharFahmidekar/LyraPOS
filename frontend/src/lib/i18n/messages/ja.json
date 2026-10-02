@@ -1187,7 +1187,8 @@
     "taxDetails": "税の詳細",
     "taxIncluded": "該当する場合は税込み",
     "thankYou": "ご来店ありがとうございます！",
-    "totalTax": "税額合計"
+    "totalTax": "税額合計",
+    "tableCharge": "テーブル料金"
   },
   "restore": {
     "failedWith": "復元に失敗しました：{error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "フロア名を変更しました",
     "floorRenameFailed": "フロア名の変更に失敗しました",
     "floorDeleted": "フロアを削除しました",
-    "floorDeleteFailed": "フロアの削除に失敗しました"
+    "floorDeleteFailed": "フロアの削除に失敗しました",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "パックを有効化",
