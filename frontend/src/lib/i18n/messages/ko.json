@@ -1188,7 +1188,8 @@
     "taxIncluded": "해당 시 세금 포함",
     "thankYou": "감사합니다!",
     "totalTax": "세금 합계",
-    "tableCharge": "테이블 요금"
+    "tableCharge": "테이블 요금",
+    "takeawayCharge": "테이크아웃 요금"
   },
   "restore": {
     "failedWith": "복원 실패: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "테마",
     "themeLight": "라이트",
     "themeDark": "다크",
-    "themeSystem": "시스템"
+    "themeSystem": "시스템",
+    "takeawayCharge": "테이크아웃 요금",
+    "takeawayChargeHint": "테이크아웃 주문에 자동으로 추가되는 고정 금액입니다."
   },
   "setup": {
     "alreadyCompleted": "이 설치에서는 초기 설정이 이미 완료되었습니다. 로그인으로 이동합니다…",
