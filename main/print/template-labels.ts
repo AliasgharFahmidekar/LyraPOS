@@ -29,7 +29,7 @@ export const TEMPLATE_LABEL_IDS = {
 export type TemplateLabelId = keyof typeof TEMPLATE_LABEL_IDS;
 
 /** Explicit charge-row capabilities in the v1 country-pack template contract. */
-export const TEMPLATE_CHARGE_ROW_IDS = ['serviceCharge', 'tableCharge', 'deliveryCharge', 'packagingCharge'] as const;
+export const TEMPLATE_CHARGE_ROW_IDS = ['serviceCharge', 'tableCharge', 'takeawayCharge', 'deliveryCharge', 'packagingCharge'] as const;
 export type TemplateChargeRowId = typeof TEMPLATE_CHARGE_ROW_IDS[number];
 
 /** Install-time caps for the `labels` map (#445): fail closed on misuse. */
