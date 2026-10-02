@@ -109,6 +109,7 @@ export function buildDailySalesExportDataset(
     gross_collected: number;
     order_discount_total: number;
     service_charge_total: number;
+    table_charge_total: number;
     packaging_charge_total: number;
     delivery_charge_total: number;
   };
