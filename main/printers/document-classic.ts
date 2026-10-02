@@ -130,6 +130,7 @@ export function buildBillPrintData(order: any, bill: any, business: any, isRepri
       ...(Object.prototype.hasOwnProperty.call(bill || {}, 'service_charge')
         ? { serviceCharge: Number(bill?.service_charge) || 0 }
         : {}),
+      tableCharge: Number(bill?.table_charge) || 0,
       deliveryCharge: Number(bill?.delivery_charge) || 0,
       packagingCharge: Number(bill?.packaging_charge) || 0,
       taxComponents: resolveTaxComponents({ ...bill, items }),
@@ -327,6 +328,11 @@ export function renderBillDocumentToClassicLines(
     if (block.serviceCharge) {
       const label = labelOf(block.serviceCharge.label);
       const value = formatCurrency(block.serviceCharge.amount, prefix, options.locale, trimDecimals, fractionDigits);
+      appendFinancial(target, financialRows(label, value, cols, options.language, options.capabilities), false, label, value);
+    }
+    if (block.tableCharge) {
+      const label = labelOf(block.tableCharge.label);
+      const value = formatCurrency(block.tableCharge.amount, prefix, options.locale, trimDecimals, fractionDigits);
       appendFinancial(target, financialRows(label, value, cols, options.language, options.capabilities), false, label, value);
     }
     if (block.deliveryCharge) {
