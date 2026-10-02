@@ -203,10 +203,10 @@ async function main() {
     const moveRes = await api(baseUrl, '/api/tables/tbl-charge-a/move-order', {
       method: 'POST',
       headers: authHeader,
-      body: { target_table_id: 'tbl-charge-b' },
+      body: { target_table_id: 'tbl-charge-free' },
     });
     assertEqual(moveRes.status, 200, 'open order can move to another table');
-    assertEqual(moveRes.data.order.table_id, 'tbl-charge-b', 'order now points to second floor table');
+    assertEqual(moveRes.data.order.table_id, 'tbl-charge-free', 'order now points to the other floor table');
     assertEqual(moveRes.data.order.table_charge, 500, 'moving order does not rewrite original table charge');
 
     console.log('\n6. Split checks allocate table charge without losing money');
@@ -274,6 +274,16 @@ async function main() {
     assertEqual(convertRes.data.order.type, 'takeaway', 'order type becomes takeaway');
     assertEqual(convertRes.data.order.table_id, null, 'takeaway order has no table');
     assertEqual(convertRes.data.order.table_charge, 0, 'takeaway conversion clears table charge');
+    assertEqual(convertRes.data.order.total, 2000, 'takeaway conversion removes table charge from order total');
+
+    const convertedBill = await api(baseUrl, '/api/bills/generate', {
+      method: 'POST',
+      headers: authHeader,
+      body: { order_id: firstOrder.id },
+    });
+    assertEqual(convertedBill.status, 200, 'converted order bill remains readable');
+    assertEqual(convertedBill.data.bill.table_charge, 0, 'converted unpaid bill clears table charge');
+    assertEqual(convertedBill.data.bill.total, 2000, 'converted unpaid bill matches new order total');
 
     console.log('\n8. Floor rename/delete keep configuration coherent');
 
