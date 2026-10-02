@@ -1188,7 +1188,8 @@
     "taxIncluded": "Taksa e përfshirë kur zbatohet",
     "thankYou": "Faleminderit për vizitën!",
     "totalTax": "Taksa totale",
-    "tableCharge": "Tarifë tavoline"
+    "tableCharge": "Tarifë tavoline",
+    "takeawayCharge": "Tarifë për porosi me vete"
   },
   "restore": {
     "failedWith": "Riktherja dështoi: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Drita",
     "themeDark": "E errët",
-    "themeSystem": "Sistemi"
+    "themeSystem": "Sistemi",
+    "takeawayCharge": "Tarifë për porosi me vete",
+    "takeawayChargeHint": "Një shumë fikse që i shtohet automatikisht porosive me vete."
   },
   "setup": {
     "alreadyCompleted": "Konfigurimi në këtë instalim është përfunduar. Po ridrejtohemi te hyrja...",
