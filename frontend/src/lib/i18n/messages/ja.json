@@ -1188,7 +1188,8 @@
     "taxIncluded": "該当する場合は税込み",
     "thankYou": "ご来店ありがとうございます！",
     "totalTax": "税額合計",
-    "tableCharge": "テーブル料金"
+    "tableCharge": "テーブル料金",
+    "takeawayCharge": "テイクアウト料金"
   },
   "restore": {
     "failedWith": "復元に失敗しました：{error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "テーマ",
     "themeLight": "ライト",
     "themeDark": "ダーク",
-    "themeSystem": "システム"
+    "themeSystem": "システム",
+    "takeawayCharge": "テイクアウト料金",
+    "takeawayChargeHint": "テイクアウト注文に自動的に加算される固定金額。"
   },
   "setup": {
     "alreadyCompleted": "このインストールではセットアップが完了しています。ログインへ移動します…",
