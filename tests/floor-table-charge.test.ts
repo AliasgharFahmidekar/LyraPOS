@@ -337,7 +337,7 @@ async function main() {
 
     const renamedForward = await api(baseUrl, '/api/tables/floor-charges/Fourth%20Floor', { headers: authHeader });
     assertEqual(
-      renamedForward.data.floorCharges.find((row: any) => row.floor === 'Fourth Floor').default_table_charge,
+      renamedForward.data.floorCharge.default_table_charge,
       700,
       'floor charge follows a floor rename when destination has no charge',
     );
