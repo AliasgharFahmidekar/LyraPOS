@@ -198,6 +198,33 @@ async function main() {
     assertEqual(syncedBill.data.bill.table_charge, 500, 're-synced bill keeps table charge');
     assertEqual(syncedBill.data.bill.total, 2500, 're-synced bill total matches order');
 
+    console.log('\\n4b. Bill-level discount keeps the table charge in the payable total');
+
+    const billDiscountRes = await api(baseUrl, '/api/bills/' + syncedBill.data.bill.id + '/applyDiscount', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        type: 'amount',
+        value: 500,
+        reason: 'bill-level table-charge regression test',
+      },
+    });
+    assertEqual(billDiscountRes.status, 200, 'bill-level fixed discount applies');
+    assertEqual(billDiscountRes.data.bill.table_charge, 500, 'bill-level discount preserves table charge');
+    assertEqual(billDiscountRes.data.bill.total, 3000, 'bill-level discount total includes table charge');
+
+    const restoreOrderDiscount = await api(baseUrl, '/api/orders/' + firstOrder.id + '/discount', {
+      method: 'PATCH',
+      headers: authHeader,
+      body: {
+        discount_type: 'amount',
+        discount_value: 1000,
+        discount_reason: 'restore floor-charge regression state',
+      },
+    });
+    assertEqual(restoreOrderDiscount.status, 200, 'order discount state is restored after bill-level regression check');
+    assertEqual(restoreOrderDiscount.data.order.total, 2500, 'restored order total remains 2500');
+
     console.log('\n5. Moving the order to another floor does not rewrite the snapshot');
 
     const moveRes = await api(baseUrl, '/api/tables/tbl-charge-a/move-order', {
