@@ -1187,7 +1187,8 @@
     "taxDetails": "Chi tiết thuế",
     "taxIncluded": "Thuế đã bao gồm khi áp dụng",
     "thankYou": "Cảm ơn quý khách đã ghé thăm!",
-    "totalTax": "Tổng thuế"
+    "totalTax": "Tổng thuế",
+    "tableCharge": "Phí bàn"
   },
   "restore": {
     "failedWith": "Khôi phục thất bại: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Đã đổi tên khu vực",
     "floorRenameFailed": "Không thể đổi tên khu vực",
     "floorDeleted": "Đã xóa khu vực",
-    "floorDeleteFailed": "Không thể xóa khu vực"
+    "floorDeleteFailed": "Không thể xóa khu vực",
+    "floorTableCharge": "Phụ phí bàn theo tầng",
+    "floorTableChargeHint": "Tự động thêm vào đơn tại bàn sử dụng bàn ở tầng này.",
+    "floorTableChargeInvalid": "Phụ phí bàn phải là số hữu hạn không âm.",
+    "floorTableChargeSaved": "Đã lưu phụ phí bàn theo tầng."
   },
   "tax": {
     "actionActivate": "Đã kích hoạt gói",
