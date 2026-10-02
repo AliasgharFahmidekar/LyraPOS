@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "Riemërtimi i kati dështoi",
     "floorDeleted": "Kati u fshi",
     "floorDeleteFailed": "Fshirja e kati dështoi",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Tarifa e tavolinës së katit",
+    "floorTableChargeHint": "Shtohet automatikisht te porositë për konsum në lokal që përdorin një tavolinë në këtë kat.",
+    "floorTableChargeInvalid": "Tarifa e tavolinës duhet të jetë një shumë e fundme dhe jo negative.",
+    "floorTableChargeSaved": "Tarifa e tavolinës së katit u ruajt."
   },
   "tax": {
     "actionActivate": "Pakoja u aktivizua",

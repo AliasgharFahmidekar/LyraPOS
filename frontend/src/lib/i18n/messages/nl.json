@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "Kan de naam van de verdieping niet wijzigen",
     "floorDeleted": "Verdieping verwijderd",
     "floorDeleteFailed": "Kan verdieping niet verwijderen",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Tafelkosten van de verdieping",
+    "floorTableChargeHint": "Wordt automatisch toegevoegd aan bestellingen voor gebruik in het restaurant die een tafel op deze verdieping gebruiken.",
+    "floorTableChargeInvalid": "De tafelkosten moeten een eindig en niet-negatief bedrag zijn.",
+    "floorTableChargeSaved": "Tafelkosten van de verdieping opgeslagen."
   },
   "tax": {
     "actionActivate": "Pakket geactiveerd",

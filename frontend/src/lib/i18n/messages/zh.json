@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "重命名楼层失败",
     "floorDeleted": "楼层已删除",
     "floorDeleteFailed": "删除楼层失败",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "楼层桌费",
+    "floorTableChargeHint": "会自动添加到使用该楼层餐桌的堂食订单中。",
+    "floorTableChargeInvalid": "桌费必须是有限且不小于零的金额。",
+    "floorTableChargeSaved": "楼层桌费已保存。"
   },
   "tax": {
     "actionActivate": "税务包已激活",

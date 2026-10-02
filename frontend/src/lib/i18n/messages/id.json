@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "Gagal mengubah nama lantai",
     "floorDeleted": "Lantai dihapus",
     "floorDeleteFailed": "Gagal menghapus lantai",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Biaya meja lantai",
+    "floorTableChargeHint": "Otomatis ditambahkan ke pesanan makan di tempat yang menggunakan meja di lantai tersebut.",
+    "floorTableChargeInvalid": "Biaya meja harus berupa jumlah yang valid, berhingga, dan tidak negatif.",
+    "floorTableChargeSaved": "Biaya meja lantai telah disimpan."
   },
   "tax": {
     "actionActivate": "Paket diaktifkan",

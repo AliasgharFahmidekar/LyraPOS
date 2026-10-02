@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "Falha ao renomear o andar",
     "floorDeleted": "Andar excluído",
     "floorDeleteFailed": "Falha ao excluir o andar",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Taxa de mesa do andar",
+    "floorTableChargeHint": "Adicionada automaticamente aos pedidos no local que utilizam uma mesa desse andar.",
+    "floorTableChargeInvalid": "A taxa de mesa deve ser um valor finito e não negativo.",
+    "floorTableChargeSaved": "Taxa de mesa do andar salva."
   },
   "tax": {
     "actionActivate": "Pacote ativado",

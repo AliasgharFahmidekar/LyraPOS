@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "No se pudo renombrar el piso",
     "floorDeleted": "Piso eliminado",
     "floorDeleteFailed": "No se pudo eliminar el piso",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Cargo por uso de mesa de la planta",
+    "floorTableChargeHint": "Se añade automáticamente a los pedidos para consumir en el local que utilizan una mesa de esta planta.",
+    "floorTableChargeInvalid": "El cargo de mesa debe ser un importe finito y no negativo.",
+    "floorTableChargeSaved": "Se ha guardado el cargo por uso de mesa de la planta."
   },
   "tax": {
     "actionActivate": "Paquete activado",

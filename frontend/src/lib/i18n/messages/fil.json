@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "Hindi pinalitan ang pangalan ng palapag",
     "floorDeleted": "Tinanggal ang palapag",
     "floorDeleteFailed": "Hindi tinanggal ang palapag",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Bayad sa mesa sa palapag",
+    "floorTableChargeHint": "Awto itong idinadagdag sa mga dine-in order na gumagamit ng mesa sa palapag na iyon.",
+    "floorTableChargeInvalid": "Ang bayad sa mesa ay dapat isang may-bisang halaga na hindi negatibo.",
+    "floorTableChargeSaved": "Na-save ang bayad sa mesa sa palapag."
   },
   "tax": {
     "actionActivate": "Na-activate ang pack",

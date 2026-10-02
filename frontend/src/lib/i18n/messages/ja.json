@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "フロア名の変更に失敗しました",
     "floorDeleted": "フロアを削除しました",
     "floorDeleteFailed": "フロアの削除に失敗しました",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "フロアのテーブル料金",
+    "floorTableChargeHint": "このフロアのテーブルを使用する店内注文に自動的に追加されます。",
+    "floorTableChargeInvalid": "テーブル料金は有限の0以上の金額である必要があります。",
+    "floorTableChargeSaved": "フロアのテーブル料金を保存しました。"
   },
   "tax": {
     "actionActivate": "パックを有効化",

@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "फ़्लोर का नाम बदलने में विफल",
     "floorDeleted": "फर्श हटा दिया गया",
     "floorDeleteFailed": "फ़्लोर हटाने में विफल",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "फ़्लोर टेबल शुल्क",
+    "floorTableChargeHint": "इस फ़्लोर की टेबल का उपयोग करने वाले डाइन-इन ऑर्डर में यह अपने आप जोड़ा जाता है।",
+    "floorTableChargeInvalid": "टेबल शुल्क एक सीमित और शून्य या उससे अधिक राशि होना चाहिए।",
+    "floorTableChargeSaved": "फ़्लोर टेबल शुल्क सहेजा गया।"
   },
   "tax": {
     "actionActivate": "पैक सक्रिय",

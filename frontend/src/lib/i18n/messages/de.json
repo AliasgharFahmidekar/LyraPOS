@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "Etage konnte nicht umbenannt werden",
     "floorDeleted": "Etage gelöscht",
     "floorDeleteFailed": "Etage konnte nicht gelöscht werden",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Tischgebühr der Etage",
+    "floorTableChargeHint": "Wird automatisch zu Vor-Ort-Bestellungen hinzugefügt, die einen Tisch auf dieser Etage verwenden.",
+    "floorTableChargeInvalid": "Die Tischgebühr muss ein endlicher, nicht negativer Betrag sein.",
+    "floorTableChargeSaved": "Tischgebühr der Etage gespeichert."
   },
   "tax": {
     "actionActivate": "Steuerpaket aktiviert",

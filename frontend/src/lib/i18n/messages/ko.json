@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "홀 이름을 변경하지 못했습니다",
     "floorDeleted": "홀이 삭제되었습니다",
     "floorDeleteFailed": "홀을 삭제하지 못했습니다",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "층 테이블 요금",
+    "floorTableChargeHint": "이 층의 테이블을 사용하는 매장 내 주문에 자동으로 추가됩니다.",
+    "floorTableChargeInvalid": "테이블 요금은 유한하며 0 이상인 금액이어야 합니다.",
+    "floorTableChargeSaved": "층 테이블 요금이 저장되었습니다."
   },
   "tax": {
     "actionActivate": "세금 팩이 활성화되었습니다",

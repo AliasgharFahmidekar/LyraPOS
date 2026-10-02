@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "Kat yeniden adlandırılamadı",
     "floorDeleted": "Kat silindi",
     "floorDeleteFailed": "Kat silinemedi",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Kat masa ücreti",
+    "floorTableChargeHint": "Bu kattaki bir masayı kullanan salonda tüketim siparişlerine otomatik olarak eklenir.",
+    "floorTableChargeInvalid": "Masa ücreti sonlu ve negatif olmayan bir tutar olmalıdır.",
+    "floorTableChargeSaved": "Kat masa ücreti kaydedildi."
   },
   "tax": {
     "actionActivate": "Vergi paketi etkinleştirildi",

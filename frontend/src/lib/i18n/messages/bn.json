@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "ফ্লোরের নাম পরিবর্তন করতে ব্যর্থ হয়েছে।",
     "floorDeleted": "মেঝে মুছে ফেলা হয়েছে",
     "floorDeleteFailed": "মেঝে মুছে ফেলতে ব্যর্থ হয়েছে",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "ফ্লোর টেবিল চার্জ",
+    "floorTableChargeHint": "এই ফ্লোরের টেবিল ব্যবহার করা ডাইন-ইন অর্ডারে এটি স্বয়ংক্রিয়ভাবে যোগ করা হয়।",
+    "floorTableChargeInvalid": "টেবিল চার্জ একটি সসীম ও শূন্য বা তার বেশি পরিমাণ হতে হবে।",
+    "floorTableChargeSaved": "ফ্লোর টেবিল চার্জ সংরক্ষণ করা হয়েছে।"
   },
   "tax": {
     "actionActivate": "প্যাক সক্রিয় করা হয়েছে",

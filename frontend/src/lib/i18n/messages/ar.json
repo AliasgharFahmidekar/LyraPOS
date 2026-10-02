@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "فشل إعادة تسمية الطابق",
     "floorDeleted": "تم حذف الطابق",
     "floorDeleteFailed": "فشل حذف الطابق",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "رسوم طاولة الطابق",
+    "floorTableChargeHint": "تُضاف تلقائيًا إلى طلبات الأكل داخل المطعم التي تستخدم طاولة في هذا الطابق.",
+    "floorTableChargeInvalid": "يجب أن تكون رسوم الطاولة مبلغًا صالحًا ومحدودًا وغير سالب.",
+    "floorTableChargeSaved": "تم حفظ رسوم طاولة الطابق."
   },
   "tax": {
     "actionActivate": "تم تفعيل الحزمة",
