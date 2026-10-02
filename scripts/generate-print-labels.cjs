@@ -157,6 +157,7 @@ const BORROWED_KEYS = [
   'pos.packaging',
   'receipt.totalTax',
   'receipt.serviceCharge',
+  'receipt.tableCharge',
   'receipt.taxDetails',
   'receipt.payments',
   'receipt.cashReceived',
