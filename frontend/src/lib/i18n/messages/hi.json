@@ -1187,7 +1187,8 @@
     "taxDetails": "कर विवरण",
     "taxIncluded": "जहां लागू हो वहां कर शामिल है",
     "thankYou": "आपकी यात्रा के लिए धन्यवाद!",
-    "totalTax": "कुल कर"
+    "totalTax": "कुल कर",
+    "tableCharge": "टेबल शुल्क"
   },
   "restore": {
     "failedWith": "पुनर्स्थापना विफल: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "मंजिल का नाम बदला गया",
     "floorRenameFailed": "फ़्लोर का नाम बदलने में विफल",
     "floorDeleted": "फर्श हटा दिया गया",
-    "floorDeleteFailed": "फ़्लोर हटाने में विफल"
+    "floorDeleteFailed": "फ़्लोर हटाने में विफल",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "पैक सक्रिय",
