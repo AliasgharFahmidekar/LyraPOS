@@ -234,11 +234,10 @@ async function main() {
       assertEqual(res.data.order.total, 450, 'total updated to 450');
     }
 
-    // The install default is percentage-only. Enable flat discounts for
-    // the legacy flat-discount behavior checks below.
+    // Keep the default mode enabled for both percentage and fixed-amount
+    // discounts. Set an explicit amount limit for the bounds test below.
     {
       const db = getDatabase();
-      db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('both', 'discount_mode');
       db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('100', 'discount_max_amount');
     }
 
