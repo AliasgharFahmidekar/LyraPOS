@@ -935,7 +935,7 @@ function composeSplitTotals(
   const deliveryCharge = allocations.delivery_charge ?? allocations.deliveryCharge;
   const packagingCharge = allocations.packaging_charge ?? allocations.packagingCharge;
   const serviceCharge = allocations.service_charge ?? allocations.serviceCharge;
-  const tableCharge = allocations.table_charge ?? allocations.tableCharge;
+  const tableCharge = allocations.table_charge ?? allocations.tableCharge ?? new Array(allocations.subtotal.length).fill(0);
   const roundOff = allocations.round_off ?? allocations.roundOff;
   return allocations.subtotal.map((subtotal, index) => Number((
     subtotal
@@ -1440,6 +1440,7 @@ export function syncUnpaidBillsForOrder(
     deliveryCharge: Math.round(source.deliveryCharge * minorFactor),
     packagingCharge: Math.round(source.packagingCharge * minorFactor),
     serviceCharge: Math.round(source.serviceCharge * minorFactor),
+    tableCharge: Math.round(source.tableCharge * minorFactor),
     roundOff: Math.round(billRoundOff * minorFactor),
     total: Math.round(billTotal * minorFactor),
   };
@@ -1485,7 +1486,7 @@ export function syncUnpaidBillsForOrder(
   const snapshots = snapshotAllocation.snapshots;
   const update = db.prepare(`
     UPDATE bills SET subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?,
-      delivery_charge = ?, packaging_charge = ?, service_charge = ?, round_off = ?, total = ?, balance = ?, updated_at = ?
+      delivery_charge = ?, packaging_charge = ?, service_charge = ?, table_charge = ?, round_off = ?, total = ?, balance = ?, updated_at = ?
     WHERE id = ?
   `);
 
@@ -1496,7 +1497,7 @@ export function syncUnpaidBillsForOrder(
     if (bill.payment_status === 'paid' && !zeroClosed) return;
     update.run(
       allocations.subtotal[index], allocations.taxAmount[index], breakdowns[index], snapshots[index],
-      allocations.discountAmount[index], allocations.deliveryCharge[index], allocations.packagingCharge[index], allocations.serviceCharge[index],
+      allocations.discountAmount[index], allocations.deliveryCharge[index], allocations.packagingCharge[index], allocations.serviceCharge[index], allocations.tableCharge[index],
       allocations.roundOff[index], total, balance, now(), bill.id,
     );
     if (total <= 0 && balance <= 0) {
