@@ -1187,7 +1187,8 @@
     "taxDetails": "Tax Details",
     "taxIncluded": "Tax included where applicable",
     "thankYou": "Thank you for your visit!",
-    "totalTax": "Total Tax"
+    "totalTax": "Total Tax",
+    "tableCharge": "Table charge"
   },
   "restore": {
     "failedWith": "Restore failed: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Floor renamed",
     "floorRenameFailed": "Failed to rename floor",
     "floorDeleted": "Floor deleted",
-    "floorDeleteFailed": "Failed to delete floor"
+    "floorDeleteFailed": "Failed to delete floor",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "Pack activated",
