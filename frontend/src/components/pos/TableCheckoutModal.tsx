@@ -31,7 +31,7 @@ export default function TableCheckoutModal({
   onAddCartToOrder
 }: Props) {
   const t = useTranslations('pos');
-  const tCommon = useTranslations('common');
+  const tReceipt = useTranslations('receipt');
   const fmt = useFormatCurrency();
   const formatItemTotal = (value: unknown, fallback: unknown) => {
     const total = Number(value);
@@ -197,7 +197,7 @@ export default function TableCheckoutModal({
           />
           {Number(order.table_charge) > 0 && (
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{tCommon('tableCharge')}</span>
+              <span className="text-muted-foreground">{tReceipt('tableCharge')}</span>
               <span>{fmt(Number(order.table_charge))}</span>
             </div>
           )}
