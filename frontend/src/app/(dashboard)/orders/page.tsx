@@ -100,6 +100,7 @@ export default function OrdersPage() {
   const { setTablesRequired, autoPrintBill, printerUseUnicode, printerArabicShaping } = usePosSettingsStore();
   const tOrders = useTranslations('orders');
   const tCommon = useTranslations('common');
+  const tReceipt = useTranslations('receipt');
   const tNav = useTranslations('nav');
   const tWhatsappSend = useTranslations('whatsapp.send');
 
