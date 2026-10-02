@@ -105,7 +105,7 @@ export const MERCHANT_TEMPLATE_LABEL_FIELDS: Readonly<
   'customer': [],
   'item-table': ['item', 'quantity', 'amount', 'note'],
   'tax-breakdown': [],
-  'totals': ['subtotal', 'discount', 'tax', 'grandTotal', 'tableCharge', 'pointsRedeemed', 'pointsEarned', 'pointsBalance'],
+  'totals': ['subtotal', 'discount', 'tax', 'grandTotal', 'tableCharge', 'takeawayCharge', 'pointsRedeemed', 'pointsEarned', 'pointsBalance'],
   'payments': [],
   'message': ['reprintBanner', 'onlineOrderBanner', 'thankYou'],
 });
