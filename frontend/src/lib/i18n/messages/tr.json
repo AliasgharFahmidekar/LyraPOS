@@ -1188,7 +1188,8 @@
     "taxIncluded": "Uygulanabilir yerlerde vergi dahildir",
     "thankYou": "Bizi tercih ettiğiniz için teşekkür ederiz!",
     "totalTax": "Toplam Vergi",
-    "tableCharge": "Masa ücreti"
+    "tableCharge": "Masa ücreti",
+    "takeawayCharge": "Paket servis ücreti"
   },
   "restore": {
     "failedWith": "Geri yükleme başarısız oldu: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Tema ve Renk Modu",
     "themeLight": "Açık Tema",
     "themeDark": "Koyu Tema",
-    "themeSystem": "Sistem Varsayılanı"
+    "themeSystem": "Sistem Varsayılanı",
+    "takeawayCharge": "Paket servis ücreti",
+    "takeawayChargeHint": "Paket servis siparişlerine otomatik olarak eklenen sabit tutar."
   },
   "setup": {
     "alreadyCompleted": "Kurulum bu cihazda zaten tamamlandı. Giriş ekranına yönlendiriliyorsunuz…",
