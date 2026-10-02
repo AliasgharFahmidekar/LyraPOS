@@ -2362,10 +2362,10 @@
     "floorRenameFailed": "Impossible de renommer l'étage",
     "floorDeleted": "Étage supprimé",
     "floorDeleteFailed": "Impossible de supprimer l'étage",
-    "floorTableCharge": "Floor table charge",
-    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
-    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
-    "floorTableChargeSaved": "Floor table charge saved."
+    "floorTableCharge": "Frais de table de l\u0027étage",
+    "floorTableChargeHint": "Ajouté automatiquement aux commandes sur place utilisant une table de cet étage.",
+    "floorTableChargeInvalid": "Les frais de table doivent être un montant fini et supérieur ou égal à zéro.",
+    "floorTableChargeSaved": "Les frais de table de l\u0027étage ont été enregistrés."
   },
   "tax": {
     "actionActivate": "Module activé",
