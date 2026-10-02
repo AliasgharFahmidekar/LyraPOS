@@ -1340,6 +1340,12 @@ placeholder={tOrders('managerPin')}
                   <span className="text-muted-foreground">{tCommon('tax')}</span>
                   <span className="text-foreground">{fmt(Number(discountModal.order.tax_amount || 0))}</span>
                 </div>
+                {Number(discountModal.order.table_charge) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">{tCommon('tableCharge')}</span>
+                    <span className="text-foreground">{fmt(Number(discountModal.order.table_charge))}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-purple-600">
                     {tCommon('discount')}
@@ -1360,8 +1366,8 @@ placeholder={tOrders('managerPin')}
                   <span className="text-foreground">
                     {fmt(
                       discountModal.type === 'percentage'
-                        ? Number(discountModal.order.subtotal) * (1 - discountModal.value / 100) + Number(discountModal.order.tax_amount || 0)
-                        : Number(discountModal.order.subtotal) - normalizedDiscountValue + Number(discountModal.order.tax_amount || 0)
+                        ? Number(discountModal.order.subtotal) * (1 - discountModal.value / 100) + Number(discountModal.order.tax_amount || 0) + Number(discountModal.order.table_charge || 0)
+                        : Number(discountModal.order.subtotal) - normalizedDiscountValue + Number(discountModal.order.tax_amount || 0) + Number(discountModal.order.table_charge || 0)
                     )}
                   </span>
                 </div>
