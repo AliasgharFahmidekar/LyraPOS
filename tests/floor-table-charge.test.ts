@@ -60,6 +60,7 @@ async function main() {
   const db = initTestDb();
   const { authHeader } = seedOwnerUser(db);
   db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('split_checks_enabled', 'true', CURRENT_TIMESTAMP)").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('takeaway_charge', '300', CURRENT_TIMESTAMP)").run();
 
   seedCategory(db, 'cat-table-charge', 'Table Charge Test Menu');
   seedProduct(db, 'prod-table-charge-a', 'cat-table-charge', 'Coffee', 1000);
@@ -124,7 +125,44 @@ async function main() {
       'GET returns configured floor charge',
     );
 
-    console.log('\n2. Dine-in order snapshots the floor charge');
+    console.log('\n2. Fixed takeaway charge is applied and snapshotted');
+
+    const takeawayRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        type: 'takeaway',
+        items: [{ product_id: 'prod-table-charge-a', quantity: 1 }],
+      },
+    });
+    assertEqual(takeawayRes.status, 201, 'takeaway order is created');
+    assertEqual(takeawayRes.data.order.takeaway_charge, 300, 'takeaway order snapshots configured fixed charge');
+    assertEqual(takeawayRes.data.order.subtotal, 1000, 'takeaway charge does not inflate product subtotal');
+    assertEqual(takeawayRes.data.order.total, 1300, 'takeaway charge is included in order total');
+
+    const takeawayBillRes = await api(baseUrl, '/api/bills/generate', {
+      method: 'POST',
+      headers: authHeader,
+      body: { order_id: takeawayRes.data.order.id },
+    });
+    assertEqual(takeawayBillRes.status, 201, 'takeaway bill is generated');
+    assertEqual(takeawayBillRes.data.bill.takeaway_charge, 300, 'bill snapshots takeaway charge');
+    assertEqual(takeawayBillRes.data.bill.total, 1300, 'bill total includes takeaway charge');
+
+    db.prepare("UPDATE settings SET value = '450', updated_at = CURRENT_TIMESTAMP WHERE key = 'takeaway_charge'").run();
+    const secondTakeawayRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        type: 'takeaway',
+        items: [{ product_id: 'prod-table-charge-a', quantity: 1 }],
+      },
+    });
+    assertEqual(secondTakeawayRes.status, 201, 'second takeaway order is created');
+    assertEqual(secondTakeawayRes.data.order.takeaway_charge, 450, 'new takeaway order uses the updated fixed charge');
+    assertEqual(takeawayRes.data.order.takeaway_charge, 300, 'existing takeaway order keeps its original snapshot');
+
+    console.log('\n3. Dine-in order snapshots the floor charge');
 
     const firstOrderRes = await api(baseUrl, '/api/orders', {
       method: 'POST',
@@ -150,7 +188,7 @@ async function main() {
     assertEqual(firstBillRes.data.bill.table_charge, 500, 'bill snapshots table charge');
     assertEqual(firstBillRes.data.bill.total, 1500, 'bill total includes table charge');
 
-    console.log('\n3. Changing the floor setting does not rewrite an open order');
+    console.log('\n4. Changing the floor setting does not rewrite an open order');
 
     const updateFloorCharge = await api(baseUrl, '/api/tables/floor-charges/First%20Floor', {
       method: 'PUT',
@@ -172,7 +210,7 @@ async function main() {
     assertEqual(afterAdd.subtotal, 3000, 'subtotal becomes 3000 after adding second item');
     assertEqual(afterAdd.total, 3500, 'new total still uses original 500 table charge');
 
-    console.log('\n4. Fixed-amount discount leaves table charge outside the discount base');
+    console.log('\n5. Fixed-amount discount leaves table charge outside the discount base');
 
     const discountRes = await api(baseUrl, `/api/orders/${firstOrder.id}/discount`, {
       method: 'PATCH',
@@ -198,7 +236,7 @@ async function main() {
     assertEqual(syncedBill.data.bill.table_charge, 500, 're-synced bill keeps table charge');
     assertEqual(syncedBill.data.bill.total, 2500, 're-synced bill total matches order');
 
-    console.log('\\n4b. Bill-level discount keeps the table charge in the payable total');
+    console.log('\\n5b. Bill-level discount keeps the table charge in the payable total');
 
     const billDiscountRes = await api(baseUrl, '/api/bills/' + syncedBill.data.bill.id + '/applyDiscount', {
       method: 'POST',
@@ -225,7 +263,7 @@ async function main() {
     assertEqual(restoreOrderDiscount.status, 200, 'order discount state is restored after bill-level regression check');
     assertEqual(restoreOrderDiscount.data.order.total, 2500, 'restored order total remains 2500');
 
-    console.log('\n5. Moving the order to another floor does not rewrite the snapshot');
+    console.log('\n6. Moving the order to another floor does not rewrite the snapshot');
 
     const moveRes = await api(baseUrl, '/api/tables/tbl-charge-a/move-order', {
       method: 'POST',
@@ -236,7 +274,7 @@ async function main() {
     assertEqual(moveRes.data.order.table_id, 'tbl-charge-free', 'order now points to the other floor table');
     assertEqual(moveRes.data.order.table_charge, 500, 'moving order does not rewrite original table charge');
 
-    console.log('\n6. Split checks allocate table charge without losing money');
+    console.log('\n7. Split checks allocate table charge without losing money');
 
     const secondFloorCharge = await api(baseUrl, '/api/tables/floor-charges/Second%20Floor', {
       method: 'PUT',
@@ -290,7 +328,7 @@ async function main() {
     const splitTotals = splitRes.data.bills.map((bill: any) => Number(bill.total));
     assertEqual(splitTotals.reduce((sum: number, total: number) => sum + total, 0), chargedBill.data.bill.total, 'split totals preserve the original bill total');
 
-    console.log('\n7. Dine-in to takeaway clears table-use charge');
+    console.log('\n8. Dine-in to takeaway replaces table charge with fixed takeaway charge');
 
     const convertRes = await api(baseUrl, `/api/orders/${firstOrder.id}/convert-to-takeaway`, {
       method: 'PATCH',
@@ -301,7 +339,8 @@ async function main() {
     assertEqual(convertRes.data.order.type, 'takeaway', 'order type becomes takeaway');
     assertEqual(convertRes.data.order.table_id, null, 'takeaway order has no table');
     assertEqual(convertRes.data.order.table_charge, 0, 'takeaway conversion clears table charge');
-    assertEqual(convertRes.data.order.total, 2000, 'takeaway conversion removes table charge from order total');
+    assertEqual(convertRes.data.order.takeaway_charge, 300, 'takeaway conversion snapshots the fixed takeaway charge');
+    assertEqual(convertRes.data.order.total, 2300, 'takeaway conversion replaces table charge with takeaway charge');
 
     const convertedBill = await api(baseUrl, '/api/bills/generate', {
       method: 'POST',
@@ -310,9 +349,10 @@ async function main() {
     });
     assertEqual(convertedBill.status, 200, 'converted order bill remains readable');
     assertEqual(convertedBill.data.bill.table_charge, 0, 'converted unpaid bill clears table charge');
-    assertEqual(convertedBill.data.bill.total, 2000, 'converted unpaid bill matches new order total');
+    assertEqual(convertedBill.data.bill.takeaway_charge, 300, 'converted unpaid bill stores takeaway charge');
+    assertEqual(convertedBill.data.bill.total, 2300, 'converted unpaid bill matches new order total');
 
-    console.log('\n8. Floor rename/delete keep configuration coherent');
+    console.log('\n9. Floor rename/delete keep configuration coherent');
 
     const renameRes = await api(baseUrl, '/api/tables/floors/No%20Charge%20Floor', {
       method: 'PATCH',
