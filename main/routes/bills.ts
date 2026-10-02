@@ -1646,7 +1646,7 @@ router.post('/:id/split-check', requireRole(...ROLE_ACCESS.ownerManagerCashier),
         const splitBk = resolvedTaxBreakdowns[index];
         const splitSnapshot = checkTaxSnapshots[index];
         if (index === 0) {
-          db.prepare(`UPDATE bills SET split_group_id = ?, split_label = ?, subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, delivery_charge = ?, packaging_charge = ?, service_charge = ?, table_charge = ?, round_off = ?, total = ?, balance = ?, updated_at = ? WHERE id = ?`)
+          db.prepare(`UPDATE bills SET split_group_id = ?, split_label = ?, subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, delivery_charge = ?, packaging_charge = ?, service_charge = ?, table_charge = ?, takeaway_charge = ?, round_off = ?, total = ?, balance = ?, updated_at = ? WHERE id = ?`)
             .run(groupId, check.label, allocations.subtotal[index], allocations.tax_amount[index], splitBk, splitSnapshot, allocations.discount_amount[index], allocations.delivery_charge[index], allocations.packaging_charge[index], allocations.service_charge[index], allocations.table_charge[index], allocations.takeaway_charge[index], allocations.round_off[index], allocations.total[index], allocations.total[index], now(), txnSource.id);
           billId = Number(txnSource.id);
         } else {
