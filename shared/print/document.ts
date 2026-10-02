@@ -153,6 +153,8 @@ export interface BillSnapshot {
   readonly serviceCharge?: number;
   /** Flat table-use charge captured from the floor default at order creation. */
   readonly tableCharge?: number;
+  /** Flat takeaway charge captured from the order at creation. */
+  readonly takeawayCharge?: number;
   /** Flat delivery charge, when the bill carries one (frontend bills). */
   readonly deliveryCharge?: number;
   /** Flat packaging charge, when the bill carries one. */
@@ -356,6 +358,8 @@ export interface TotalsBlock {
   readonly serviceCharge: { readonly label: SemanticLabel; readonly amount: number } | null;
   /** Flat table-use charge line, present when the snapshot carries a nonzero charge. */
   readonly tableCharge: { readonly label: SemanticLabel; readonly amount: number } | null;
+  /** Flat takeaway-charge line, present when the snapshot carries a nonzero charge. */
+  readonly takeawayCharge: { readonly label: SemanticLabel; readonly amount: number } | null;
   /** Flat delivery-charge line, present when the snapshot carries a nonzero charge. */
   readonly deliveryCharge: { readonly label: SemanticLabel; readonly amount: number } | null;
   /** Flat packaging-charge line, present when the snapshot carries a nonzero charge. */
@@ -683,6 +687,12 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
       ? Object.freeze({
         label: resolveSemanticLabel(labels, 'receipt.tableCharge'),
         amount: toFiniteNumber(bill.tableCharge),
+      })
+      : null,
+    takeawayCharge: toFiniteNumber(bill.takeawayCharge) !== 0
+      ? Object.freeze({
+        label: resolveSemanticLabel(labels, 'receipt.takeawayCharge'),
+        amount: toFiniteNumber(bill.takeawayCharge),
       })
       : null,
     deliveryCharge: toFiniteNumber(bill.deliveryCharge) !== 0
