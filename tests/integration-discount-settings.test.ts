@@ -120,7 +120,6 @@ async function seedTestData(db: any) {
   const settings = [
     ['discount_max_percentage', '25'],
     ['discount_max_amount', '0'],
-    ['discount_mode', 'percentage'],
     ['discount_requires_approval', '0'],
   ];
   for (const [key, value] of settings) {
@@ -201,7 +200,7 @@ async function main() {
       assertEqual(res.status, 200, 'returns 200');
       assertEqual(res.data.discount_max_percentage, 25, 'default max percentage is 25');
       assertEqual(res.data.discount_max_amount, 0, 'default max amount is no limit');
-      assertEqual(res.data.discount_mode, 'percentage', 'default mode is percentage');
+      assertEqual(res.data.discount_mode, 'both', 'default mode allows percentage and fixed-amount discounts');
       assertEqual(res.data.discount_requires_approval, false, 'default approval is false');
     }
 

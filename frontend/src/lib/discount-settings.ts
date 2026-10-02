@@ -4,7 +4,7 @@ export type DiscountType = 'percentage' | 'amount';
 export const normalizeDiscountMode = (value: unknown): DiscountMode => {
   return value === 'flat' || value === 'both' || value === 'percentage' || value === 'none'
     ? value
-    : 'percentage';
+    : 'both';
 };
 
 export const isDiscountTypeAllowed = (mode: DiscountMode, type: DiscountType) => {

@@ -3093,7 +3093,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     version: 7,
     name: 'add_discount_settings',
     up: () => {
-      insertSettingIfMissing('discount_mode', 'percentage');
+      insertSettingIfMissing('discount_mode', 'both');
       insertSettingIfMissing('discount_requires_approval', '0');
       insertSettingIfMissing('discount_max_percentage', '25');
       insertSettingIfMissing('discount_max_amount', '0');
@@ -5386,6 +5386,19 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 96,
+    name: 'enable_percentage_and_fixed_amount_discounts_by_default',
+    up: () => {
+      // Existing installations historically defaulted to percentage-only.
+      // Enable both discount entry modes so fixed-amount discounts are
+      // available at payment time without requiring manual configuration.
+      db.prepare(
+        "UPDATE settings SET value = 'both', updated_at = ? WHERE key = 'discount_mode' AND value = 'percentage'",
+      ).run(now());
+    },
+  },
+
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
