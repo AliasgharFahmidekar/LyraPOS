@@ -1187,7 +1187,8 @@
     "taxDetails": "稅費明細",
     "taxIncluded": "適用時價格已含稅",
     "thankYou": "感謝光臨！",
-    "totalTax": "稅金合計"
+    "totalTax": "稅金合計",
+    "tableCharge": "餐桌費"
   },
   "restore": {
     "failedWith": "復原失敗：{error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "樓層已重新命名",
     "floorRenameFailed": "重新命名樓層失敗",
     "floorDeleted": "樓層已刪除",
-    "floorDeleteFailed": "刪除樓層失敗"
+    "floorDeleteFailed": "刪除樓層失敗",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "稅務包已啟用",
