@@ -1188,7 +1188,8 @@
     "taxIncluded": "जहां लागू हो वहां कर शामिल है",
     "thankYou": "आपकी यात्रा के लिए धन्यवाद!",
     "totalTax": "कुल कर",
-    "tableCharge": "टेबल शुल्क"
+    "tableCharge": "टेबल शुल्क",
+    "takeawayCharge": "टेकअवे शुल्क"
   },
   "restore": {
     "failedWith": "पुनर्स्थापना विफल: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "थीम",
     "themeLight": "हल्का",
     "themeDark": "गहरा",
-    "themeSystem": "सिस्टम"
+    "themeSystem": "सिस्टम",
+    "takeawayCharge": "टेकअवे शुल्क",
+    "takeawayChargeHint": "टेकअवे ऑर्डर में अपने-आप जोड़ी जाने वाली निश्चित राशि।"
   },
   "setup": {
     "alreadyCompleted": "इस इंस्टाल पर सेटअप पहले ही पूरा हो चुका है. लॉगिन करने के लिए पुनः निर्देशित किया जा रहा है...",
