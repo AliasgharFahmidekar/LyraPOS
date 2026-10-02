@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { Router, Request, Response } from 'express';
-import { getDatabase, generateOrderNumber, now, parseItemJson, parseRowJson, withTxn, verifyPin, getSettingValue, insertOrderItemAddons, attachEffectiveAddons, utcDayBounds, utcTodayDate, recordOrderAudit } from '../db';
+import { getDatabase, generateOrderNumber, now, parseItemJson, parseRowJson, withTxn, verifyPin, getSettingValue, insertOrderItemAddons, attachEffectiveAddons, utcDayBounds, utcTodayDate, recordOrderAudit, getTableDefaultTableCharge } from '../db';
 import {
   calculateConfiguredChargeTaxes,
   calculateItemTax,
@@ -561,16 +561,20 @@ router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: R
         ? (db.prepare("SELECT reservation_customer_id FROM tables WHERE id = ? AND status = 'reserved'").get(table_id) as { reservation_customer_id: string | null } | undefined)?.reservation_customer_id || null
         : null;
       const orderCustomerId = customer_id || reservedCustomerId || null;
+      // Table-use charge is server-authoritative and snapshot onto the order at creation.
+      const tableCharge = type === 'dine_in' && table_id
+        ? getTableDefaultTableCharge(db, table_id)
+        : 0;
 
       const orderResult = db.prepare(`
         INSERT INTO orders (order_number, table_id, customer_id, user_id, type, guest_count, special_instructions,
           packaging_charge, delivery_charge, packaging_tax_category_id, delivery_tax_category_id,
-          service_charge, service_charge_tax_category_id, online_platform, external_order_id, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+          service_charge, service_charge_tax_category_id, table_charge, online_platform, external_order_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
       `).run(orderNumber, table_id || null, orderCustomerId, authenticatedUserId, type, guest_count || null,
         special_instructions || null, pkgCharge, delCharge,
         chargeContext.packaging_tax_category_id, chargeContext.delivery_tax_category_id,
-        serviceCharge, chargeContext.service_charge_tax_category_id,
+        serviceCharge, chargeContext.service_charge_tax_category_id, tableCharge,
         onlinePlatform || null, externalOrderId || null, now(), now());
 
       const orderId = orderResult.lastInsertRowid;
@@ -688,7 +692,7 @@ router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: R
         minorFactor,
       });
       const preRoundTotal = subtotal + taxRollup.exclusiveTaxAmount
-        + delCharge + pkgCharge + serviceCharge;
+        + delCharge + pkgCharge + serviceCharge + tableCharge;
       const total = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
 
@@ -950,7 +954,7 @@ router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales)
         minorFactor,
       });
       const preRoundTotal = discountedSubtotal + taxRollup.exclusiveTaxAmount
-        + (currentOrder.delivery_charge || 0) + (currentOrder.packaging_charge || 0) + (currentOrder.service_charge || 0);
+        + (currentOrder.delivery_charge || 0) + (currentOrder.packaging_charge || 0) + (currentOrder.service_charge || 0) + (currentOrder.table_charge || 0);
       const total = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
 
@@ -1258,7 +1262,7 @@ router.patch('/:id/convert-to-takeaway', orderWriteRateLimit, requireRole(...ROL
         throw Object.assign(new Error('A split dine-in check cannot be converted to takeaway'), { statusCode: 409 });
       }
 
-      db.prepare("UPDATE orders SET type = 'takeaway', table_id = NULL, updated_at = ? WHERE id = ?")
+      db.prepare("UPDATE orders SET type = 'takeaway', table_id = NULL, table_charge = 0, updated_at = ? WHERE id = ?")
         .run(nowStr, req.params.id);
 
       if (order.table_id) {
@@ -1432,7 +1436,7 @@ router.patch('/:id/discount', orderWriteRateLimit, requireRole(...ROLE_ACCESS.ow
         minorFactor,
       });
       const preRoundTotal = discountedSubtotal + taxRollup.exclusiveTaxAmount
-        + (currentOrder.packaging_charge || 0) + (currentOrder.delivery_charge || 0) + (currentOrder.service_charge || 0);
+        + (currentOrder.packaging_charge || 0) + (currentOrder.delivery_charge || 0) + (currentOrder.service_charge || 0) + (currentOrder.table_charge || 0);
       const newTotal = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
 
@@ -1663,7 +1667,7 @@ router.patch('/:id/items/:itemId/discount', orderWriteRateLimit, requireRole(...
         minorFactor,
       });
       const preRoundTotal = discountedSubtotal + taxRollup.exclusiveTaxAmount
-        + (order.packaging_charge || 0) + (order.delivery_charge || 0) + (order.service_charge || 0);
+        + (order.packaging_charge || 0) + (order.delivery_charge || 0) + (order.service_charge || 0) + (order.table_charge || 0);
       const orderTotal = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
 
