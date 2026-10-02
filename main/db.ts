@@ -5416,21 +5416,6 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
-    version: 98,
-    name: 'add_fixed_takeaway_charge',
-    up: () => {
-      const orderColumns = getColumns(db, 'orders');
-      if (!orderColumns.includes('takeaway_charge')) {
-        db.exec('ALTER TABLE orders ADD COLUMN takeaway_charge REAL DEFAULT 0');
-      }
-
-      const billColumns = getColumns(db, 'bills');
-      if (!billColumns.includes('takeaway_charge')) {
-        db.exec('ALTER TABLE bills ADD COLUMN takeaway_charge REAL DEFAULT 0');
-      }
-    },
-  },
-  {
     version: 97,
     name: 'add_floor_table_charge',
     up: () => {
@@ -5451,6 +5436,21 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       const billColumns = getColumns(db, 'bills');
       if (!billColumns.includes('table_charge')) {
         db.exec(`ALTER TABLE bills ADD COLUMN table_charge REAL DEFAULT 0`);
+      }
+    },
+  },
+  {
+    version: 98,
+    name: 'add_fixed_takeaway_charge',
+    up: () => {
+      const orderColumns = getColumns(db, 'orders');
+      if (!orderColumns.includes('takeaway_charge')) {
+        db.exec('ALTER TABLE orders ADD COLUMN takeaway_charge REAL DEFAULT 0');
+      }
+
+      const billColumns = getColumns(db, 'bills');
+      if (!billColumns.includes('takeaway_charge')) {
+        db.exec('ALTER TABLE bills ADD COLUMN takeaway_charge REAL DEFAULT 0');
       }
     },
   },
