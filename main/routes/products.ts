@@ -300,6 +300,10 @@ function serializeProduct(product: any): any {
   if (!product) return product;
   return {
     ...product,
+    // The database column is named "cost", while the API/frontend contract
+    // uses "cost_price". Expose the API name so the value survives reloads
+    // of the product editor.
+    cost_price: product.cost_price ?? product.cost ?? null,
     is_active: toBoolean(product.is_active),
     track_inventory: toBoolean(product.track_inventory),
     allow_fractional_quantity: toBoolean(product.allow_fractional_quantity),
