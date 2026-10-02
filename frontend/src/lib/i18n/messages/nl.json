@@ -1188,7 +1188,8 @@
     "taxIncluded": "Belasting inbegrepen indien van toepassing",
     "thankYou": "Bedankt voor uw bezoek!",
     "totalTax": "Totale belasting",
-    "tableCharge": "Tafelkosten"
+    "tableCharge": "Tafelkosten",
+    "takeawayCharge": "Afhaaltoeslag"
   },
   "restore": {
     "failedWith": "Herstellen mislukt: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Thema",
     "themeLight": "Licht",
     "themeDark": "Donker",
-    "themeSystem": "Systeem"
+    "themeSystem": "Systeem",
+    "takeawayCharge": "Afhaaltoeslag",
+    "takeawayChargeHint": "Een vast bedrag dat automatisch aan afhaalbestellingen wordt toegevoegd."
   },
   "setup": {
     "alreadyCompleted": "De installatie is bij deze installatie al voltooid. Omleiden naar inloggen…",
