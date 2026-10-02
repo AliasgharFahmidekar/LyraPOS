@@ -1188,7 +1188,8 @@
     "taxIncluded": "Tax included where applicable",
     "thankYou": "Thank you for your visit!",
     "totalTax": "Total Tax",
-    "tableCharge": "Table charge"
+    "tableCharge": "Table charge",
+    "takeawayCharge": "Takeaway charge"
   },
   "restore": {
     "failedWith": "Restore failed: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Theme",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "takeawayCharge": "Takeaway charge",
+    "takeawayChargeHint": "A fixed amount automatically added to takeaway orders."
   },
   "setup": {
     "alreadyCompleted": "Setup has already been completed on this install. Redirecting to login…",
