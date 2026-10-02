@@ -1187,7 +1187,8 @@
     "taxDetails": "Belastinggegevens",
     "taxIncluded": "Belasting inbegrepen indien van toepassing",
     "thankYou": "Bedankt voor uw bezoek!",
-    "totalTax": "Totale belasting"
+    "totalTax": "Totale belasting",
+    "tableCharge": "Tafelkosten"
   },
   "restore": {
     "failedWith": "Herstellen mislukt: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Verdieping hernoemd",
     "floorRenameFailed": "Kan de naam van de verdieping niet wijzigen",
     "floorDeleted": "Verdieping verwijderd",
-    "floorDeleteFailed": "Kan verdieping niet verwijderen"
+    "floorDeleteFailed": "Kan verdieping niet verwijderen",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "Pakket geactiveerd",
