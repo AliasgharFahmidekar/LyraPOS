@@ -1188,7 +1188,8 @@
     "taxIncluded": "Impuestos incluidos cuando corresponda",
     "thankYou": "¡Gracias por su visita!",
     "totalTax": "Impuesto total",
-    "tableCharge": "Cargo de mesa"
+    "tableCharge": "Cargo de mesa",
+    "takeawayCharge": "Cargo para llevar"
   },
   "restore": {
     "failedWith": "No se pudo restaurar: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Claro",
     "themeDark": "Oscuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "takeawayCharge": "Cargo para llevar",
+    "takeawayChargeHint": "Importe fijo que se añade automáticamente a los pedidos para llevar."
   },
   "setup": {
     "alreadyCompleted": "La configuración ya se completó en esta instalación. Redirigiendo al inicio de sesión…",
