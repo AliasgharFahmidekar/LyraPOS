@@ -1612,6 +1612,7 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
   const chargeAmounts: Record<TemplateChargeRowId, number> = {
     serviceCharge: Number(bill.service_charge) || 0,
     tableCharge: Number(bill.table_charge) || 0,
+    takeawayCharge: Number(bill.takeaway_charge) || 0,
     deliveryCharge: Number(bill.delivery_charge) || 0,
     packagingCharge: Number(bill.packaging_charge) || 0,
   };
