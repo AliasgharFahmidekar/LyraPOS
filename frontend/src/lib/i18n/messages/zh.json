@@ -1188,7 +1188,8 @@
     "taxIncluded": "适用时价格已含税",
     "thankYou": "感谢光临！",
     "totalTax": "税金合计",
-    "tableCharge": "餐桌费"
+    "tableCharge": "餐桌费",
+    "takeawayCharge": "外带费用"
   },
   "restore": {
     "failedWith": "恢复失败：{error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "主题",
     "themeLight": "浅色",
     "themeDark": "深色",
-    "themeSystem": "跟随系统"
+    "themeSystem": "跟随系统",
+    "takeawayCharge": "外带费用",
+    "takeawayChargeHint": "自动添加到外带订单的固定金额。"
   },
   "setup": {
     "alreadyCompleted": "此安装已完成设置。正在跳转到登录…",
