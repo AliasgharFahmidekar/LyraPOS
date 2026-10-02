@@ -565,16 +565,20 @@ router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: R
       const tableCharge = type === 'dine_in' && table_id
         ? getTableDefaultTableCharge(db, table_id)
         : 0;
+      const configuredTakeawayCharge = Number(settings.takeaway_charge || 0);
+      const takeawayCharge = type === 'takeaway' && Number.isFinite(configuredTakeawayCharge) && configuredTakeawayCharge >= 0
+        ? configuredTakeawayCharge
+        : 0;
 
       const orderResult = db.prepare(`
         INSERT INTO orders (order_number, table_id, customer_id, user_id, type, guest_count, special_instructions,
           packaging_charge, delivery_charge, packaging_tax_category_id, delivery_tax_category_id,
-          service_charge, service_charge_tax_category_id, table_charge, online_platform, external_order_id, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+          service_charge, service_charge_tax_category_id, table_charge, takeaway_charge, online_platform, external_order_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
       `).run(orderNumber, table_id || null, orderCustomerId, authenticatedUserId, type, guest_count || null,
         special_instructions || null, pkgCharge, delCharge,
         chargeContext.packaging_tax_category_id, chargeContext.delivery_tax_category_id,
-        serviceCharge, chargeContext.service_charge_tax_category_id, tableCharge,
+        serviceCharge, chargeContext.service_charge_tax_category_id, tableCharge, takeawayCharge,
         onlinePlatform || null, externalOrderId || null, now(), now());
 
       const orderId = orderResult.lastInsertRowid;
@@ -692,7 +696,7 @@ router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: R
         minorFactor,
       });
       const preRoundTotal = subtotal + taxRollup.exclusiveTaxAmount
-        + delCharge + pkgCharge + serviceCharge + tableCharge;
+        + delCharge + pkgCharge + serviceCharge + tableCharge + takeawayCharge;
       const total = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
 
@@ -954,7 +958,7 @@ router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales)
         minorFactor,
       });
       const preRoundTotal = discountedSubtotal + taxRollup.exclusiveTaxAmount
-        + (currentOrder.delivery_charge || 0) + (currentOrder.packaging_charge || 0) + (currentOrder.service_charge || 0) + (currentOrder.table_charge || 0);
+        + (currentOrder.delivery_charge || 0) + (currentOrder.packaging_charge || 0) + (currentOrder.service_charge || 0) + (currentOrder.table_charge || 0) + (currentOrder.takeaway_charge || 0);
       const total = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
 
@@ -975,8 +979,8 @@ router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales)
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(total, pack, currency);
         const newBillBalance = Math.max(0, billTotal - (existingBill.paid_amount || 0));
-        db.prepare(`UPDATE bills SET subtotal = ?, total = ?, balance = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, service_charge = ?, table_charge = ?, round_off = ?, updated_at = ? WHERE id = ?`)
-          .run(subtotal, billTotal, newBillBalance, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns), taxRollup.snapshotJson, newDiscountAmount, currentOrder.service_charge || 0, currentOrder.table_charge || 0, billRoundOff, now(), existingBill.id);
+        db.prepare(`UPDATE bills SET subtotal = ?, total = ?, balance = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, service_charge = ?, table_charge = ?, takeaway_charge = ?, round_off = ?, updated_at = ? WHERE id = ?`)
+          .run(subtotal, billTotal, newBillBalance, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns), taxRollup.snapshotJson, newDiscountAmount, currentOrder.service_charge || 0, currentOrder.table_charge || 0, currentOrder.takeaway_charge || 0, billRoundOff, now(), existingBill.id);
       }
 
       recordOrderAudit(db, { orderId: req.params.id as string, actorUserId: idempotencyUserId, action: 'items_added', details: { item_ids: insertedItemIds } });
@@ -1263,12 +1267,16 @@ router.patch('/:id/convert-to-takeaway', orderWriteRateLimit, requireRole(...ROL
       }
 
       const tableCharge = Number(order.table_charge || 0);
+      const configuredTakeawayCharge = Number(getSettingValue('takeaway_charge') || 0);
+      const takeawayCharge = Number.isFinite(configuredTakeawayCharge) && configuredTakeawayCharge >= 0
+        ? configuredTakeawayCharge
+        : 0;
       const currency = getTenantCurrency();
       const decimals = getCurrencyFractionDigits(currency);
-      const newOrderTotal = Number(Math.max(0, Number(order.total || 0) - tableCharge).toFixed(decimals));
+      const newOrderTotal = Number(Math.max(0, Number(order.total || 0) - tableCharge + takeawayCharge).toFixed(decimals));
 
-      db.prepare("UPDATE orders SET type = 'takeaway', table_id = NULL, table_charge = 0, total = ?, updated_at = ? WHERE id = ?")
-        .run(newOrderTotal, nowStr, req.params.id);
+      db.prepare("UPDATE orders SET type = 'takeaway', table_id = NULL, table_charge = 0, takeaway_charge = ?, total = ?, updated_at = ? WHERE id = ?")
+        .run(takeawayCharge, newOrderTotal, nowStr, req.params.id);
 
       const openBills = db.prepare(
         "SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'",
@@ -1277,10 +1285,11 @@ router.patch('/:id/convert-to-takeaway', orderWriteRateLimit, requireRole(...ROL
         const pack = getActiveCountryPack(getSettingValue('country') || '');
         const { total: roundedBillTotal, adjustment: billRoundOff } = applyPayableRounding(newOrderTotal, pack, currency);
         const updateBill = db.prepare(
-          "UPDATE bills SET table_charge = 0, total = ?, balance = ?, round_off = ?, updated_at = ? WHERE id = ?",
+          "UPDATE bills SET table_charge = 0, takeaway_charge = ?, total = ?, balance = ?, round_off = ?, updated_at = ? WHERE id = ?",
         );
         for (const bill of openBills) {
           updateBill.run(
+            takeawayCharge,
             roundedBillTotal,
             Math.max(0, roundedBillTotal - Number(bill.paid_amount || 0)),
             billRoundOff,
@@ -1692,7 +1701,7 @@ router.patch('/:id/items/:itemId/discount', orderWriteRateLimit, requireRole(...
         minorFactor,
       });
       const preRoundTotal = discountedSubtotal + taxRollup.exclusiveTaxAmount
-        + (order.packaging_charge || 0) + (order.delivery_charge || 0) + (order.service_charge || 0) + (order.table_charge || 0);
+        + (order.packaging_charge || 0) + (order.delivery_charge || 0) + (order.service_charge || 0) + (order.table_charge || 0) + (order.takeaway_charge || 0);
       const orderTotal = Number(preRoundTotal.toFixed(decimals));
       const roundOff = 0;
 
@@ -1707,7 +1716,7 @@ router.patch('/:id/items/:itemId/discount', orderWriteRateLimit, requireRole(...
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(orderTotal, pack, currency);
         const newBillBalance = Math.max(0, billTotal - (existingBill.paid_amount || 0));
         db.prepare(`UPDATE bills SET subtotal = ?, total = ?, balance = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, service_charge = ?, table_charge = ?, round_off = ?, updated_at = ? WHERE id = ?`)
-          .run(orderSubtotal, billTotal, newBillBalance, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns), taxRollup.snapshotJson, newOrderDiscount, order.service_charge || 0, order.table_charge || 0, billRoundOff, now(), existingBill.id);
+          .run(orderSubtotal, billTotal, newBillBalance, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns), taxRollup.snapshotJson, newOrderDiscount, order.service_charge || 0, order.table_charge || 0, order.takeaway_charge || 0, billRoundOff, now(), existingBill.id);
       }
 
       recordOrderAudit(db, {
