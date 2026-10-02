@@ -1188,7 +1188,8 @@
     "taxIncluded": "Thuế đã bao gồm khi áp dụng",
     "thankYou": "Cảm ơn quý khách đã ghé thăm!",
     "totalTax": "Tổng thuế",
-    "tableCharge": "Phí bàn"
+    "tableCharge": "Phí bàn",
+    "takeawayCharge": "Phí mang đi"
   },
   "restore": {
     "failedWith": "Khôi phục thất bại: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Giao diện",
     "themeLight": "Sáng",
     "themeDark": "Tối",
-    "themeSystem": "Theo hệ thống"
+    "themeSystem": "Theo hệ thống",
+    "takeawayCharge": "Phí mang đi",
+    "takeawayChargeHint": "Khoản cố định được tự động cộng vào các đơn mang đi."
   },
   "setup": {
     "alreadyCompleted": "Bản cài đặt này đã hoàn tất thiết lập. Đang chuyển đến đăng nhập…",
