@@ -151,6 +151,8 @@ export interface BillSnapshot {
   readonly total: number;
   /** Flat service charge, when the server-persisted bill carries one. */
   readonly serviceCharge?: number;
+  /** Flat table-use charge captured from the floor default at order creation. */
+  readonly tableCharge?: number;
   /** Flat delivery charge, when the bill carries one (frontend bills). */
   readonly deliveryCharge?: number;
   /** Flat packaging charge, when the bill carries one. */
@@ -352,6 +354,8 @@ export interface TotalsBlock {
   readonly tax: { readonly label: SemanticLabel; readonly amount: number } | null;
   /** Flat service-charge line, present when the server snapshot carries a nonzero charge. */
   readonly serviceCharge: { readonly label: SemanticLabel; readonly amount: number } | null;
+  /** Flat table-use charge line, present when the snapshot carries a nonzero charge. */
+  readonly tableCharge: { readonly label: SemanticLabel; readonly amount: number } | null;
   /** Flat delivery-charge line, present when the snapshot carries a nonzero charge. */
   readonly deliveryCharge: { readonly label: SemanticLabel; readonly amount: number } | null;
   /** Flat packaging-charge line, present when the snapshot carries a nonzero charge. */
@@ -675,6 +679,12 @@ export function buildBillDocument(printData: PrintData, printContext: PrintConte
         amount: toFiniteNumber(bill.serviceCharge),
       })
       : null,
+    tableCharge: toFiniteNumber(bill.tableCharge) !== 0
+      ? Object.freeze({
+        label: resolveSemanticLabel(labels, 'receipt.tableCharge'),
+        amount: toFiniteNumber(bill.tableCharge),
+      })
+      : null,
     deliveryCharge: toFiniteNumber(bill.deliveryCharge) !== 0
       ? Object.freeze({
         label: resolveSemanticLabel(labels, 'pos.delivery'),
@@ -964,7 +974,7 @@ function isPrintDocumentBlock(value: unknown): value is PrintDocumentBlock {
       return ['subtotal', 'grandTotal'].every((key) => isRecord(value[key])
         && isSemanticLabel(value[key].label)
         && isFiniteNumber(value[key].amount))
-        && ['discount', 'tax', 'serviceCharge', 'deliveryCharge', 'packagingCharge'].every((key) => value[key] === null || (isRecord(value[key]) && isSemanticLabel(value[key].label) && isFiniteNumber(value[key].amount)))
+        && ['discount', 'tax', 'serviceCharge', 'tableCharge', 'deliveryCharge', 'packagingCharge'].every((key) => value[key] === null || (isRecord(value[key]) && isSemanticLabel(value[key].label) && isFiniteNumber(value[key].amount)))
         && ['pointsRedeemed', 'pointsEarned', 'pointsBalance'].every((key) => value[key] === null || (isRecord(value[key]) && isSemanticLabel(value[key].label) && isFiniteNumber(value[key].points)));
     case 'payments':
       return isSemanticLabel(value.heading)
