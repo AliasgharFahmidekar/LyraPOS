@@ -1187,7 +1187,8 @@
     "taxDetails": "جزئیات مالیات",
     "taxIncluded": "مالیات در صورت اعمال، شامل شده است",
     "thankYou": "از بازدید شما سپاسگزاریم!",
-    "totalTax": "مالیات کل"
+    "totalTax": "مالیات کل",
+    "tableCharge": "هزینه میز"
   },
   "restore": {
     "failedWith": "بازگردانی انجام نشد: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "نام طبقه تغییر کرد",
     "floorRenameFailed": "تغییر نام طبقه ناموفق بود",
     "floorDeleted": "طبقه حذف شد",
-    "floorDeleteFailed": "حذف طبقه ناموفق بود"
+    "floorDeleteFailed": "حذف طبقه ناموفق بود",
+    "floorTableCharge": "هزینه استفاده از میز",
+    "floorTableChargeHint": "این مبلغ به‌صورت خودکار به سفارش‌های داخل سالنِ میزهای این طبقه افزوده می‌شود.",
+    "floorTableChargeInvalid": "هزینه میز باید عددی معتبر و صفر یا بیشتر باشد.",
+    "floorTableChargeSaved": "هزینه میز طبقه ذخیره شد."
   },
   "tax": {
     "actionActivate": "بسته فعال شد",
