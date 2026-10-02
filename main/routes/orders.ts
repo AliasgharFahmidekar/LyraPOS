@@ -1262,8 +1262,33 @@ router.patch('/:id/convert-to-takeaway', orderWriteRateLimit, requireRole(...ROL
         throw Object.assign(new Error('A split dine-in check cannot be converted to takeaway'), { statusCode: 409 });
       }
 
-      db.prepare("UPDATE orders SET type = 'takeaway', table_id = NULL, table_charge = 0, updated_at = ? WHERE id = ?")
-        .run(nowStr, req.params.id);
+      const tableCharge = Number(order.table_charge || 0);
+      const currency = getTenantCurrency();
+      const decimals = getCurrencyFractionDigits(currency);
+      const newOrderTotal = Number(Math.max(0, Number(order.total || 0) - tableCharge).toFixed(decimals));
+
+      db.prepare("UPDATE orders SET type = 'takeaway', table_id = NULL, table_charge = 0, total = ?, updated_at = ? WHERE id = ?")
+        .run(newOrderTotal, nowStr, req.params.id);
+
+      const openBills = db.prepare(
+        "SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'",
+      ).all(req.params.id) as any[];
+      if (openBills.length > 0) {
+        const pack = getActiveCountryPack(getSettingValue('country') || '');
+        const { total: roundedBillTotal, adjustment: billRoundOff } = applyPayableRounding(newOrderTotal, pack, currency);
+        const updateBill = db.prepare(
+          "UPDATE bills SET table_charge = 0, total = ?, balance = ?, round_off = ?, updated_at = ? WHERE id = ?",
+        );
+        for (const bill of openBills) {
+          updateBill.run(
+            roundedBillTotal,
+            Math.max(0, roundedBillTotal - Number(bill.paid_amount || 0)),
+            billRoundOff,
+            nowStr,
+            bill.id,
+          );
+        }
+      }
 
       if (order.table_id) {
         db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?")
