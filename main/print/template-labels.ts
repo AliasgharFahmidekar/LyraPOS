@@ -16,6 +16,8 @@ export const TEMPLATE_LABEL_IDS = {
   serviceCharge: 'receipt.serviceCharge',
   /** Persisted table-use charge row label. */
   tableCharge: 'receipt.tableCharge',
+  /** Persisted takeaway charge row label. */
+  takeawayCharge: 'receipt.takeawayCharge',
   /** Persisted delivery-charge row label. */
   deliveryCharge: 'pos.delivery',
   /** Persisted packaging-charge row label. */
