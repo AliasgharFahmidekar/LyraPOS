@@ -120,7 +120,6 @@ async function seedTestData(db: any) {
   const settings = [
     ['discount_max_percentage', '25'],
     ['discount_max_amount', '0'],
-    ['discount_mode', 'both'],
     ['discount_requires_approval', '0'],
   ];
   for (const [key, value] of settings) {
