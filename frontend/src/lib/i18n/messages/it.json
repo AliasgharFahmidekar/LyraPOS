@@ -1188,7 +1188,8 @@
     "taxIncluded": "Imposta inclusa dove applicabile",
     "thankYou": "Grazie per la visita!",
     "totalTax": "Imposta totale",
-    "tableCharge": "Supplemento tavolo"
+    "tableCharge": "Supplemento tavolo",
+    "takeawayCharge": "Costo per asporto"
   },
   "restore": {
     "failedWith": "Ripristino non riuscito: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Chiaro",
     "themeDark": "Scuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "takeawayCharge": "Costo per asporto",
+    "takeawayChargeHint": "Importo fisso aggiunto automaticamente agli ordini da asporto."
   },
   "setup": {
     "alreadyCompleted": "La configurazione è già stata completata su questa installazione. Reindirizzamento all'accesso…",
