@@ -275,6 +275,7 @@ export function generateBillHtml(
     deliveryCharge: surfaceLabel(totals?.deliveryCharge?.label, 'pos.delivery', 'receipt.deliveryCharge', lang),
     packagingCharge: documentLabel(totals?.packagingCharge?.label, 'pos.packaging', lang),
     tableCharge: documentLabel(totals?.tableCharge?.label, 'receipt.tableCharge', lang),
+    takeawayCharge: documentLabel(totals?.takeawayCharge?.label, 'receipt.takeawayCharge', lang),
     grandTotal: surfaceLabel(totals?.grandTotal?.label, 'print.grandTotal', 'receipt.grandTotal', lang),
     taxDetails: breakdown?.heading.primary ?? printLabelResolver('receipt.taxDetails', lang),
     paymentsHeader: payments?.heading.primary ?? printLabelResolver('receipt.payments', lang),
