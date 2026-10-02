@@ -296,6 +296,9 @@ export function buildTaxBillBytes(
   if (Number(bill.table_charge) > 0) {
     totals.push([labelFor('receipt.tableCharge'), formatAmount(Number(bill.table_charge), currency, amountLocale, trimDecimals, rawEscPos)]);
   }
+  if (Number(bill.takeaway_charge) > 0) {
+    totals.push([labelFor('receipt.takeawayCharge'), formatAmount(Number(bill.takeaway_charge), currency, amountLocale, trimDecimals, rawEscPos)]);
+  }
 
   if (Number(bill.delivery_charge) > 0) {
     totals.push([labelFor('receipt.deliveryCharge'), formatAmount(bill.delivery_charge, currency, amountLocale, trimDecimals, rawEscPos)]);
