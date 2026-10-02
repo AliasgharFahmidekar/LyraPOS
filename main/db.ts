@@ -336,6 +336,23 @@ export function getSettingValue(key: string): string | null {
   return row?.value ?? null;
 }
 
+/** Resolve the default floor-level table-use charge for one table. */
+export function getFloorTableCharge(dbInstance: Database.Database, floor: unknown): number {
+  if (typeof floor !== 'string') return 0;
+  const normalizedFloor = floor.trim();
+  if (!normalizedFloor) return 0;
+  const row = dbInstance.prepare('SELECT default_table_charge FROM floor_table_charges WHERE floor = ?').get(normalizedFloor) as { default_table_charge?: number | string | null } | undefined;
+  const amount = Number(row?.default_table_charge ?? 0);
+  return Number.isFinite(amount) && amount >= 0 ? amount : 0;
+}
+
+/** Resolve the authoritative default table-use charge from a table ID. */
+export function getTableDefaultTableCharge(dbInstance: Database.Database, tableId: unknown): number {
+  if (typeof tableId !== 'string' && typeof tableId !== 'number') return 0;
+  const table = dbInstance.prepare('SELECT floor FROM tables WHERE id = ?').get(tableId) as { floor?: string | null } | undefined;
+  return getFloorTableCharge(dbInstance, table?.floor);
+}
+
 /** Resolves the tenant's configured business day start time ('HH:mm', 00:00 to 11:59). */
 export function tenantBusinessDayStartTime(customDb?: ReturnType<typeof getDatabase>): string {
   const raw = customDb
