@@ -1187,7 +1187,8 @@
     "taxDetails": "Mga Detalye ng Buwis",
     "taxIncluded": "Kasama ang buwis kung naaangkop",
     "thankYou": "Salamat sa iyong pagbisita!",
-    "totalTax": "Kabuuang Buwis"
+    "totalTax": "Kabuuang Buwis",
+    "tableCharge": "Bayad sa mesa"
   },
   "restore": {
     "failedWith": "I-restore failed: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Pinalitan ang pangalan ng palapag",
     "floorRenameFailed": "Hindi pinalitan ang pangalan ng palapag",
     "floorDeleted": "Tinanggal ang palapag",
-    "floorDeleteFailed": "Hindi tinanggal ang palapag"
+    "floorDeleteFailed": "Hindi tinanggal ang palapag",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "Na-activate ang pack",
