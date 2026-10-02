@@ -527,6 +527,12 @@ export default function PaymentModal({ bill, currency, onClose, onPaid, onBillUp
                   <span>{currencyFmt(Number(bill.table_charge))}</span>
                 </div>
               )}
+              {Number(bill.takeaway_charge) > 0 && (
+                <div className="flex justify-between text-slate-300">
+                  <span>{tReceipt('takeawayCharge')}</span>
+                  <span>{currencyFmt(Number(bill.takeaway_charge))}</span>
+                </div>
+              )}
               {Number(bill.round_off) !== 0 && (
                 <div className="flex justify-between text-slate-300">
                   <span>{t('roundOff')}</span>
