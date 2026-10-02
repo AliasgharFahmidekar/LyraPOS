@@ -177,6 +177,8 @@ export interface Order {
   service_charge: number;
   /** Server-authoritative flat charge for using the table's floor. */
   table_charge?: number;
+  /** Server-authoritative fixed charge applied to takeaway orders. */
+  takeaway_charge?: number;
   round_off?: number;
   tax_breakdown?: { title: string; rate: number; amount: number }[] | null;
   tax_snapshot?: TaxSnapshot[] | TaxSnapshot | null;
