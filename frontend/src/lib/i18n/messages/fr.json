@@ -1187,7 +1187,8 @@
     "taxDetails": "Détails des taxes",
     "taxIncluded": "Taxes incluses le cas échéant",
     "thankYou": "Merci de votre visite !",
-    "totalTax": "Total des taxes"
+    "totalTax": "Total des taxes",
+    "tableCharge": "Frais de table"
   },
   "restore": {
     "failedWith": "Échec de la restauration : {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Étage renommé",
     "floorRenameFailed": "Impossible de renommer l'étage",
     "floorDeleted": "Étage supprimé",
-    "floorDeleteFailed": "Impossible de supprimer l'étage"
+    "floorDeleteFailed": "Impossible de supprimer l'étage",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "Module activé",
