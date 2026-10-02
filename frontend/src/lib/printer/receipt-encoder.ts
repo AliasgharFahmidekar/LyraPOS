@@ -952,7 +952,7 @@ export function buildDetailedReceiptBytes(
     enc.text(
       padRow(
         printLabelResolver('receipt.tableCharge', primaryLang),
-        formatAmount(bill.table_charge, currency, locale, trimDecimals, fractionDigits),
+        formatAmount(Number(bill.table_charge), currency, locale, trimDecimals, fractionDigits),
         cols,
       ),
     ).newline();
