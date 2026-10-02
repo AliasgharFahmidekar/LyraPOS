@@ -69,6 +69,7 @@ export interface BusinessForm {
   calendar: CalendarMode;
   billingType: 'postpaid' | 'prepaid';
   tablesRequired: boolean;
+  takeawayCharge: string;
   taxRegistered: boolean;
   taxRegistrationNumber: string;
   businessPhone: string;
@@ -353,6 +354,29 @@ export function GeneralSettingsTab({
               </select>
             ) : (
               <p className="font-medium text-foreground capitalize">{form.billingType}</p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="takeaway-charge" className="block text-sm text-muted-foreground mb-1">{t('takeawayCharge')}</label>
+            {isAdmin ? (
+              <div>
+                <input
+                  id="takeaway-charge"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={form.takeawayCharge}
+                  onChange={(e) => {
+                    markHydrationTouched('takeawayCharge');
+                    setForm((p) => ({ ...p, takeawayCharge: e.target.value }));
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">{t('takeawayChargeHint')}</p>
+              </div>
+            ) : (
+              <p className="font-medium text-foreground">{form.takeawayCharge || '0'}</p>
             )}
           </div>
           <div>
