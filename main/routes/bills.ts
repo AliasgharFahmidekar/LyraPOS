@@ -1492,7 +1492,7 @@ export function syncUnpaidBillsForOrder(
   const snapshots = snapshotAllocation.snapshots;
   const update = db.prepare(`
     UPDATE bills SET subtotal = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?,
-      delivery_charge = ?, packaging_charge = ?, service_charge = ?, table_charge = ?, round_off = ?, total = ?, balance = ?, updated_at = ?
+      delivery_charge = ?, packaging_charge = ?, service_charge = ?, table_charge = ?, takeaway_charge = ?, round_off = ?, total = ?, balance = ?, updated_at = ?
     WHERE id = ?
   `);
 
@@ -1651,7 +1651,7 @@ router.post('/:id/split-check', requireRole(...ROLE_ACCESS.ownerManagerCashier),
           const inserted = db.prepare(`
             INSERT INTO bills (bill_number, order_id, customer_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
               discount_amount, discount_type, discount_value, discount_reason, delivery_charge, packaging_charge,
-              service_charge, table_charge, round_off, total, paid_amount, balance, payment_status, split_group_id, split_label,
+              service_charge, table_charge, takeaway_charge, round_off, total, paid_amount, balance, payment_status, split_group_id, split_label,
               created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'unpaid', ?, ?, ?, ?)
           `)
