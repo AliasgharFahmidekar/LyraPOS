@@ -1097,6 +1097,7 @@ interface OrderBillSyncValues {
   packagingCharge: number;
   serviceCharge: number;
   tableCharge: number;
+  takeawayCharge?: number;
   total: number;
 }
 
@@ -1418,7 +1419,7 @@ export function syncUnpaidBillsForOrder(
       update.run(
         source.subtotal, billTotal, Math.max(0, billTotal - Number(bill.paid_amount || 0)), source.taxAmount,
         source.taxBreakdown, source.taxSnapshot, source.discountAmount, source.deliveryCharge,
-        source.packagingCharge, source.serviceCharge, source.tableCharge, billRoundOff, now(), bill.id,
+        source.packagingCharge, source.serviceCharge, source.tableCharge, source.takeawayCharge || 0, billRoundOff, now(), bill.id,
       );
     }
     return;
@@ -1447,6 +1448,7 @@ export function syncUnpaidBillsForOrder(
     packagingCharge: Math.round(source.packagingCharge * minorFactor),
     serviceCharge: Math.round(source.serviceCharge * minorFactor),
     tableCharge: Math.round(source.tableCharge * minorFactor),
+    takeawayCharge: Math.round((source.takeawayCharge || 0) * minorFactor),
     roundOff: Math.round(billRoundOff * minorFactor),
     total: Math.round(billTotal * minorFactor),
   };
