@@ -1188,7 +1188,8 @@
     "taxIncluded": "Kasama ang buwis kung naaangkop",
     "thankYou": "Salamat sa iyong pagbisita!",
     "totalTax": "Kabuuang Buwis",
-    "tableCharge": "Bayad sa mesa"
+    "tableCharge": "Bayad sa mesa",
+    "takeawayCharge": "Bayad sa takeaway"
   },
   "restore": {
     "failedWith": "I-restore failed: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Maliwanag",
     "themeDark": "Madilim",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "takeawayCharge": "Bayad sa takeaway",
+    "takeawayChargeHint": "Isang nakapirming halaga na awtomatikong idinadagdag sa mga takeaway order."
   },
   "setup": {
     "alreadyCompleted": "Nakumpleto na ang setup sa installation na ito. Nireredirect sa pag-login…",
