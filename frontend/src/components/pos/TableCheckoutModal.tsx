@@ -31,6 +31,7 @@ export default function TableCheckoutModal({
   onAddCartToOrder
 }: Props) {
   const t = useTranslations('pos');
+  const tReceipt = useTranslations('receipt');
   const fmt = useFormatCurrency();
   const formatItemTotal = (value: unknown, fallback: unknown) => {
     const total = Number(value);
@@ -194,6 +195,18 @@ export default function TableCheckoutModal({
             taxBreakdown={order.tax_breakdown}
             theme="light"
           />
+          {Number(order.table_charge) > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{tReceipt('tableCharge')}</span>
+              <span>{fmt(Number(order.table_charge))}</span>
+            </div>
+          )}
+          {Number(order.takeaway_charge) > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">{tReceipt('takeawayCharge')}</span>
+              <span>{fmt(Number(order.takeaway_charge))}</span>
+            </div>
+          )}
           <div className="flex justify-between text-lg font-bold">
             <span>{t('total')}</span>
             <span className="text-brand">{fmt(Number(order.total))}</span>

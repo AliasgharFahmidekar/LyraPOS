@@ -1187,7 +1187,9 @@
     "taxDetails": "Detalhes de impostos",
     "taxIncluded": "Impostos incluídos quando aplicável",
     "thankYou": "Obrigado pela sua visita!",
-    "totalTax": "Imposto total"
+    "totalTax": "Imposto total",
+    "tableCharge": "Taxa de mesa",
+    "takeawayCharge": "Taxa para viagem"
   },
   "restore": {
     "failedWith": "Falha na restauração: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Claro",
     "themeDark": "Escuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "takeawayCharge": "Taxa para viagem",
+    "takeawayChargeHint": "Valor fixo adicionado automaticamente aos pedidos para viagem."
   },
   "setup": {
     "alreadyCompleted": "A configuração já foi concluída nesta instalação. Redirecionando para o login…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Andar renomeado",
     "floorRenameFailed": "Falha ao renomear o andar",
     "floorDeleted": "Andar excluído",
-    "floorDeleteFailed": "Falha ao excluir o andar"
+    "floorDeleteFailed": "Falha ao excluir o andar",
+    "floorTableCharge": "Taxa de mesa do andar",
+    "floorTableChargeHint": "Adicionada automaticamente aos pedidos no local que utilizam uma mesa desse andar.",
+    "floorTableChargeInvalid": "A taxa de mesa deve ser um valor finito e não negativo.",
+    "floorTableChargeSaved": "Taxa de mesa do andar salva."
   },
   "tax": {
     "actionActivate": "Pacote ativado",

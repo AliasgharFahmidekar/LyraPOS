@@ -1187,7 +1187,9 @@
     "taxDetails": "Vergi Detayları",
     "taxIncluded": "Uygulanabilir yerlerde vergi dahildir",
     "thankYou": "Bizi tercih ettiğiniz için teşekkür ederiz!",
-    "totalTax": "Toplam Vergi"
+    "totalTax": "Toplam Vergi",
+    "tableCharge": "Masa ücreti",
+    "takeawayCharge": "Paket servis ücreti"
   },
   "restore": {
     "failedWith": "Geri yükleme başarısız oldu: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Tema ve Renk Modu",
     "themeLight": "Açık Tema",
     "themeDark": "Koyu Tema",
-    "themeSystem": "Sistem Varsayılanı"
+    "themeSystem": "Sistem Varsayılanı",
+    "takeawayCharge": "Paket servis ücreti",
+    "takeawayChargeHint": "Paket servis siparişlerine otomatik olarak eklenen sabit tutar."
   },
   "setup": {
     "alreadyCompleted": "Kurulum bu cihazda zaten tamamlandı. Giriş ekranına yönlendiriliyorsunuz…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Kat yeniden adlandırıldı",
     "floorRenameFailed": "Kat yeniden adlandırılamadı",
     "floorDeleted": "Kat silindi",
-    "floorDeleteFailed": "Kat silinemedi"
+    "floorDeleteFailed": "Kat silinemedi",
+    "floorTableCharge": "Kat masa ücreti",
+    "floorTableChargeHint": "Bu kattaki bir masayı kullanan salonda tüketim siparişlerine otomatik olarak eklenir.",
+    "floorTableChargeInvalid": "Masa ücreti sonlu ve negatif olmayan bir tutar olmalıdır.",
+    "floorTableChargeSaved": "Kat masa ücreti kaydedildi."
   },
   "tax": {
     "actionActivate": "Vergi paketi etkinleştirildi",

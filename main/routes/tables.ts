@@ -74,6 +74,14 @@ function normalizeTableCapacity(value: unknown): number | null {
   const normalized = Number(value);
   return Number.isInteger(normalized) && normalized > 0 ? normalized : null;
 }
+/** Normalize non-negative floor-level table charges without accepting NaN/Infinity. */
+function normalizeTableChargeAmount(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return 0;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
 
 router.get('/', (req: Request, res: Response) => {
   try {
@@ -114,6 +122,72 @@ router.get('/', (req: Request, res: Response) => {
   }
 });
 
+router.get('/floor-charges', requireRole(...ROLE_ACCESS.sales), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const floorCharges = db.prepare('SELECT floor, default_table_charge FROM floor_table_charges WHERE TRIM(floor) <> \'\' ORDER BY floor COLLATE NOCASE').all();
+    res.json({ floorCharges });
+  } catch (error: any) {
+    console.error('[API] Floor charge read failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/floor-charges/:name', requireRole(...ROLE_ACCESS.sales), (req: Request, res: Response) => {
+  try {
+    const floor = normalizeOptionalTableLabel(req.params.name);
+    if (floor === undefined || floor === null || !floor) {
+      return res.status(400).json({ code: 'FLOOR_NAME_REQUIRED', error: 'Floor name is required' });
+    }
+    const db = getDatabase();
+    const floorCharge = db.prepare(
+      'SELECT floor, default_table_charge FROM floor_table_charges WHERE floor = ?',
+    ).get(floor);
+    if (!floorCharge) {
+      return res.status(404).json({ code: 'FLOOR_TABLE_CHARGE_NOT_FOUND', error: 'Floor table charge not found' });
+    }
+    res.json({ floorCharge });
+  } catch (error: any) {
+    console.error('[API] Floor charge read failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/floor-charges/:name', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+  try {
+    const floor = normalizeOptionalTableLabel(req.params.name);
+    if (floor === undefined || floor === null || !floor) {
+      return res.status(400).json({ code: 'FLOOR_NAME_REQUIRED', error: 'Floor name is required' });
+    }
+    const amount = normalizeTableChargeAmount(req.body?.default_table_charge);
+    if (amount === null) {
+      return res.status(400).json({ code: 'FLOOR_TABLE_CHARGE_INVALID', error: 'Table charge must be a non-negative finite amount' });
+    }
+    const db = getDatabase();
+    db.prepare('INSERT INTO floor_table_charges (floor, default_table_charge, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(floor) DO UPDATE SET default_table_charge = excluded.default_table_charge, updated_at = excluded.updated_at')
+      .run(floor, amount, now(), now());
+    const row = db.prepare('SELECT floor, default_table_charge FROM floor_table_charges WHERE floor = ?').get(floor);
+    res.json({ floorCharge: row });
+  } catch (error: any) {
+    console.error('[API] Floor charge update failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/floor-charges/:name', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+  try {
+    const floor = normalizeOptionalTableLabel(req.params.name);
+    if (floor === undefined || floor === null || !floor) {
+      return res.status(400).json({ code: 'FLOOR_NAME_REQUIRED', error: 'Floor name is required' });
+    }
+    const db = getDatabase();
+    const result = db.prepare('DELETE FROM floor_table_charges WHERE floor = ?').run(floor);
+    res.json({ success: true, floor: null, removedFloor: floor, affected: result.changes });
+  } catch (error: any) {
+    console.error('[API] Floor charge delete failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 router.get('/:id', (req: Request, res: Response) => {
   try {
     const db = getDatabase();
@@ -155,6 +229,14 @@ router.patch('/floors/:name', requireRole(...ROLE_ACCESS.ownerManager), (req: Re
       WHERE floor = ?
     `).run(newName, now(), oldName);
 
+    const oldCharge = db.prepare('SELECT default_table_charge FROM floor_table_charges WHERE floor = ?').get(oldName) as { default_table_charge?: number } | undefined;
+    const targetCharge = db.prepare('SELECT default_table_charge FROM floor_table_charges WHERE floor = ?').get(newName) as { default_table_charge?: number } | undefined;
+    if (oldCharge && !targetCharge) {
+      db.prepare('UPDATE floor_table_charges SET floor = ?, updated_at = ? WHERE floor = ?').run(newName, now(), oldName);
+    } else if (oldCharge && targetCharge) {
+      db.prepare('DELETE FROM floor_table_charges WHERE floor = ?').run(oldName);
+    }
+
     res.json({ floor: newName, previousFloor: oldName, affected: result.changes });
   } catch (error: any) {
     console.error('[API] Floor rename failed:', error);
@@ -176,6 +258,7 @@ router.delete('/floors/:name', requireRole(...ROLE_ACCESS.ownerManager), (req: R
       UPDATE tables SET floor = NULL, updated_at = ?
       WHERE floor = ?
     `).run(now(), name);
+    db.prepare('DELETE FROM floor_table_charges WHERE floor = ?').run(name);
 
     res.json({ floor: null, removedFloor: name, affected: result.changes });
   } catch (error: any) {

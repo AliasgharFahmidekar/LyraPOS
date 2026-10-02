@@ -175,6 +175,10 @@ export interface Order {
   packaging_charge?: number;
   /** Server-validated explicit per-order amount; Settings only configures tax treatment. */
   service_charge: number;
+  /** Server-authoritative flat charge for using the table's floor. */
+  table_charge?: number;
+  /** Server-authoritative fixed charge applied to takeaway orders. */
+  takeaway_charge?: number;
   round_off?: number;
   tax_breakdown?: { title: string; rate: number; amount: number }[] | null;
   tax_snapshot?: TaxSnapshot[] | TaxSnapshot | null;
@@ -225,6 +229,9 @@ export interface Bill {
   discount_value?: number | null;
   discount_reason?: string | null;
   service_charge: number;
+  table_charge?: number;
+  /** Fixed takeaway charge persisted on the bill. */
+  takeaway_charge?: number;
   delivery_charge: number;
   packaging_charge?: number;
   round_off?: number;

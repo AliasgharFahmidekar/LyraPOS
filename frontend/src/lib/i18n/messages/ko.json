@@ -1187,7 +1187,9 @@
     "taxDetails": "세금 내역",
     "taxIncluded": "해당 시 세금 포함",
     "thankYou": "감사합니다!",
-    "totalTax": "세금 합계"
+    "totalTax": "세금 합계",
+    "tableCharge": "테이블 요금",
+    "takeawayCharge": "테이크아웃 요금"
   },
   "restore": {
     "failedWith": "복원 실패: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "테마",
     "themeLight": "라이트",
     "themeDark": "다크",
-    "themeSystem": "시스템"
+    "themeSystem": "시스템",
+    "takeawayCharge": "테이크아웃 요금",
+    "takeawayChargeHint": "테이크아웃 주문에 자동으로 추가되는 고정 금액입니다."
   },
   "setup": {
     "alreadyCompleted": "이 설치에서는 초기 설정이 이미 완료되었습니다. 로그인으로 이동합니다…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "홀 이름이 변경되었습니다",
     "floorRenameFailed": "홀 이름을 변경하지 못했습니다",
     "floorDeleted": "홀이 삭제되었습니다",
-    "floorDeleteFailed": "홀을 삭제하지 못했습니다"
+    "floorDeleteFailed": "홀을 삭제하지 못했습니다",
+    "floorTableCharge": "층 테이블 요금",
+    "floorTableChargeHint": "이 층의 테이블을 사용하는 매장 내 주문에 자동으로 추가됩니다.",
+    "floorTableChargeInvalid": "테이블 요금은 유한하며 0 이상인 금액이어야 합니다.",
+    "floorTableChargeSaved": "층 테이블 요금이 저장되었습니다."
   },
   "tax": {
     "actionActivate": "세금 팩이 활성화되었습니다",

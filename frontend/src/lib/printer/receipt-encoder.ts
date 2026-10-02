@@ -539,6 +539,12 @@ export function buildClassicReceiptBytes(
     if (totals.serviceCharge) {
       safePrinterText(enc, padRow(labelOf(totals.serviceCharge.label), formatAmount(totals.serviceCharge.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
     }
+    if (totals.tableCharge) {
+      safePrinterText(enc, padRow(labelOf(totals.tableCharge.label), formatAmount(totals.tableCharge.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
+    if (totals.takeawayCharge) {
+      safePrinterText(enc, padRow(labelOf(totals.takeawayCharge.label), formatAmount(totals.takeawayCharge.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
     if (totals.deliveryCharge) {
       safePrinterText(enc, padRow(labelOf(totals.deliveryCharge.label), formatAmount(totals.deliveryCharge.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
     }
@@ -943,6 +949,16 @@ export function buildDetailedReceiptBytes(
     }
   } else if (Number(bill.tax_amount) > 0) {
     enc.text(padRow('Tax', formatAmount(bill.tax_amount, currency, locale, trimDecimals, fractionDigits), cols)).newline();
+  }
+
+  if (Number(bill.table_charge) > 0) {
+    enc.text(
+      padRow(
+        printLabelResolver('receipt.tableCharge', primaryLang),
+        formatAmount(Number(bill.table_charge), currency, locale, trimDecimals, fractionDigits),
+        cols,
+      ),
+    ).newline();
   }
 
   enc.rule({ style: 'double' });

@@ -1187,7 +1187,9 @@
     "taxDetails": "Detalle de impuestos",
     "taxIncluded": "Impuestos incluidos cuando corresponda",
     "thankYou": "¡Gracias por su visita!",
-    "totalTax": "Impuesto total"
+    "totalTax": "Impuesto total",
+    "tableCharge": "Cargo de mesa",
+    "takeawayCharge": "Cargo para llevar"
   },
   "restore": {
     "failedWith": "No se pudo restaurar: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Claro",
     "themeDark": "Oscuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "takeawayCharge": "Cargo para llevar",
+    "takeawayChargeHint": "Importe fijo que se añade automáticamente a los pedidos para llevar."
   },
   "setup": {
     "alreadyCompleted": "La configuración ya se completó en esta instalación. Redirigiendo al inicio de sesión…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Piso renombrado",
     "floorRenameFailed": "No se pudo renombrar el piso",
     "floorDeleted": "Piso eliminado",
-    "floorDeleteFailed": "No se pudo eliminar el piso"
+    "floorDeleteFailed": "No se pudo eliminar el piso",
+    "floorTableCharge": "Cargo por uso de mesa de la planta",
+    "floorTableChargeHint": "Se añade automáticamente a los pedidos para consumir en el local que utilizan una mesa de esta planta.",
+    "floorTableChargeInvalid": "El cargo de mesa debe ser un importe finito y no negativo.",
+    "floorTableChargeSaved": "Se ha guardado el cargo por uso de mesa de la planta."
   },
   "tax": {
     "actionActivate": "Paquete activado",

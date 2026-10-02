@@ -1187,7 +1187,9 @@
     "taxDetails": "جزئیات مالیات",
     "taxIncluded": "مالیات در صورت اعمال، شامل شده است",
     "thankYou": "از بازدید شما سپاسگزاریم!",
-    "totalTax": "مالیات کل"
+    "totalTax": "مالیات کل",
+    "tableCharge": "هزینه میز",
+    "takeawayCharge": "هزینه بیرون‌بر"
   },
   "restore": {
     "failedWith": "بازگردانی انجام نشد: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "پوسته",
     "themeLight": "روشن",
     "themeDark": "تاریک",
-    "themeSystem": "سیستم"
+    "themeSystem": "سیستم",
+    "takeawayCharge": "هزینه بیرون‌بر",
+    "takeawayChargeHint": "مبلغ ثابتی که به‌صورت خودکار به سفارش‌های بیرون‌بر اضافه می‌شود."
   },
   "setup": {
     "alreadyCompleted": "راه‌اندازی در این نصب پیش‌تر انجام شده است. در حال بازگشت به ورود…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "نام طبقه تغییر کرد",
     "floorRenameFailed": "تغییر نام طبقه ناموفق بود",
     "floorDeleted": "طبقه حذف شد",
-    "floorDeleteFailed": "حذف طبقه ناموفق بود"
+    "floorDeleteFailed": "حذف طبقه ناموفق بود",
+    "floorTableCharge": "هزینه استفاده از میز",
+    "floorTableChargeHint": "این مبلغ به‌صورت خودکار به سفارش‌های داخل سالنِ میزهای این طبقه افزوده می‌شود.",
+    "floorTableChargeInvalid": "هزینه میز باید عددی معتبر و صفر یا بیشتر باشد.",
+    "floorTableChargeSaved": "هزینه میز طبقه ذخیره شد."
   },
   "tax": {
     "actionActivate": "بسته فعال شد",

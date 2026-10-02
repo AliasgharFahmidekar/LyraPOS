@@ -489,7 +489,7 @@ export function registerRoutes(app: Express): void {
 
         // BUG #5 FIX: Correct round-off formula; BUG #24 FIX: include delivery_charge (was missing, causing total mismatch with bill generation)
         const preRoundTotal = discountedSubtotal + taxRollup.exclusiveTaxAmount
-          + (currentOrder.delivery_charge || 0) + (currentOrder.packaging_charge || 0) + (currentOrder.service_charge || 0);
+          + (currentOrder.delivery_charge || 0) + (currentOrder.packaging_charge || 0) + (currentOrder.service_charge || 0) + (currentOrder.table_charge || 0);
         const roundOff = 0;
         const total = Number(preRoundTotal.toFixed(decimals));
 
@@ -520,6 +520,7 @@ export function registerRoutes(app: Express): void {
           deliveryCharge: order.delivery_charge || 0,
           packagingCharge: order.packaging_charge || 0,
           serviceCharge: order.service_charge || 0,
+          tableCharge: order.table_charge || 0,
           total,
         }, tenantInfo.country);
 
@@ -676,7 +677,7 @@ export function registerRoutes(app: Express): void {
 
         // BUG #5 FIX: Correct round-off formula; BUG #24 FIX: include delivery_charge (was missing, causing total mismatch with bill generation)
         const preRoundTotal = discountedSubtotal + taxRollup.exclusiveTaxAmount
-          + (currentOrder.delivery_charge || 0) + (currentOrder.packaging_charge || 0) + (currentOrder.service_charge || 0);
+          + (currentOrder.delivery_charge || 0) + (currentOrder.packaging_charge || 0) + (currentOrder.service_charge || 0) + (currentOrder.table_charge || 0);
         const roundOff = 0;
         const total = Number(preRoundTotal.toFixed(decimals));
 
@@ -693,6 +694,7 @@ export function registerRoutes(app: Express): void {
           deliveryCharge: order.delivery_charge || 0,
           packagingCharge: order.packaging_charge || 0,
           serviceCharge: order.service_charge || 0,
+          tableCharge: order.table_charge || 0,
           total,
         }, tenantInfo.country);
 

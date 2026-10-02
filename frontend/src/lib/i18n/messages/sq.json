@@ -1187,7 +1187,9 @@
     "taxDetails": "Detajet e taksës",
     "taxIncluded": "Taksa e përfshirë kur zbatohet",
     "thankYou": "Faleminderit për vizitën!",
-    "totalTax": "Taksa totale"
+    "totalTax": "Taksa totale",
+    "tableCharge": "Tarifë tavoline",
+    "takeawayCharge": "Tarifë për porosi me vete"
   },
   "restore": {
     "failedWith": "Riktherja dështoi: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Drita",
     "themeDark": "E errët",
-    "themeSystem": "Sistemi"
+    "themeSystem": "Sistemi",
+    "takeawayCharge": "Tarifë për porosi me vete",
+    "takeawayChargeHint": "Një shumë fikse që i shtohet automatikisht porosive me vete."
   },
   "setup": {
     "alreadyCompleted": "Konfigurimi në këtë instalim është përfunduar. Po ridrejtohemi te hyrja...",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Kati u riemërua",
     "floorRenameFailed": "Riemërtimi i kati dështoi",
     "floorDeleted": "Kati u fshi",
-    "floorDeleteFailed": "Fshirja e kati dështoi"
+    "floorDeleteFailed": "Fshirja e kati dështoi",
+    "floorTableCharge": "Tarifa e tavolinës së katit",
+    "floorTableChargeHint": "Shtohet automatikisht te porositë për konsum në lokal që përdorin një tavolinë në këtë kat.",
+    "floorTableChargeInvalid": "Tarifa e tavolinës duhet të jetë një shumë e fundme dhe jo negative.",
+    "floorTableChargeSaved": "Tarifa e tavolinës së katit u ruajt."
   },
   "tax": {
     "actionActivate": "Pakoja u aktivizua",

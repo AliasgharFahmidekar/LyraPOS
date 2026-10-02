@@ -1187,7 +1187,9 @@
     "taxDetails": "稅費明細",
     "taxIncluded": "適用時價格已含稅",
     "thankYou": "感謝光臨！",
-    "totalTax": "稅金合計"
+    "totalTax": "稅金合計",
+    "tableCharge": "餐桌費",
+    "takeawayCharge": "外帶費用"
   },
   "restore": {
     "failedWith": "復原失敗：{error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "主題",
     "themeLight": "淺色",
     "themeDark": "深色",
-    "themeSystem": "跟隨系統"
+    "themeSystem": "跟隨系統",
+    "takeawayCharge": "外帶費用",
+    "takeawayChargeHint": "自動加到外帶訂單的固定金額。"
   },
   "setup": {
     "alreadyCompleted": "此安裝已完成設定。正在跳轉到登入…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "樓層已重新命名",
     "floorRenameFailed": "重新命名樓層失敗",
     "floorDeleted": "樓層已刪除",
-    "floorDeleteFailed": "刪除樓層失敗"
+    "floorDeleteFailed": "刪除樓層失敗",
+    "floorTableCharge": "樓層桌費",
+    "floorTableChargeHint": "會自動加入使用該樓層餐桌的內用訂單。",
+    "floorTableChargeInvalid": "桌費必須是有限且不小於零的金額。",
+    "floorTableChargeSaved": "樓層桌費已儲存。"
   },
   "tax": {
     "actionActivate": "稅務包已啟用",

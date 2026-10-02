@@ -1187,7 +1187,9 @@
     "taxDetails": "Dettaglio imposte",
     "taxIncluded": "Imposta inclusa dove applicabile",
     "thankYou": "Grazie per la visita!",
-    "totalTax": "Imposta totale"
+    "totalTax": "Imposta totale",
+    "tableCharge": "Supplemento tavolo",
+    "takeawayCharge": "Costo per asporto"
   },
   "restore": {
     "failedWith": "Ripristino non riuscito: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Chiaro",
     "themeDark": "Scuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "takeawayCharge": "Costo per asporto",
+    "takeawayChargeHint": "Importo fisso aggiunto automaticamente agli ordini da asporto."
   },
   "setup": {
     "alreadyCompleted": "La configurazione è già stata completata su questa installazione. Reindirizzamento all'accesso…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Piano rinominato",
     "floorRenameFailed": "Rinominazione del piano non riuscita",
     "floorDeleted": "Piano eliminato",
-    "floorDeleteFailed": "Eliminazione del piano non riuscita"
+    "floorDeleteFailed": "Eliminazione del piano non riuscita",
+    "floorTableCharge": "Supplemento tavolo del piano",
+    "floorTableChargeHint": "Aggiunto automaticamente agli ordini al tavolo che utilizzano un tavolo di questo piano.",
+    "floorTableChargeInvalid": "Il supplemento tavolo deve essere un importo finito e non negativo.",
+    "floorTableChargeSaved": "Supplemento tavolo del piano salvato."
   },
   "tax": {
     "actionActivate": "Pack attivato",

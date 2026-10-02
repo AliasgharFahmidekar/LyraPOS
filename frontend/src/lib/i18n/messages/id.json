@@ -1187,7 +1187,9 @@
     "taxDetails": "Rincian Pajak",
     "taxIncluded": "Pajak termasuk di mana berlaku",
     "thankYou": "Terima kasih atas kunjungan Anda!",
-    "totalTax": "Total Pajak"
+    "totalTax": "Total Pajak",
+    "tableCharge": "Biaya meja",
+    "takeawayCharge": "Biaya takeaway"
   },
   "restore": {
     "failedWith": "Pemulihan gagal: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Terang",
     "themeDark": "Gelap",
-    "themeSystem": "Sistem"
+    "themeSystem": "Sistem",
+    "takeawayCharge": "Biaya takeaway",
+    "takeawayChargeHint": "Jumlah tetap yang otomatis ditambahkan ke pesanan takeaway."
   },
   "setup": {
     "alreadyCompleted": "Pengaturan awal sudah selesai dilakukan pada instalasi ini. Mengalihkan ke layar masuk…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Nama lantai diubah",
     "floorRenameFailed": "Gagal mengubah nama lantai",
     "floorDeleted": "Lantai dihapus",
-    "floorDeleteFailed": "Gagal menghapus lantai"
+    "floorDeleteFailed": "Gagal menghapus lantai",
+    "floorTableCharge": "Biaya meja lantai",
+    "floorTableChargeHint": "Otomatis ditambahkan ke pesanan makan di tempat yang menggunakan meja di lantai tersebut.",
+    "floorTableChargeInvalid": "Biaya meja harus berupa jumlah yang valid, berhingga, dan tidak negatif.",
+    "floorTableChargeSaved": "Biaya meja lantai telah disimpan."
   },
   "tax": {
     "actionActivate": "Paket diaktifkan",

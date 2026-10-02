@@ -1187,7 +1187,9 @@
     "taxDetails": "税费明细",
     "taxIncluded": "适用时价格已含税",
     "thankYou": "感谢光临！",
-    "totalTax": "税金合计"
+    "totalTax": "税金合计",
+    "tableCharge": "餐桌费",
+    "takeawayCharge": "外带费用"
   },
   "restore": {
     "failedWith": "恢复失败：{error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "主题",
     "themeLight": "浅色",
     "themeDark": "深色",
-    "themeSystem": "跟随系统"
+    "themeSystem": "跟随系统",
+    "takeawayCharge": "外带费用",
+    "takeawayChargeHint": "自动添加到外带订单的固定金额。"
   },
   "setup": {
     "alreadyCompleted": "此安装已完成设置。正在跳转到登录…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "楼层已重命名",
     "floorRenameFailed": "重命名楼层失败",
     "floorDeleted": "楼层已删除",
-    "floorDeleteFailed": "删除楼层失败"
+    "floorDeleteFailed": "删除楼层失败",
+    "floorTableCharge": "楼层桌费",
+    "floorTableChargeHint": "会自动添加到使用该楼层餐桌的堂食订单中。",
+    "floorTableChargeInvalid": "桌费必须是有限且不小于零的金额。",
+    "floorTableChargeSaved": "楼层桌费已保存。"
   },
   "tax": {
     "actionActivate": "税务包已激活",

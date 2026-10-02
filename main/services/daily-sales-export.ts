@@ -40,6 +40,7 @@ export type DailySalesExportSummary = {
   tax_total: number;
   discount_total: number;
   service_charge_total: number;
+  table_charge_total: number;
   packaging_charge_total: number;
   delivery_charge_total: number;
   payment_methods: DailySalesExportPaymentRow[];
@@ -97,6 +98,7 @@ export function buildDailySalesExportDataset(
       COALESCE(SUM(paid_amount), 0) AS gross_collected,
       COALESCE(SUM(discount_amount), 0) AS order_discount_total,
       COALESCE(SUM(service_charge), 0) AS service_charge_total,
+      COALESCE(SUM(table_charge), 0) AS table_charge_total,
       COALESCE(SUM(packaging_charge), 0) AS packaging_charge_total,
       COALESCE(SUM(delivery_charge), 0) AS delivery_charge_total
     FROM bills
@@ -107,6 +109,7 @@ export function buildDailySalesExportDataset(
     gross_collected: number;
     order_discount_total: number;
     service_charge_total: number;
+    table_charge_total: number;
     packaging_charge_total: number;
     delivery_charge_total: number;
   };
@@ -225,6 +228,7 @@ export function buildDailySalesExportDataset(
       // Order-level (bills.discount_amount) + item-level historical discounts on paid bills.
       discount_total: Number(billRow.order_discount_total || 0) + itemDiscountsTotal,
       service_charge_total: Number(billRow.service_charge_total || 0),
+      table_charge_total: Number(billRow.table_charge_total || 0),
       packaging_charge_total: Number(billRow.packaging_charge_total || 0),
       delivery_charge_total: Number(billRow.delivery_charge_total || 0),
       payment_methods: paymentMethods,
@@ -250,6 +254,7 @@ export function dailySalesSummaryMetricRows(
     { metric: 'tax_total', value: summary.tax_total },
     { metric: 'discount_total', value: summary.discount_total },
     { metric: 'service_charge_total', value: summary.service_charge_total },
+    { metric: 'table_charge_total', value: summary.table_charge_total },
     { metric: 'packaging_charge_total', value: summary.packaging_charge_total },
     { metric: 'delivery_charge_total', value: summary.delivery_charge_total },
   ];

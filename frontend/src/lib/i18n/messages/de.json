@@ -1187,7 +1187,9 @@
     "taxDetails": "Steuerdetails",
     "taxIncluded": "Steuer enthalten, sofern zutreffend",
     "thankYou": "Vielen Dank für Ihren Besuch!",
-    "totalTax": "Gesamtsteuer"
+    "totalTax": "Gesamtsteuer",
+    "tableCharge": "Tischgebühr",
+    "takeawayCharge": "Mitnahmegebühr"
   },
   "restore": {
     "failedWith": "Wiederherstellung fehlgeschlagen: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Design",
     "themeLight": "Hell",
     "themeDark": "Dunkel",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "takeawayCharge": "Mitnahmegebühr",
+    "takeawayChargeHint": "Ein fester Betrag, der automatisch zu Mitnahmebestellungen hinzugefügt wird."
   },
   "setup": {
     "alreadyCompleted": "Die Ersteinrichtung wurde bereits abgeschlossen. Weiterleitung zur Anmeldung…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Etage umbenannt",
     "floorRenameFailed": "Etage konnte nicht umbenannt werden",
     "floorDeleted": "Etage gelöscht",
-    "floorDeleteFailed": "Etage konnte nicht gelöscht werden"
+    "floorDeleteFailed": "Etage konnte nicht gelöscht werden",
+    "floorTableCharge": "Tischgebühr der Etage",
+    "floorTableChargeHint": "Wird automatisch zu Vor-Ort-Bestellungen hinzugefügt, die einen Tisch auf dieser Etage verwenden.",
+    "floorTableChargeInvalid": "Die Tischgebühr muss ein endlicher, nicht negativer Betrag sein.",
+    "floorTableChargeSaved": "Tischgebühr der Etage gespeichert."
   },
   "tax": {
     "actionActivate": "Steuerpaket aktiviert",

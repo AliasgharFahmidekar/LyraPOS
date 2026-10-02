@@ -105,7 +105,7 @@ export const MERCHANT_TEMPLATE_LABEL_FIELDS: Readonly<
   'customer': [],
   'item-table': ['item', 'quantity', 'amount', 'note'],
   'tax-breakdown': [],
-  'totals': ['subtotal', 'discount', 'tax', 'grandTotal', 'pointsRedeemed', 'pointsEarned', 'pointsBalance'],
+  'totals': ['subtotal', 'discount', 'tax', 'grandTotal', 'tableCharge', 'takeawayCharge', 'pointsRedeemed', 'pointsEarned', 'pointsBalance'],
   'payments': [],
   'message': ['reprintBanner', 'onlineOrderBanner', 'thankYou'],
 });
@@ -495,6 +495,9 @@ function applyLabelOverrides(
         grandTotal: labels.grandTotal !== undefined
           ? { ...block.grandTotal, label: overrideLabel(block.grandTotal.label, labels.grandTotal) }
           : block.grandTotal,
+        tableCharge: block.tableCharge && labels.tableCharge !== undefined
+          ? { ...block.tableCharge, label: overrideLabel(block.tableCharge.label, labels.tableCharge) }
+          : block.tableCharge,
         pointsRedeemed: block.pointsRedeemed && labels.pointsRedeemed !== undefined
           ? { ...block.pointsRedeemed, label: overrideLabel(block.pointsRedeemed.label, labels.pointsRedeemed) }
           : block.pointsRedeemed,

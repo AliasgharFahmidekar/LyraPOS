@@ -166,6 +166,7 @@ function businessShape(s: Record<string, string>) {
     currency_display: resolveStoredLocalePreference('currency_display', s.currency_display, s.country || ''),
     number_digits: resolveStoredLocalePreference('number_digits', s.number_digits, s.country || ''),
     calendar: resolveStoredLocalePreference('calendar', s.calendar, s.country || ''),
+    takeaway_charge: Number.isFinite(Number(s.takeaway_charge)) && Number(s.takeaway_charge) >= 0 ? Number(s.takeaway_charge) : 0,
     // Non-blocking informational tax format description for the UI.
     tax_id_format: resolveTaxIdFormat(s.country || ''),
   };
@@ -201,6 +202,7 @@ router.put('/business', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
       billing_type, tables_required, tax_registered,
       bill_show_name, bill_show_address, bill_show_phone, bill_show_tax_id,
       bill_show_tax_breakdown, bill_show_customer_name, bill_show_customer_phone, bill_show_table_number,
+      takeaway_charge,
       currency_display, number_digits, calendar } = req.body;
     const normalizedCurrency = typeof currency === 'string' ? currency.trim().toUpperCase() : currency;
 
@@ -225,6 +227,10 @@ router.put('/business', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
     }
     const effectiveCountry = country || currentSettings.country || '';
     const effectiveCurrency = normalizedCurrency || currentSettings.currency || '';
+    if (takeaway_charge !== undefined && (typeof takeaway_charge !== 'number' || !Number.isFinite(takeaway_charge) || takeaway_charge < 0)) {
+      return res.status(400).json({ error: 'Invalid takeaway_charge' });
+    }
+
 
     // Validate locale preferences against country options, normalizing unsupported legacy values.
     const localeUpdates: Record<string, string> = {};
@@ -275,6 +281,7 @@ router.put('/business', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
       billing_type, tables_required, tax_registered,
       bill_show_name, bill_show_address, bill_show_phone, bill_show_tax_id,
       bill_show_tax_breakdown, bill_show_customer_name, bill_show_customer_phone, bill_show_table_number,
+      takeaway_charge,
       ...localeUpdates,
       // Only mark country as user-confirmed if it actually changed in this submission.
       ...countryConfirmationPatch(country, currentSettings.country, req.body.country_selected),

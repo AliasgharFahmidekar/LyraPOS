@@ -1187,7 +1187,9 @@
     "taxDetails": "कर विवरण",
     "taxIncluded": "जहां लागू हो वहां कर शामिल है",
     "thankYou": "आपकी यात्रा के लिए धन्यवाद!",
-    "totalTax": "कुल कर"
+    "totalTax": "कुल कर",
+    "tableCharge": "टेबल शुल्क",
+    "takeawayCharge": "टेकअवे शुल्क"
   },
   "restore": {
     "failedWith": "पुनर्स्थापना विफल: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "थीम",
     "themeLight": "हल्का",
     "themeDark": "गहरा",
-    "themeSystem": "सिस्टम"
+    "themeSystem": "सिस्टम",
+    "takeawayCharge": "टेकअवे शुल्क",
+    "takeawayChargeHint": "टेकअवे ऑर्डर में अपने-आप जोड़ी जाने वाली निश्चित राशि।"
   },
   "setup": {
     "alreadyCompleted": "इस इंस्टाल पर सेटअप पहले ही पूरा हो चुका है. लॉगिन करने के लिए पुनः निर्देशित किया जा रहा है...",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "मंजिल का नाम बदला गया",
     "floorRenameFailed": "फ़्लोर का नाम बदलने में विफल",
     "floorDeleted": "फर्श हटा दिया गया",
-    "floorDeleteFailed": "फ़्लोर हटाने में विफल"
+    "floorDeleteFailed": "फ़्लोर हटाने में विफल",
+    "floorTableCharge": "फ़्लोर टेबल शुल्क",
+    "floorTableChargeHint": "इस फ़्लोर की टेबल का उपयोग करने वाले डाइन-इन ऑर्डर में यह अपने आप जोड़ा जाता है।",
+    "floorTableChargeInvalid": "टेबल शुल्क एक सीमित और शून्य या उससे अधिक राशि होना चाहिए।",
+    "floorTableChargeSaved": "फ़्लोर टेबल शुल्क सहेजा गया।"
   },
   "tax": {
     "actionActivate": "पैक सक्रिय",

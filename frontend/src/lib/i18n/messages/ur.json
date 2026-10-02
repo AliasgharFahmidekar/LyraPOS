@@ -1187,7 +1187,9 @@
     "taxDetails": "ٹیکس کی تفصیل",
     "taxIncluded": "جہاں قابل اطلاق ہو ٹیکس شامل ہے",
     "thankYou": "آپ کے تشریف لانے کا شکریہ!",
-    "totalTax": "کل ٹیکس"
+    "totalTax": "کل ٹیکس",
+    "tableCharge": "میز چارج",
+    "takeawayCharge": "ٹیک اوے فیس"
   },
   "restore": {
     "failedWith": "بحالی ناکام: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "تھیم",
     "themeLight": "روشن",
     "themeDark": "تاریک",
-    "themeSystem": "سسٹم"
+    "themeSystem": "سسٹم",
+    "takeawayCharge": "ٹیک اوے فیس",
+    "takeawayChargeHint": "ٹیک اوے آرڈرز میں خودکار طور پر شامل ہونے والی مقررہ رقم۔"
   },
   "setup": {
     "alreadyCompleted": "اس انسٹال کا سیٹ اپ پہلے ہی مکمل ہو چکا ہے۔ سائن ان پر بھیج رہا ہے…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "تالاب کا نام بدل دیا گیا",
     "floorRenameFailed": "تالاب کا نام بدل نہیں سکا",
     "floorDeleted": "تالاب حذف کر دی گئی",
-    "floorDeleteFailed": "تالاب حذف نہیں ہو سکی"
+    "floorDeleteFailed": "تالاب حذف نہیں ہو سکی",
+    "floorTableCharge": "ہال کا میز چارج",
+    "floorTableChargeHint": "اس منزل کے میز پر کھانے کے آرڈر میں خودکار طور پر شامل کیا جائے گا۔",
+    "floorTableChargeInvalid": "میز چارج صفر یا اس سے زیادہ معتبر عدد ہونا چاہیے۔",
+    "floorTableChargeSaved": "منزل کا میز چارج محفوظ ہوگیا۔"
   },
   "tax": {
     "actionActivate": "پیک فعال ہو گیا",

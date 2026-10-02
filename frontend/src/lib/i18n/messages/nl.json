@@ -1187,7 +1187,9 @@
     "taxDetails": "Belastinggegevens",
     "taxIncluded": "Belasting inbegrepen indien van toepassing",
     "thankYou": "Bedankt voor uw bezoek!",
-    "totalTax": "Totale belasting"
+    "totalTax": "Totale belasting",
+    "tableCharge": "Tafelkosten",
+    "takeawayCharge": "Afhaaltoeslag"
   },
   "restore": {
     "failedWith": "Herstellen mislukt: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Thema",
     "themeLight": "Licht",
     "themeDark": "Donker",
-    "themeSystem": "Systeem"
+    "themeSystem": "Systeem",
+    "takeawayCharge": "Afhaaltoeslag",
+    "takeawayChargeHint": "Een vast bedrag dat automatisch aan afhaalbestellingen wordt toegevoegd."
   },
   "setup": {
     "alreadyCompleted": "De installatie is bij deze installatie al voltooid. Omleiden naar inloggen…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Verdieping hernoemd",
     "floorRenameFailed": "Kan de naam van de verdieping niet wijzigen",
     "floorDeleted": "Verdieping verwijderd",
-    "floorDeleteFailed": "Kan verdieping niet verwijderen"
+    "floorDeleteFailed": "Kan verdieping niet verwijderen",
+    "floorTableCharge": "Tafelkosten van de verdieping",
+    "floorTableChargeHint": "Wordt automatisch toegevoegd aan bestellingen voor gebruik in het restaurant die een tafel op deze verdieping gebruiken.",
+    "floorTableChargeInvalid": "De tafelkosten moeten een eindig en niet-negatief bedrag zijn.",
+    "floorTableChargeSaved": "Tafelkosten van de verdieping opgeslagen."
   },
   "tax": {
     "actionActivate": "Pakket geactiveerd",

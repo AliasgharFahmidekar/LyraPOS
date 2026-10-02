@@ -1187,7 +1187,9 @@
     "taxDetails": "تفاصيل الضرائب",
     "taxIncluded": "الضريبة مشمولة حيثما ينطبق ذلك",
     "thankYou": "شكرًا على زيارتكم!",
-    "totalTax": "إجمالي الضريبة"
+    "totalTax": "إجمالي الضريبة",
+    "tableCharge": "رسوم الطاولة",
+    "takeawayCharge": "رسوم الطلب الخارجي"
   },
   "restore": {
     "failedWith": "فشل الاستعادة: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "الموضوع",
     "themeLight": "الضوء",
     "themeDark": "مظلم",
-    "themeSystem": "النظام"
+    "themeSystem": "النظام",
+    "takeawayCharge": "رسوم الطلب الخارجي",
+    "takeawayChargeHint": "مبلغ ثابت يُضاف تلقائيًا إلى طلبات الطلب الخارجي."
   },
   "setup": {
     "alreadyCompleted": "تم الانتهاء من عملية الإعداد في هذا التثبيت. يتم إعادة التوجيه إلى صفحة تسجيل الدخول…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "تم تغيير اسم الطابق",
     "floorRenameFailed": "فشل إعادة تسمية الطابق",
     "floorDeleted": "تم حذف الطابق",
-    "floorDeleteFailed": "فشل حذف الطابق"
+    "floorDeleteFailed": "فشل حذف الطابق",
+    "floorTableCharge": "رسوم طاولة الطابق",
+    "floorTableChargeHint": "تُضاف تلقائيًا إلى طلبات الأكل داخل المطعم التي تستخدم طاولة في هذا الطابق.",
+    "floorTableChargeInvalid": "يجب أن تكون رسوم الطاولة مبلغًا صالحًا ومحدودًا وغير سالب.",
+    "floorTableChargeSaved": "تم حفظ رسوم طاولة الطابق."
   },
   "tax": {
     "actionActivate": "تم تفعيل الحزمة",

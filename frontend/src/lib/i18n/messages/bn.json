@@ -1187,7 +1187,9 @@
     "taxDetails": "করের বিবরণ",
     "taxIncluded": "যেখানে প্রযোজ্য কর অন্তর্ভুক্ত",
     "thankYou": "আপনার দর্শনের জন্য আপনাকে ধন্যবাদ!",
-    "totalTax": "মোট কর"
+    "totalTax": "মোট কর",
+    "tableCharge": "টেবিল চার্জ",
+    "takeawayCharge": "টেকঅ্যাওয়ে চার্জ"
   },
   "restore": {
     "failedWith": "পুনরুদ্ধার ব্যর্থ হয়েছে:{error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "থিম",
     "themeLight": "আলো",
     "themeDark": "অন্ধকার",
-    "themeSystem": "সিস্টেম"
+    "themeSystem": "সিস্টেম",
+    "takeawayCharge": "টেকঅ্যাওয়ে চার্জ",
+    "takeawayChargeHint": "টেকঅ্যাওয়ে অর্ডারে স্বয়ংক্রিয়ভাবে যোগ হওয়া একটি নির্দিষ্ট পরিমাণ।"
   },
   "setup": {
     "alreadyCompleted": "এই ইনস্টলে সেটআপ ইতিমধ্যেই সম্পন্ন হয়েছে। লগইন করার জন্য পুনঃনির্দেশ করা হচ্ছে...",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "ফ্লোরের নাম পরিবর্তন করা হয়েছে",
     "floorRenameFailed": "ফ্লোরের নাম পরিবর্তন করতে ব্যর্থ হয়েছে।",
     "floorDeleted": "মেঝে মুছে ফেলা হয়েছে",
-    "floorDeleteFailed": "মেঝে মুছে ফেলতে ব্যর্থ হয়েছে"
+    "floorDeleteFailed": "মেঝে মুছে ফেলতে ব্যর্থ হয়েছে",
+    "floorTableCharge": "ফ্লোর টেবিল চার্জ",
+    "floorTableChargeHint": "এই ফ্লোরের টেবিল ব্যবহার করা ডাইন-ইন অর্ডারে এটি স্বয়ংক্রিয়ভাবে যোগ করা হয়।",
+    "floorTableChargeInvalid": "টেবিল চার্জ একটি সসীম ও শূন্য বা তার বেশি পরিমাণ হতে হবে।",
+    "floorTableChargeSaved": "ফ্লোর টেবিল চার্জ সংরক্ষণ করা হয়েছে।"
   },
   "tax": {
     "actionActivate": "প্যাক সক্রিয় করা হয়েছে",

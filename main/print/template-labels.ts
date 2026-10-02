@@ -14,6 +14,10 @@ export const TEMPLATE_LABEL_IDS = {
   total: 'print.grandTotal',
   /** Persisted service-charge row label. */
   serviceCharge: 'receipt.serviceCharge',
+  /** Persisted table-use charge row label. */
+  tableCharge: 'receipt.tableCharge',
+  /** Persisted takeaway charge row label. */
+  takeawayCharge: 'receipt.takeawayCharge',
   /** Persisted delivery-charge row label. */
   deliveryCharge: 'pos.delivery',
   /** Persisted packaging-charge row label. */
@@ -27,7 +31,7 @@ export const TEMPLATE_LABEL_IDS = {
 export type TemplateLabelId = keyof typeof TEMPLATE_LABEL_IDS;
 
 /** Explicit charge-row capabilities in the v1 country-pack template contract. */
-export const TEMPLATE_CHARGE_ROW_IDS = ['serviceCharge', 'deliveryCharge', 'packagingCharge'] as const;
+export const TEMPLATE_CHARGE_ROW_IDS = ['serviceCharge', 'tableCharge', 'takeawayCharge', 'deliveryCharge', 'packagingCharge'] as const;
 export type TemplateChargeRowId = typeof TEMPLATE_CHARGE_ROW_IDS[number];
 
 /** Install-time caps for the `labels` map (#445): fail closed on misuse. */

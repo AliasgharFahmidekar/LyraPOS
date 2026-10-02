@@ -1187,7 +1187,9 @@
     "taxDetails": "Mga Detalye ng Buwis",
     "taxIncluded": "Kasama ang buwis kung naaangkop",
     "thankYou": "Salamat sa iyong pagbisita!",
-    "totalTax": "Kabuuang Buwis"
+    "totalTax": "Kabuuang Buwis",
+    "tableCharge": "Bayad sa mesa",
+    "takeawayCharge": "Bayad sa takeaway"
   },
   "restore": {
     "failedWith": "I-restore failed: {error}",
@@ -1997,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Maliwanag",
     "themeDark": "Madilim",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "takeawayCharge": "Bayad sa takeaway",
+    "takeawayChargeHint": "Isang nakapirming halaga na awtomatikong idinadagdag sa mga takeaway order."
   },
   "setup": {
     "alreadyCompleted": "Nakumpleto na ang setup sa installation na ito. Nireredirect sa pag-login…",
@@ -2360,7 +2364,11 @@
     "floorRenamed": "Pinalitan ang pangalan ng palapag",
     "floorRenameFailed": "Hindi pinalitan ang pangalan ng palapag",
     "floorDeleted": "Tinanggal ang palapag",
-    "floorDeleteFailed": "Hindi tinanggal ang palapag"
+    "floorDeleteFailed": "Hindi tinanggal ang palapag",
+    "floorTableCharge": "Bayad sa mesa sa palapag",
+    "floorTableChargeHint": "Awto itong idinadagdag sa mga dine-in order na gumagamit ng mesa sa palapag na iyon.",
+    "floorTableChargeInvalid": "Ang bayad sa mesa ay dapat isang may-bisang halaga na hindi negatibo.",
+    "floorTableChargeSaved": "Na-save ang bayad sa mesa sa palapag."
   },
   "tax": {
     "actionActivate": "Na-activate ang pack",
