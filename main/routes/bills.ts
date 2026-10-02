@@ -1505,7 +1505,7 @@ export function syncUnpaidBillsForOrder(
     if (bill.payment_status === 'paid' && !zeroClosed) return;
     update.run(
       allocations.subtotal[index], allocations.taxAmount[index], breakdowns[index], snapshots[index],
-      allocations.discountAmount[index], allocations.deliveryCharge[index], allocations.packagingCharge[index], allocations.serviceCharge[index], allocations.tableCharge[index],
+      allocations.discountAmount[index], allocations.deliveryCharge[index], allocations.packagingCharge[index], allocations.serviceCharge[index], allocations.tableCharge[index], allocations.takeawayCharge[index],
       allocations.roundOff[index], total, balance, now(), bill.id,
     );
     if (total <= 0 && balance <= 0) {
