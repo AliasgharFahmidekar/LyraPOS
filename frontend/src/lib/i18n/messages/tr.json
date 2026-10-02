@@ -1187,7 +1187,8 @@
     "taxDetails": "Vergi Detayları",
     "taxIncluded": "Uygulanabilir yerlerde vergi dahildir",
     "thankYou": "Bizi tercih ettiğiniz için teşekkür ederiz!",
-    "totalTax": "Toplam Vergi"
+    "totalTax": "Toplam Vergi",
+    "tableCharge": "Masa ücreti"
   },
   "restore": {
     "failedWith": "Geri yükleme başarısız oldu: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Kat yeniden adlandırıldı",
     "floorRenameFailed": "Kat yeniden adlandırılamadı",
     "floorDeleted": "Kat silindi",
-    "floorDeleteFailed": "Kat silinemedi"
+    "floorDeleteFailed": "Kat silinemedi",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "Vergi paketi etkinleştirildi",
