@@ -1187,7 +1187,8 @@
     "taxDetails": "করের বিবরণ",
     "taxIncluded": "যেখানে প্রযোজ্য কর অন্তর্ভুক্ত",
     "thankYou": "আপনার দর্শনের জন্য আপনাকে ধন্যবাদ!",
-    "totalTax": "মোট কর"
+    "totalTax": "মোট কর",
+    "tableCharge": "টেবিল চার্জ"
   },
   "restore": {
     "failedWith": "পুনরুদ্ধার ব্যর্থ হয়েছে:{error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "ফ্লোরের নাম পরিবর্তন করা হয়েছে",
     "floorRenameFailed": "ফ্লোরের নাম পরিবর্তন করতে ব্যর্থ হয়েছে।",
     "floorDeleted": "মেঝে মুছে ফেলা হয়েছে",
-    "floorDeleteFailed": "মেঝে মুছে ফেলতে ব্যর্থ হয়েছে"
+    "floorDeleteFailed": "মেঝে মুছে ফেলতে ব্যর্থ হয়েছে",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "প্যাক সক্রিয় করা হয়েছে",
