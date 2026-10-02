@@ -542,6 +542,9 @@ export function buildClassicReceiptBytes(
     if (totals.tableCharge) {
       safePrinterText(enc, padRow(labelOf(totals.tableCharge.label), formatAmount(totals.tableCharge.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
     }
+    if (totals.takeawayCharge) {
+      safePrinterText(enc, padRow(labelOf(totals.takeawayCharge.label), formatAmount(totals.takeawayCharge.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
     if (totals.deliveryCharge) {
       safePrinterText(enc, padRow(labelOf(totals.deliveryCharge.label), formatAmount(totals.deliveryCharge.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
     }
