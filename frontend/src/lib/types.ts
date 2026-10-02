@@ -230,6 +230,8 @@ export interface Bill {
   discount_reason?: string | null;
   service_charge: number;
   table_charge?: number;
+  /** Fixed takeaway charge persisted on the bill. */
+  takeaway_charge?: number;
   delivery_charge: number;
   packaging_charge?: number;
   round_off?: number;
