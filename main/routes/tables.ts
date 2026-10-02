@@ -133,6 +133,26 @@ router.get('/floor-charges', requireRole(...ROLE_ACCESS.sales), (req: Request, r
   }
 });
 
+router.get('/floor-charges/:name', requireRole(...ROLE_ACCESS.sales), (req: Request, res: Response) => {
+  try {
+    const floor = normalizeOptionalTableLabel(req.params.name);
+    if (floor === undefined || floor === null || !floor) {
+      return res.status(400).json({ code: 'FLOOR_NAME_REQUIRED', error: 'Floor name is required' });
+    }
+    const db = getDatabase();
+    const floorCharge = db.prepare(
+      'SELECT floor, default_table_charge FROM floor_table_charges WHERE floor = ?',
+    ).get(floor);
+    if (!floorCharge) {
+      return res.status(404).json({ code: 'FLOOR_TABLE_CHARGE_NOT_FOUND', error: 'Floor table charge not found' });
+    }
+    res.json({ floorCharge });
+  } catch (error: any) {
+    console.error('[API] Floor charge read failed:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.put('/floor-charges/:name', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
   try {
     const floor = normalizeOptionalTableLabel(req.params.name);
