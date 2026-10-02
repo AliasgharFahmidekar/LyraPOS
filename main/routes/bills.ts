@@ -2268,7 +2268,7 @@ router.post('/:id/applyDiscount', requireRole(...ROLE_ACCESS.ownerManager), (req
     const taxBreakdownJson = JSON.stringify(taxRollup.breakdowns);
 
     const preRoundTotal = discountedSubtotal + taxRollup.exclusiveTaxAmount
-      + (bill.delivery_charge || 0) + (bill.packaging_charge || 0) + (bill.service_charge || 0);
+      + (bill.delivery_charge || 0) + (bill.packaging_charge || 0) + (bill.service_charge || 0) + (bill.table_charge || 0);
     const exactTotal = Number(preRoundTotal.toFixed(decimals));
     const pack = getActiveCountryPack(tenantInfo.country);
     const { total: newTotal, adjustment: newRoundOff } = applyPayableRounding(exactTotal, pack, currency);
