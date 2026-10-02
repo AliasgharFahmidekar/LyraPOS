@@ -219,6 +219,8 @@ export default function TablesPage() {
   const [view, setView] = useState<'plan' | 'list'>('list');
   const [layoutMode, setLayoutMode] = useState(false);
   const [form, setForm] = useState({ name: '', capacity: '4', floor: 'Ground', section: '' });
+  const [floorCharges, setFloorCharges] = useState<Record<string, string>>({});
+  const [savingFloorCharge, setSavingFloorCharge] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('tables_showDetails');
@@ -235,8 +237,16 @@ export default function TablesPage() {
 
   const fetchTables = async () => {
     try {
-      const { data } = await api.get('/tables');
-      setTables(data.tables || []);
+      const [{ data: tableData }, { data: chargeData }] = await Promise.all([
+        api.get('/tables'),
+        api.get('/tables/floor-charges'),
+      ]);
+      setTables(tableData.tables || []);
+      const nextCharges: Record<string, string> = {};
+      for (const row of chargeData.floorCharges || []) {
+        nextCharges[String(row.floor)] = String(row.default_table_charge ?? 0);
+      }
+      setFloorCharges(nextCharges);
     } catch {
       toast.error(tTables('loadFailed'));
     } finally {
@@ -245,15 +255,7 @@ export default function TablesPage() {
   };
 
   useEffect(() => {
-    const load = () => {
-      api.get('/tables')
-        .then(({ data }) => setTables(data.tables || []))
-        .catch(() => toast.error(tTables('loadFailed')))
-        .finally(() => setLoading(false));
-    };
-    load();
-    const interval = setInterval(load, 10000);
-    return () => clearInterval(interval);
+    void fetchTables();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutMode]);
 
@@ -352,6 +354,27 @@ export default function TablesPage() {
         TABLE_INACTIVE_DUPLICATE: tTables('tableInactiveDuplicate'),
       };
       toast.error((code && knownMessages[code]) || (editingTable ? tTables('tableUpdateFailed') : tTables('tableCreateFailed')));
+    }
+  };
+
+  const saveFloorCharge = async (floor: string) => {
+    const raw = floorCharges[floor] ?? '0';
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.error(tTables('floorTableChargeInvalid'));
+      return;
+    }
+    setSavingFloorCharge(floor);
+    try {
+      await api.put(`/tables/floor-charges/${encodeURIComponent(floor)}`, {
+        default_table_charge: amount,
+      });
+      setFloorCharges((current) => ({ ...current, [floor]: String(amount) }));
+      toast.success(tTables('floorTableChargeSaved'));
+    } catch {
+      toast.error(tTables('tableUpdateFailed'));
+    } finally {
+      setSavingFloorCharge(null);
     }
   };
 
@@ -478,6 +501,41 @@ export default function TablesPage() {
               {floor === 'all' ? tTables('allFloors') : floor}
             </button>
           ))}
+        </div>
+      )}
+
+      {view === 'list' && canManageTables && floorValues.length > 0 && (
+        <div className="mb-5 rounded-xl border border-border bg-card p-4">
+          <div className="mb-3">
+            <h2 className="text-sm font-semibold text-foreground">{tTables('floorTableCharge')}</h2>
+            <p className="text-xs text-muted-foreground mt-1">{tTables('floorTableChargeHint')}</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {floorValues.map((floor) => (
+              <div key={floor} className="rounded-lg border border-border p-3">
+                <label className="block text-sm font-medium text-foreground mb-1">{floor}</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={floorCharges[floor] ?? '0'}
+                    onChange={(e) => setFloorCharges((current) => ({ ...current, [floor]: e.target.value }))}
+                    className="min-w-0 flex-1 px-3 py-2 border border-border rounded-lg bg-card outline-none focus:ring-2 focus:ring-brand"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void saveFloorCharge(floor)}
+                    disabled={savingFloorCharge === floor}
+                  >
+                    {savingFloorCharge === floor ? tTables('creating') : tTables('saveChanges')}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
