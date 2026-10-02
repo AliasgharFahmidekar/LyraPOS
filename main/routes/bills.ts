@@ -594,7 +594,7 @@ router.post('/generate', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: 
         INSERT INTO bills (bill_number, order_id, customer_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
           discount_amount, discount_type, discount_value, discount_reason,
           delivery_charge, packaging_charge, service_charge, table_charge, takeaway_charge, round_off, total, paid_amount, balance, payment_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?)
       `).run(
         billNumber, order_id, order.customer_id, subtotal, taxAmount, order.tax_breakdown, order.tax_snapshot,
         discountAmount, order.discount_type, order.discount_value, order.discount_reason,
