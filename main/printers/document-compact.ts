@@ -349,6 +349,10 @@ export function renderBillDocumentToCompactLines(
       const value = formatCurrency(totals.tableCharge.amount, prefix, options.locale, trimDecimals, fractionDigits);
       pushTotalRow(financialRows(labelOf(totals.tableCharge.label), value, cols, options.language, options.capabilities), false, labelOf(totals.tableCharge.label), value);
     }
+    if (totals.takeawayCharge) {
+      const value = formatCurrency(totals.takeawayCharge.amount, prefix, options.locale, trimDecimals, fractionDigits);
+      pushTotalRow(financialRows(labelOf(totals.takeawayCharge.label), value, cols, options.language, options.capabilities), false, labelOf(totals.takeawayCharge.label), value);
+    }
     if (totals.deliveryCharge) {
       const value = formatCurrency(totals.deliveryCharge.amount, prefix, options.locale, trimDecimals, fractionDigits);
       pushTotalRow(financialRows(labelOf(totals.deliveryCharge.label), value, cols, options.language, options.capabilities), false, labelOf(totals.deliveryCharge.label), value);
