@@ -122,7 +122,7 @@ router.get('/', (req: Request, res: Response) => {
   }
 });
 
-router.get('/floor-charges', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/floor-charges', requireRole(...ROLE_ACCESS.sales), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const floorCharges = db.prepare('SELECT floor, default_table_charge FROM floor_table_charges WHERE TRIM(floor) <> \'\' ORDER BY floor COLLATE NOCASE').all();
