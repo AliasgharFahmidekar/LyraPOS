@@ -1188,7 +1188,8 @@
     "taxIncluded": "جہاں قابل اطلاق ہو ٹیکس شامل ہے",
     "thankYou": "آپ کے تشریف لانے کا شکریہ!",
     "totalTax": "کل ٹیکس",
-    "tableCharge": "میز چارج"
+    "tableCharge": "میز چارج",
+    "takeawayCharge": "ٹیک اوے فیس"
   },
   "restore": {
     "failedWith": "بحالی ناکام: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "تھیم",
     "themeLight": "روشن",
     "themeDark": "تاریک",
-    "themeSystem": "سسٹم"
+    "themeSystem": "سسٹم",
+    "takeawayCharge": "ٹیک اوے فیس",
+    "takeawayChargeHint": "ٹیک اوے آرڈرز میں خودکار طور پر شامل ہونے والی مقررہ رقم۔"
   },
   "setup": {
     "alreadyCompleted": "اس انسٹال کا سیٹ اپ پہلے ہی مکمل ہو چکا ہے۔ سائن ان پر بھیج رہا ہے…",
