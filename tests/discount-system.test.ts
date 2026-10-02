@@ -123,7 +123,7 @@ function isNativeAbiMismatch(error: any): boolean {
 // ── Expected discount settings ────────────────────────────────────────────────
 
 const EXPECTED_DISCOUNT_SETTINGS: Record<string, string> = {
-  discount_mode: 'percentage',
+  discount_mode: 'both',
   discount_requires_approval: '0',
   discount_max_percentage: '25',
   discount_max_amount: '0',
