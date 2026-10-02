@@ -1188,7 +1188,8 @@
     "taxIncluded": "Steuer enthalten, sofern zutreffend",
     "thankYou": "Vielen Dank für Ihren Besuch!",
     "totalTax": "Gesamtsteuer",
-    "tableCharge": "Tischgebühr"
+    "tableCharge": "Tischgebühr",
+    "takeawayCharge": "Mitnahmegebühr"
   },
   "restore": {
     "failedWith": "Wiederherstellung fehlgeschlagen: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Design",
     "themeLight": "Hell",
     "themeDark": "Dunkel",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "takeawayCharge": "Mitnahmegebühr",
+    "takeawayChargeHint": "Ein fester Betrag, der automatisch zu Mitnahmebestellungen hinzugefügt wird."
   },
   "setup": {
     "alreadyCompleted": "Die Ersteinrichtung wurde bereits abgeschlossen. Weiterleitung zur Anmeldung…",
