@@ -948,6 +948,16 @@ export function buildDetailedReceiptBytes(
     enc.text(padRow('Tax', formatAmount(bill.tax_amount, currency, locale, trimDecimals, fractionDigits), cols)).newline();
   }
 
+  if (Number(bill.table_charge) > 0) {
+    enc.text(
+      padRow(
+        printLabelResolver('receipt.tableCharge', primaryLang),
+        formatAmount(bill.table_charge, currency, locale, trimDecimals, fractionDigits),
+        cols,
+      ),
+    ).newline();
+  }
+
   enc.rule({ style: 'double' });
   enc
     .bold(true)
