@@ -1187,7 +1187,8 @@
     "taxDetails": "Dettaglio imposte",
     "taxIncluded": "Imposta inclusa dove applicabile",
     "thankYou": "Grazie per la visita!",
-    "totalTax": "Imposta totale"
+    "totalTax": "Imposta totale",
+    "tableCharge": "Supplemento tavolo"
   },
   "restore": {
     "failedWith": "Ripristino non riuscito: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Piano rinominato",
     "floorRenameFailed": "Rinominazione del piano non riuscita",
     "floorDeleted": "Piano eliminato",
-    "floorDeleteFailed": "Eliminazione del piano non riuscita"
+    "floorDeleteFailed": "Eliminazione del piano non riuscita",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "Pack attivato",
