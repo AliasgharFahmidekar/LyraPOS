@@ -5398,7 +5398,30 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       ).run(now());
     },
   },
+  {
+    version: 97,
+    name: 'add_floor_table_charge',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS floor_table_charges (
+          floor TEXT PRIMARY KEY,
+          default_table_charge REAL NOT NULL DEFAULT 0,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
 
+      const orderColumns = getColumns(db, 'orders');
+      if (!orderColumns.includes('table_charge')) {
+        db.exec(`ALTER TABLE orders ADD COLUMN table_charge REAL DEFAULT 0`);
+      }
+
+      const billColumns = getColumns(db, 'bills');
+      if (!billColumns.includes('table_charge')) {
+        db.exec(`ALTER TABLE bills ADD COLUMN table_charge REAL DEFAULT 0`);
+      }
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -5638,6 +5661,13 @@ function createSchema(): void {
       reservation_customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS floor_table_charges (
+      floor TEXT PRIMARY KEY,
+      default_table_charge REAL NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS customers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -5686,6 +5716,7 @@ function createSchema(): void {
       packaging_charge REAL DEFAULT 0,
       delivery_charge REAL DEFAULT 0,
       service_charge REAL DEFAULT 0,
+      table_charge REAL DEFAULT 0,
       status TEXT DEFAULT 'pending',
       subtotal REAL DEFAULT 0,
       tax_amount REAL DEFAULT 0,
@@ -5754,6 +5785,7 @@ function createSchema(): void {
       delivery_charge REAL DEFAULT 0,
       packaging_charge REAL DEFAULT 0,
       service_charge REAL DEFAULT 0,
+      table_charge REAL DEFAULT 0,
       round_off REAL DEFAULT 0,
       total REAL DEFAULT 0,
       paid_amount REAL DEFAULT 0,
