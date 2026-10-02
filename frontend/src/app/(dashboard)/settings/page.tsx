@@ -1190,6 +1190,7 @@ export default function SettingsPage() {
   const [savedBusiness, setSavedBusiness] = useState<BusinessForm>({
     businessName: '', countryCode: '', timezone: '', businessDayStartTime: '00:00', currency: '', billingType: 'postpaid',
     tablesRequired: true,
+    takeawayCharge: '0',
     taxRegistered: false,
     taxRegistrationNumber: '', businessAddress: '', businessPhone: '', instagramHandle: '',
     currencyDisplay: 'rial',
@@ -1392,6 +1393,7 @@ export default function SettingsPage() {
         currency: d.currency || '',
         billingType: d.billing_type === 'prepaid' ? 'prepaid' : 'postpaid',
         tablesRequired: typeof d.tables_required === 'boolean' ? d.tables_required : true,
+        takeawayCharge: String(d.takeaway_charge ?? 0),
         taxRegistered: d.tax_registered === 'true' || d.tax_registered === true || d.tax_registered === 1,
         taxRegistrationNumber: d.tax_registration_number || '',
         businessAddress: d.business_address || '',
@@ -2617,6 +2619,7 @@ export default function SettingsPage() {
         country: form.countryCode,
         billing_type: form.billingType,
         tables_required: form.tablesRequired,
+        takeaway_charge: Number(form.takeawayCharge || 0),
         tax_registered: form.taxRegistered,
         tax_registration_number: form.taxRegistrationNumber,
         business_address: form.businessAddress,
