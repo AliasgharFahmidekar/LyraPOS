@@ -1188,7 +1188,8 @@
     "taxIncluded": "Pajak termasuk di mana berlaku",
     "thankYou": "Terima kasih atas kunjungan Anda!",
     "totalTax": "Total Pajak",
-    "tableCharge": "Biaya meja"
+    "tableCharge": "Biaya meja",
+    "takeawayCharge": "Biaya takeaway"
   },
   "restore": {
     "failedWith": "Pemulihan gagal: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Tema",
     "themeLight": "Terang",
     "themeDark": "Gelap",
-    "themeSystem": "Sistem"
+    "themeSystem": "Sistem",
+    "takeawayCharge": "Biaya takeaway",
+    "takeawayChargeHint": "Jumlah tetap yang otomatis ditambahkan ke pesanan takeaway."
   },
   "setup": {
     "alreadyCompleted": "Pengaturan awal sudah selesai dilakukan pada instalasi ini. Mengalihkan ke layar masuk…",
