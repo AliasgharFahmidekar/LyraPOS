@@ -1188,7 +1188,8 @@
     "taxIncluded": "الضريبة مشمولة حيثما ينطبق ذلك",
     "thankYou": "شكرًا على زيارتكم!",
     "totalTax": "إجمالي الضريبة",
-    "tableCharge": "رسوم الطاولة"
+    "tableCharge": "رسوم الطاولة",
+    "takeawayCharge": "رسوم الطلب الخارجي"
   },
   "restore": {
     "failedWith": "فشل الاستعادة: {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "الموضوع",
     "themeLight": "الضوء",
     "themeDark": "مظلم",
-    "themeSystem": "النظام"
+    "themeSystem": "النظام",
+    "takeawayCharge": "رسوم الطلب الخارجي",
+    "takeawayChargeHint": "مبلغ ثابت يُضاف تلقائيًا إلى طلبات الطلب الخارجي."
   },
   "setup": {
     "alreadyCompleted": "تم الانتهاء من عملية الإعداد في هذا التثبيت. يتم إعادة التوجيه إلى صفحة تسجيل الدخول…",
