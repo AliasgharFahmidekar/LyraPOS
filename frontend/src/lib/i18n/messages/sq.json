@@ -1187,7 +1187,8 @@
     "taxDetails": "Detajet e taksës",
     "taxIncluded": "Taksa e përfshirë kur zbatohet",
     "thankYou": "Faleminderit për vizitën!",
-    "totalTax": "Taksa totale"
+    "totalTax": "Taksa totale",
+    "tableCharge": "Tarifë tavoline"
   },
   "restore": {
     "failedWith": "Riktherja dështoi: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "Kati u riemërua",
     "floorRenameFailed": "Riemërtimi i kati dështoi",
     "floorDeleted": "Kati u fshi",
-    "floorDeleteFailed": "Fshirja e kati dështoi"
+    "floorDeleteFailed": "Fshirja e kati dështoi",
+    "floorTableCharge": "Floor table charge",
+    "floorTableChargeHint": "Automatically added to dine-in orders using a table on that floor.",
+    "floorTableChargeInvalid": "Table charge must be a non-negative finite amount.",
+    "floorTableChargeSaved": "Floor table charge saved."
   },
   "tax": {
     "actionActivate": "Pakoja u aktivizua",
