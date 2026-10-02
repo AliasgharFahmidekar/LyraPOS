@@ -1188,7 +1188,8 @@
     "taxIncluded": "Taxes incluses le cas échéant",
     "thankYou": "Merci de votre visite !",
     "totalTax": "Total des taxes",
-    "tableCharge": "Frais de table"
+    "tableCharge": "Frais de table",
+    "takeawayCharge": "Frais à emporter"
   },
   "restore": {
     "failedWith": "Échec de la restauration : {error}",
@@ -1998,7 +1999,9 @@
     "themeTitle": "Thème",
     "themeLight": "Clair",
     "themeDark": "Sombre",
-    "themeSystem": "Système"
+    "themeSystem": "Système",
+    "takeawayCharge": "Frais à emporter",
+    "takeawayChargeHint": "Montant fixe ajouté automatiquement aux commandes à emporter."
   },
   "setup": {
     "alreadyCompleted": "La configuration a déjà été effectuée sur cette installation. Redirection vers la connexion…",
@@ -2362,10 +2365,10 @@
     "floorRenameFailed": "Impossible de renommer l'étage",
     "floorDeleted": "Étage supprimé",
     "floorDeleteFailed": "Impossible de supprimer l'étage",
-    "floorTableCharge": "Frais de table de l\u0027étage",
+    "floorTableCharge": "Frais de table de l'étage",
     "floorTableChargeHint": "Ajouté automatiquement aux commandes sur place utilisant une table de cet étage.",
     "floorTableChargeInvalid": "Les frais de table doivent être un montant fini et supérieur ou égal à zéro.",
-    "floorTableChargeSaved": "Les frais de table de l\u0027étage ont été enregistrés."
+    "floorTableChargeSaved": "Les frais de table de l'étage ont été enregistrés."
   },
   "tax": {
     "actionActivate": "Module activé",
