@@ -1187,7 +1187,8 @@
     "taxDetails": "ٹیکس کی تفصیل",
     "taxIncluded": "جہاں قابل اطلاق ہو ٹیکس شامل ہے",
     "thankYou": "آپ کے تشریف لانے کا شکریہ!",
-    "totalTax": "کل ٹیکس"
+    "totalTax": "کل ٹیکس",
+    "tableCharge": "میز چارج"
   },
   "restore": {
     "failedWith": "بحالی ناکام: {error}",
@@ -2360,7 +2361,11 @@
     "floorRenamed": "تالاب کا نام بدل دیا گیا",
     "floorRenameFailed": "تالاب کا نام بدل نہیں سکا",
     "floorDeleted": "تالاب حذف کر دی گئی",
-    "floorDeleteFailed": "تالاب حذف نہیں ہو سکی"
+    "floorDeleteFailed": "تالاب حذف نہیں ہو سکی",
+    "floorTableCharge": "ہال کا میز چارج",
+    "floorTableChargeHint": "اس منزل کے میز پر کھانے کے آرڈر میں خودکار طور پر شامل کیا جائے گا۔",
+    "floorTableChargeInvalid": "میز چارج صفر یا اس سے زیادہ معتبر عدد ہونا چاہیے۔",
+    "floorTableChargeSaved": "منزل کا میز چارج محفوظ ہوگیا۔"
   },
   "tax": {
     "actionActivate": "پیک فعال ہو گیا",
