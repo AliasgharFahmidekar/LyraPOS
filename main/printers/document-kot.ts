@@ -49,6 +49,7 @@ export function buildKotPrintData(order: any, items: any[], stationName: string)
       tableName: String(order?.table?.name ?? ''),
       orderType: String(order?.type ?? '').trim(),
       customerName: String(order?.customer?.name ?? order?.customer_name ?? '').trim(),
+      specialInstructions: String(order?.special_instructions ?? '').trim(),
     },
     items: ticketItems.map((item: any) => ({
       productName: String(item?.product_name ?? ''),
@@ -221,6 +222,18 @@ function kotHeaderLines(header: KotHeaderBlock, options: KotDocumentRenderOption
     );
     lines.push(truncateShapedLine(customer, cols, options.arabicShaping, options.language, options.capabilities));
     sourceLines?.push(`${labelOf(header.customer.label)}: ${header.customer.name.text}`);
+    sourceControlLines?.push(lines.at(-1) ?? '');
+  }
+  if (header.specialInstructions) {
+    const noteText = thermalSafeText(
+      `${labelOf(header.specialInstructions.label)}: ${header.specialInstructions.value.text}`,
+      `Note: ${header.specialInstructions.value.text}`,
+      options.language,
+      options.arabicShaping,
+      options.capabilities,
+    );
+    lines.push(truncateShapedLine(noteText, cols, options.arabicShaping, options.language, options.capabilities));
+    sourceLines?.push(`${labelOf(header.specialInstructions.label)}: ${header.specialInstructions.value.text}`);
     sourceControlLines?.push(lines.at(-1) ?? '');
   }
   lines.push(truncateShapedLine(timeLine, cols, options.arabicShaping, options.language, options.capabilities));
