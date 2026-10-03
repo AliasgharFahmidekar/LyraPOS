@@ -341,7 +341,9 @@ export function getFloorTableCharge(dbInstance: Database.Database, floor: unknow
   if (typeof floor !== 'string') return 0;
   const normalizedFloor = floor.trim();
   if (!normalizedFloor) return 0;
-  const row = dbInstance.prepare('SELECT default_table_charge FROM floor_table_charges WHERE floor = ?').get(normalizedFloor) as { default_table_charge?: number | string | null } | undefined;
+  const row = dbInstance.prepare(
+    'SELECT default_table_charge FROM floor_table_charges WHERE TRIM(floor) = TRIM(?) COLLATE NOCASE',
+  ).get(normalizedFloor) as { default_table_charge?: number | string | null } | undefined;
   const amount = Number(row?.default_table_charge ?? 0);
   return Number.isFinite(amount) && amount >= 0 ? amount : 0;
 }
