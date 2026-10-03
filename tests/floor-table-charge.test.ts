@@ -210,6 +210,10 @@ async function main() {
     assertEqual(afterAdd.subtotal, 3000, 'subtotal becomes 3000 after adding second item');
     assertEqual(afterAdd.total, 3500, 'new total still uses original 500 table charge');
 
+    // The install default is percentage-only after restoring the pre-PR #13 behavior.
+    // Enable flat discounts explicitly for this regression scenario.
+    db.prepare("UPDATE settings SET value = 'both', updated_at = CURRENT_TIMESTAMP WHERE key = 'discount_mode'").run();
+
     console.log('\n5. Fixed-amount discount leaves table charge outside the discount base');
 
     const discountRes = await api(baseUrl, `/api/orders/${firstOrder.id}/discount`, {

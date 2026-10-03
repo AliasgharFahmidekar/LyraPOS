@@ -392,7 +392,7 @@ router.get('/discount', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res
     res.json({
       discount_max_percentage: parseFloat(s.discount_max_percentage || '25'),
       discount_max_amount: parseFloat(s.discount_max_amount || '0'),
-      discount_mode: s.discount_mode || 'both',
+      discount_mode: s.discount_mode || 'percentage',
       discount_requires_approval: s.discount_requires_approval === 'true' || s.discount_requires_approval === '1',
     });
   } catch (error: any) {
@@ -438,7 +438,7 @@ router.put('/discount', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
     res.json({
       discount_max_percentage: parseFloat(s.discount_max_percentage || '25'),
       discount_max_amount: parseFloat(s.discount_max_amount || '0'),
-      discount_mode: s.discount_mode || 'both',
+      discount_mode: s.discount_mode || 'percentage',
       discount_requires_approval: s.discount_requires_approval === 'true' || s.discount_requires_approval === '1',
     });
   } catch (error: any) {
