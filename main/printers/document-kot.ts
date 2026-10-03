@@ -49,6 +49,7 @@ export function buildKotPrintData(order: any, items: any[], stationName: string)
       tableName: String(order?.table?.name ?? ''),
       orderType: String(order?.type ?? '').trim(),
       customerName: String(order?.customer?.name ?? order?.customer_name ?? '').trim(),
+      specialInstructions: String(order?.special_instructions ?? '').trim(),
     },
     items: ticketItems.map((item: any) => ({
       productName: String(item?.product_name ?? ''),
