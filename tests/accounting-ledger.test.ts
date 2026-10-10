@@ -349,7 +349,7 @@ function upgradeFromVersion100Checks(): void {
     "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'accounting_posted_account_definition_guard'",
   ).get() as { sql: string } | undefined;
   check(
-    !!legacyGuard && !/is_system,\\s*system_key/i.test(legacyGuard.sql),
+    !!legacyGuard && !legacyGuard.sql.includes('is_system, system_key'),
     'v100 fixture contains the original account-definition guard',
   );
 
