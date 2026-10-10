@@ -47,6 +47,7 @@ This index classifies documentation in `docs/` so contributors and AI agents kno
 
 | Document | Description | Status |
 | --- | --- | --- |
+| [accounting-foundation-roadmap.md](accounting-foundation-roadmap.md) | Proposed double-entry accounting foundation for LyraPOS: reuse existing payments, cash sessions, stock movements and recipes; expense/purchase/COGS roadmap, posting rules, acceptance criteria and future test matrix. Not yet implemented. | FORWARD-LOOKING |
 | [tax-engine-v2-spec.md](tax-engine-v2-spec.md) | Architectural specification for Tax Engine v2, data-only country packs, and future capability plugin boundaries. *(Note: 2026-07-31 amendment establishes that country packs are catalog-only and not auto-bundled).* | ACTIVE DESIGN |
 | [cloud-v2-plan.md](cloud-v2-plan.md) | Client integration plan for FloAdmin v2 cloud coordination. Phase 1 client work is implemented in code; forward-looking multi-device sync and FloAdmin contracts remain in design/specs. | ACTIVE DESIGN / FORWARD-LOOKING |
 | [regional-snapshot.md](regional-snapshot.md) | One backend `resolveRegionalSnapshot(settings)` resolver for country, currency symbol/position/fraction digits, locale separators, and business timezone, derived from the signup country/currency via `Intl`/ISO/IANA conventions with no default country and no per-store overrides; adopted by exactly two surfaces (server app, currency input/display) with contract tests per currency archetype. Prerequisite for the #693 reimplementation; supersedes PR #697. | ACTIVE DESIGN |
