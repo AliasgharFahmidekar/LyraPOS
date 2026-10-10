@@ -56,7 +56,7 @@ function freshInstallChecks(): void {
   initDatabase();
   const db = getDatabase();
 
-  equal(getCurrentSchemaVersion(), 100, 'fresh install reaches schema version 100');
+  equal(getCurrentSchemaVersion(), 101, 'fresh install reaches schema version 101');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
     'accounting_journal_lines', 'accounting_audit_log',
@@ -67,6 +67,32 @@ function freshInstallChecks(): void {
   equal(new Set(accounts.map((account) => account.account_code)).size, accounts.length, 'starter account codes are unique');
   check(accounts.some((account) => account.id === 'acct-cash-drawer' && account.is_postable === 1), 'cash drawer is a postable account');
   check(accounts.some((account) => account.id === 'acct-assets' && account.is_postable === 0), 'group account is not postable');
+
+  throws(
+    () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
+    /system or posted accounting account definitions are immutable/i,
+    'system account cannot be demoted to bypass the delete guard',
+  );
+  throws(
+    () => db.prepare("UPDATE accounting_accounts SET system_key = 'cash_drawer_reassigned' WHERE id = 'acct-bank'").run(),
+    /system or posted accounting account definitions are immutable/i,
+    'system account key cannot be changed',
+  );
+  throws(
+    () => db.prepare("DELETE FROM accounting_accounts WHERE id = 'acct-bank'").run(),
+    /system accounting accounts cannot be deleted/i,
+    'system account deletion remains blocked',
+  );
+  equal(
+    (db.prepare("SELECT is_system FROM accounting_accounts WHERE id = 'acct-cash-drawer'").get() as any).is_system,
+    1,
+    'failed system-account demotion leaves the system flag intact',
+  );
+  equal(
+    (db.prepare("SELECT system_key FROM accounting_accounts WHERE id = 'acct-bank'").get() as any).system_key,
+    'bank_accounts',
+    'failed system-key edit leaves the stable key intact',
+  );
 
   const baseInput = {
     entryDate: '2026-10-10',
@@ -296,7 +322,7 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 100, 'existing database upgrades to schema version 100');
+  equal(getCurrentSchemaVersion(), 101, 'existing database upgrades from v99 through schema version 101');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
@@ -311,12 +337,61 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
 }
 
+function upgradeFromVersion100Checks(): void {
+  activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lyra-accounting-v100-upgrade-'));
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations.filter((migration: any) => migration.version <= 100));
+  initDatabase();
+
+  let db = getDatabase();
+  equal(getCurrentSchemaVersion(), 100, 'migration fixture starts at schema version 100');
+  const legacyGuard = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'accounting_posted_account_definition_guard'",
+  ).get() as { sql: string } | undefined;
+  check(
+    !!legacyGuard && !/is_system,\\s*system_key/i.test(legacyGuard.sql),
+    'v100 fixture contains the original account-definition guard',
+  );
+
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
+  runPendingMigrations();
+  db = getDatabase();
+  equal(getCurrentSchemaVersion(), 101, 'v100 database upgrades to schema version 101');
+  throws(
+    () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
+    /system or posted accounting account definitions are immutable/i,
+    'v101 migration blocks system-account demotion on existing databases',
+  );
+  throws(
+    () => db.prepare("UPDATE accounting_accounts SET system_key = 'bank_key_reassigned' WHERE id = 'acct-bank'").run(),
+    /system or posted accounting account definitions are immutable/i,
+    'v101 migration blocks stable system-key changes on existing databases',
+  );
+  throws(
+    () => db.prepare("DELETE FROM accounting_accounts WHERE id = 'acct-bank'").run(),
+    /system accounting accounts cannot be deleted/i,
+    'v100 upgrade keeps system-account deletion protection',
+  );
+  equal(
+    (db.prepare('SELECT COUNT(*) AS count FROM accounting_accounts').get() as any).count,
+    20,
+    'v100 to v101 upgrade preserves all seeded accounting accounts',
+  );
+
+  closeDatabase();
+  fs.rmSync(activeTestDir, { recursive: true, force: true });
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
+}
+
 function main(): void {
   console.log('LyraPOS accounting ledger foundation tests');
   try {
     try {
       freshInstallChecks();
       upgradeFromPreviousSchemaChecks();
+      upgradeFromVersion100Checks();
     } catch (error: any) {
       if (isNativeAbiMismatch(error)) {
         console.log('SKIP: better-sqlite3 is built for a different native ABI.');
