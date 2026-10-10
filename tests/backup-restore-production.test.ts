@@ -298,18 +298,18 @@ async function run() {
     // the live database contains protected accounting rows. Restore is the
     // privileged replacement path; normal writes remain guarded by triggers.
     const ledgerEntryId = 'restore-accounting-posted-entry';
-    db.prepare(`
+    getDatabase().prepare(`
       INSERT INTO accounting_journal_entries
         (id, entry_number, entry_date, description, currency_code, payload_hash)
       VALUES (?, ?, '2026-10-10', 'Restore regression entry', 'IRR', ?)
     `).run(ledgerEntryId, 'JE-RESTORE-001', 'a'.repeat(64));
-    db.prepare(`
+    getDatabase().prepare(`
       INSERT INTO accounting_journal_lines
         (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor)
       VALUES ('restore-accounting-line-1', ?, 1, 'acct-cash-drawer', 500, 0),
              ('restore-accounting-line-2', ?, 2, 'acct-sales-revenue', 0, 500)
     `).run(ledgerEntryId, ledgerEntryId);
-    db.prepare(`
+    getDatabase().prepare(`
       UPDATE accounting_journal_entries
       SET status = 'posted', posted_at = datetime('now')
       WHERE id = ?
