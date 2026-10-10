@@ -216,7 +216,7 @@ export function createDraftJournalEntry(
   input: CreateDraftJournalEntryInput,
 ): AccountingJournalEntryResult {
   const normalized = normalizeAndValidate(input);
-  return db.transaction(() => {
+  return db.transaction((): AccountingJournalEntryResult => {
     const existing = findExistingEntry(db, normalized);
     if (existing) {
       return { id: existing.id, entryNumber: existing.entry_number, status: existing.status, duplicate: true };
@@ -265,7 +265,7 @@ export function postJournalEntry(
   postedBy?: string | null,
 ): AccountingJournalEntryResult {
   const actorId = optionalText(postedBy);
-  return db.transaction(() => {
+  return db.transaction((): AccountingJournalEntryResult => {
     const entry = db.prepare(
       'SELECT id, entry_number, entry_date, description, currency_code, status FROM accounting_journal_entries WHERE id = ?',
     ).get(entryId) as {
