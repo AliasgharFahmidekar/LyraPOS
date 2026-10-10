@@ -2684,6 +2684,149 @@ function materializeRestoreSource(sourcePath: string, livePath: string): string 
   }
 }
 
+const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
+  'accounting_journal_entry_insert_draft',
+  'accounting_journal_entry_post_guard',
+  'accounting_journal_entry_immutable_update',
+  'accounting_journal_entry_immutable_delete',
+  'accounting_journal_line_immutable_insert',
+  'accounting_journal_line_immutable_update',
+  'accounting_journal_line_immutable_delete',
+  'accounting_system_account_delete_guard',
+  'accounting_posted_account_definition_guard',
+  'accounting_audit_log_no_update',
+  'accounting_audit_log_no_delete',
+] as const;
+
+/**
+ * Data-only restore is a privileged database replacement operation. Accounting
+ * immutability triggers protect normal application writes, but must be removed
+ * transactionally while replacing historical rows from a validated backup.
+ * The trigger definitions are kept in one shared SQL constant so restore and
+ * migration cannot silently drift apart.
+ */
+const ACCOUNTING_LEDGER_TRIGGER_SQL = `
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_insert_draft
+        BEFORE INSERT ON accounting_journal_entries
+        WHEN NEW.status <> 'draft'
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting journal entries must start as drafts');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_post_guard
+        BEFORE UPDATE OF status ON accounting_journal_entries
+        WHEN OLD.status = 'draft' AND NEW.status = 'posted'
+        BEGIN
+          SELECT CASE WHEN
+            (SELECT COUNT(*) FROM accounting_journal_lines WHERE journal_entry_id = NEW.id) < 2
+            THEN RAISE(ABORT, 'Accounting journal requires at least two lines') END;
+          SELECT CASE WHEN
+            COALESCE((SELECT SUM(debit_minor) - SUM(credit_minor)
+              FROM accounting_journal_lines WHERE journal_entry_id = NEW.id), 1) <> 0
+            THEN RAISE(ABORT, 'Accounting journal debits must equal credits') END;
+          SELECT CASE WHEN
+            COALESCE((SELECT SUM(debit_minor)
+              FROM accounting_journal_lines WHERE journal_entry_id = NEW.id), 0) <= 0
+            THEN RAISE(ABORT, 'Accounting journal total must be greater than zero') END;
+          SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM accounting_journal_lines AS line
+            JOIN accounting_accounts AS account ON account.id = line.account_id
+            WHERE line.journal_entry_id = NEW.id
+              AND (account.is_active <> 1 OR account.is_postable <> 1)
+          ) THEN RAISE(ABORT, 'Accounting journal contains an inactive or non-postable account') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_immutable_update
+        BEFORE UPDATE ON accounting_journal_entries
+        WHEN OLD.status = 'posted'
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal entries are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_immutable_delete
+        BEFORE DELETE ON accounting_journal_entries
+        WHEN OLD.status = 'posted'
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal entries cannot be deleted');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_insert
+        BEFORE INSERT ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = NEW.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_update
+        BEFORE UPDATE ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = OLD.journal_entry_id AND status = 'posted'
+        ) OR EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = NEW.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_delete
+        BEFORE DELETE ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = OLD.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_system_account_delete_guard
+        BEFORE DELETE ON accounting_accounts
+        WHEN OLD.is_system = 1
+        BEGIN
+          SELECT RAISE(ABORT, 'System accounting accounts cannot be deleted');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_posted_account_definition_guard
+        BEFORE UPDATE OF account_code, account_type, normal_balance, parent_account_id ON accounting_accounts
+        WHEN OLD.is_system = 1 OR EXISTS (
+          SELECT 1
+          FROM accounting_journal_lines AS line
+          JOIN accounting_journal_entries AS entry ON entry.id = line.journal_entry_id
+          WHERE line.account_id = OLD.id AND entry.status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'System or posted accounting account definitions are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_audit_log_no_update
+        BEFORE UPDATE ON accounting_audit_log
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting audit records are append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_audit_log_no_delete
+        BEFORE DELETE ON accounting_audit_log
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting audit records are append-only');
+        END;
+      `;
+
+function dropAccountingLedgerRestoreTriggers(db: Database.Database): void {
+  for (const triggerName of ACCOUNTING_LEDGER_RESTORE_TRIGGERS) {
+    db.exec(`DROP TRIGGER IF EXISTS ${triggerName}`);
+  }
+}
+
+function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
+  if (!getTables(db).includes('accounting_accounts')) return;
+  db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
+}
+
 function dataOnlyRestore(
   backupPath: string,
   backupVersion: number,
@@ -2837,6 +2980,11 @@ function dataOnlyRestore(
     currentDb.exec('BEGIN IMMEDIATE');
     inTransaction = true;
 
+    // Restoring a validated backup is a privileged replacement operation.
+    // Temporarily remove accounting immutability triggers inside this transaction
+    // so old posted rows/audit records can be replaced; rollback restores them.
+    dropAccountingLedgerRestoreTriggers(currentDb);
+
     for (const tableName of commonTables) {
       throwIfDatabaseMaintenanceAborted(signal);
       if (!isSafeIdentifier(tableName)) {
@@ -2863,6 +3011,8 @@ function dataOnlyRestore(
       console.log(`[DB] Restored ${tableName}: ${commonColumns.length} columns`);
     }
 
+    // Re-enable the normal accounting invariants before validating/committing.
+    recreateAccountingLedgerRestoreTriggers(currentDb);
     mergeUserSecurityState(currentDb, preservedUserSecurity);
     mergeUserStationSecurityState(currentDb, preservedUserStations, preservedUserSecurity.map((row) => row.id), preservedStationSecurity);
     mergeKdsEnabledSetting(currentDb, preservedKdsEnabled);
@@ -5573,114 +5723,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE INDEX IF NOT EXISTS idx_accounting_audit_created
           ON accounting_audit_log(created_at, id);
 
-        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_insert_draft
-        BEFORE INSERT ON accounting_journal_entries
-        WHEN NEW.status <> 'draft'
-        BEGIN
-          SELECT RAISE(ABORT, 'Accounting journal entries must start as drafts');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_post_guard
-        BEFORE UPDATE OF status ON accounting_journal_entries
-        WHEN OLD.status = 'draft' AND NEW.status = 'posted'
-        BEGIN
-          SELECT CASE WHEN
-            (SELECT COUNT(*) FROM accounting_journal_lines WHERE journal_entry_id = NEW.id) < 2
-            THEN RAISE(ABORT, 'Accounting journal requires at least two lines') END;
-          SELECT CASE WHEN
-            COALESCE((SELECT SUM(debit_minor) - SUM(credit_minor)
-              FROM accounting_journal_lines WHERE journal_entry_id = NEW.id), 1) <> 0
-            THEN RAISE(ABORT, 'Accounting journal debits must equal credits') END;
-          SELECT CASE WHEN
-            COALESCE((SELECT SUM(debit_minor)
-              FROM accounting_journal_lines WHERE journal_entry_id = NEW.id), 0) <= 0
-            THEN RAISE(ABORT, 'Accounting journal total must be greater than zero') END;
-          SELECT CASE WHEN EXISTS (
-            SELECT 1
-            FROM accounting_journal_lines AS line
-            JOIN accounting_accounts AS account ON account.id = line.account_id
-            WHERE line.journal_entry_id = NEW.id
-              AND (account.is_active <> 1 OR account.is_postable <> 1)
-          ) THEN RAISE(ABORT, 'Accounting journal contains an inactive or non-postable account') END;
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_immutable_update
-        BEFORE UPDATE ON accounting_journal_entries
-        WHEN OLD.status = 'posted'
-        BEGIN
-          SELECT RAISE(ABORT, 'Posted accounting journal entries are immutable');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_immutable_delete
-        BEFORE DELETE ON accounting_journal_entries
-        WHEN OLD.status = 'posted'
-        BEGIN
-          SELECT RAISE(ABORT, 'Posted accounting journal entries cannot be deleted');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_insert
-        BEFORE INSERT ON accounting_journal_lines
-        WHEN EXISTS (
-          SELECT 1 FROM accounting_journal_entries
-          WHERE id = NEW.journal_entry_id AND status = 'posted'
-        )
-        BEGIN
-          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_update
-        BEFORE UPDATE ON accounting_journal_lines
-        WHEN EXISTS (
-          SELECT 1 FROM accounting_journal_entries
-          WHERE id = OLD.journal_entry_id AND status = 'posted'
-        ) OR EXISTS (
-          SELECT 1 FROM accounting_journal_entries
-          WHERE id = NEW.journal_entry_id AND status = 'posted'
-        )
-        BEGIN
-          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_delete
-        BEFORE DELETE ON accounting_journal_lines
-        WHEN EXISTS (
-          SELECT 1 FROM accounting_journal_entries
-          WHERE id = OLD.journal_entry_id AND status = 'posted'
-        )
-        BEGIN
-          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_system_account_delete_guard
-        BEFORE DELETE ON accounting_accounts
-        WHEN OLD.is_system = 1
-        BEGIN
-          SELECT RAISE(ABORT, 'System accounting accounts cannot be deleted');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_posted_account_definition_guard
-        BEFORE UPDATE OF account_code, account_type, normal_balance, parent_account_id ON accounting_accounts
-        WHEN OLD.is_system = 1 OR EXISTS (
-          SELECT 1
-          FROM accounting_journal_lines AS line
-          JOIN accounting_journal_entries AS entry ON entry.id = line.journal_entry_id
-          WHERE line.account_id = OLD.id AND entry.status = 'posted'
-        )
-        BEGIN
-          SELECT RAISE(ABORT, 'System or posted accounting account definitions are immutable');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_audit_log_no_update
-        BEFORE UPDATE ON accounting_audit_log
-        BEGIN
-          SELECT RAISE(ABORT, 'Accounting audit records are append-only');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS accounting_audit_log_no_delete
-        BEFORE DELETE ON accounting_audit_log
-        BEGIN
-          SELECT RAISE(ABORT, 'Accounting audit records are append-only');
-        END;
+        ${ACCOUNTING_LEDGER_TRIGGER_SQL}
       `);
 
       const accounts = [

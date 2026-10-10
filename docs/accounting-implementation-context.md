@@ -177,3 +177,8 @@ npm run test:script-coverage
 ```
 
 Migration changes require a fresh database and upgrade-from-v99 test. Native `better-sqlite3` ABI mismatch may be signaled by exit code 77; it is a skip/blocked environment, not a passing test. Check actual GitHub Actions results after pushing; never assume CI passed because the code or tests were added.
+
+
+## Regression fix — data-only backup restore with accounting enabled
+
+Data-only restore is a privileged database replacement operation. The accounting ledger's normal-write triggers (posted-entry immutability, protected system accounts and append-only audit records) must not block replacing rows from a validated backup. Restore now drops the accounting trigger set inside the restore transaction, replaces the rows, recreates the shared trigger definitions before integrity validation/commit, and relies on SQLite transaction rollback to recover the original trigger set on failure. The migration uses the same trigger SQL constant to avoid restore/migration drift. Regression coverage includes restoring over a posted journal while preserving the seeded system chart of accounts.
