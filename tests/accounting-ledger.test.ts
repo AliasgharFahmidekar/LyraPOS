@@ -206,10 +206,29 @@ function freshInstallChecks(): void {
   equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_audit_log').get() as any).count, auditBeforeFailure,
     'failed journal transaction leaves no partial audit event');
 
+  throws(
+    () => createDraftJournalEntry(db, {
+      entryDate: '2026-10-10', description: 'Fractional minor unit test', currencyCode: 'IRR',
+      lines: [
+        { accountId: 'acct-cash-drawer', debitMinor: 1.5, creditMinor: 0 },
+        { accountId: 'acct-sales-revenue', debitMinor: 0, creditMinor: 1.5 },
+      ],
+    }),
+    /positive integer amount/i,
+    'fractional minor-unit amounts are rejected',
+  );
+
   const rawEntryId = 'raw-invalid-post-attempt';
   db.prepare(
     'INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, payload_hash) VALUES (?, ?, ?, ?, ?, ?)',
   ).run(rawEntryId, 'JE-TEST-INVALID', '2026-10-10', 'Invalid direct post attempt', 'IRR', 'a'.repeat(64));
+  throws(
+    () => db.prepare(
+      'INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('fractional-db-line', rawEntryId, 1, 'acct-cash-drawer', 1.5, 0),
+    /check constraint failed/i,
+    'SQLite rejects fractional minor-unit storage',
+  );
   throws(
     () => db.prepare("UPDATE accounting_journal_entries SET status = 'posted', posted_at = CURRENT_TIMESTAMP WHERE id = ?").run(rawEntryId),
     /at least two lines/i,

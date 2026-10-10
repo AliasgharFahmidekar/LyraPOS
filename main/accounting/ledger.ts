@@ -288,6 +288,14 @@ export function postJournalEntry(
       accountId: line.account_id, debitMinor: line.debit_minor, creditMinor: line.credit_minor, description: line.description,
     }));
     if (normalizedLines.length < 2) fail('insufficient_lines', 'A balanced journal entry requires at least two lines.');
+    for (const line of normalizedLines) {
+      if (!Number.isSafeInteger(line.debitMinor) || !Number.isSafeInteger(line.creditMinor)
+        || line.debitMinor < 0 || line.creditMinor < 0
+        || (line.debitMinor === 0 && line.creditMinor === 0)
+        || (line.debitMinor > 0 && line.creditMinor > 0)) {
+        fail('invalid_line_amount', 'Stored journal lines must contain one positive integer amount on exactly one side.');
+      }
+    }
     for (const line of lines) {
       if (line.is_active !== 1) fail('account_inactive', 'An accounting entry contains an inactive account.');
       if (line.is_postable !== 1) fail('account_not_postable', 'An accounting entry contains a grouping account.');

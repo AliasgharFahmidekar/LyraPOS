@@ -5496,7 +5496,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
 
         CREATE TABLE IF NOT EXISTS accounting_sequences (
           name TEXT PRIMARY KEY,
-          value INTEGER NOT NULL DEFAULT 0 CHECK (value >= 0)
+          value INTEGER NOT NULL DEFAULT 0 CHECK (typeof(value) = 'integer' AND value >= 0)
         );
         INSERT OR IGNORE INTO accounting_sequences(name, value) VALUES ('journal-entry', 0);
 
@@ -5543,8 +5543,8 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           line_no INTEGER NOT NULL CHECK (line_no > 0),
           account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           description TEXT,
-          debit_minor INTEGER NOT NULL DEFAULT 0 CHECK (debit_minor >= 0),
-          credit_minor INTEGER NOT NULL DEFAULT 0 CHECK (credit_minor >= 0),
+          debit_minor INTEGER NOT NULL DEFAULT 0 CHECK (typeof(debit_minor) = 'integer' AND debit_minor >= 0),
+          credit_minor INTEGER NOT NULL DEFAULT 0 CHECK (typeof(credit_minor) = 'integer' AND credit_minor >= 0),
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           UNIQUE (journal_entry_id, line_no),
           CHECK (
