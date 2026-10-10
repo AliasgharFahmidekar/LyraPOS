@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** ACTIVE DESIGN. Phase 0 repository discovery and Phase 1 ledger foundation are implemented in code (schema migration 100 and `main/accounting/ledger.ts`). Sales/refund posting, expense workflows, reports and UI in later phases remain planned. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
+**Status:** ACTIVE DESIGN. Phase 0 repository discovery and Phase 1 ledger foundation are implemented in code (migrations 100–101 and `main/accounting/ledger.ts`). Sales/refund posting, expense workflows, reports and UI in later phases remain planned. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -173,7 +173,7 @@ The first version must not show a "net profit" KPI until COGS and relevant expen
 ### Phase 1 — Ledger foundation
 - Introduce chart of accounts, journal headers/lines, posting service, validation helpers, source idempotency and audit data using a migration-safe schema.
 - Add seed/system account handling and opening-balance design.
-- Add a read-only account ledger view/API for development verification before enabling automatic posting broadly.
+- Verify the Phase 1 ledger through service/SQL tests; defer the read-only account ledger view/API to Phase 6 (reports and close controls), consistent with the Phase 1 implementation contract.
 - Acceptance: balance/precision/account/source invariants are enforced in backend transactions; old databases upgrade without data loss; core POS workflows still work offline.
 
 ### Phase 2 — Expenses and financial accounts
@@ -307,8 +307,8 @@ This sequencing establishes a tested foundation before business events are conne
 ## Implementation status and next gates
 
 As of this change, Phase 0 discovery and Phase 1 ledger foundation are implemented in code:
-- SQLite migration 100 adds the starter chart, journal header/lines, idempotency/source constraints, audit log and database guards.
+- SQLite migration 100 adds the starter chart, journal header/lines, idempotency/source constraints, audit log and initial database guards; migration 101 hardens system-account identity without rewriting migration 100.
 - `main/accounting/ledger.ts` validates and transactionally creates/posts draft journals.
-- `tests/accounting-ledger.test.ts` covers fresh installation, migration from v99, balance rules, idempotency, atomic rollback and posted-entry immutability.
+- `tests/accounting-ledger.test.ts` covers fresh installation, upgrades from v99 and v100, system-account identity guards, balance rules, idempotency, atomic rollback and posted-entry immutability.
 
 This does **not** yet enable expense entry, account mapping UI, automatic posting from sales/collections/refunds, inventory valuation or accounting reports. The next scoped PR should implement Phase 2, followed by Phase 3. Per product direction, a Windows installer is built for hands-on testing only after Phase 3 and its required CI/regression checks are green.
