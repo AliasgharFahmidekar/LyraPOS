@@ -828,6 +828,8 @@ export interface KotOrderSnapshot {
   readonly orderType: string;
   /** Customer display name, when the order carries one. */
   readonly customerName?: string;
+  /** Order-level note entered at checkout, shown before kitchen items when present. */
+  readonly specialInstructions?: string;
 }
 
 /**
@@ -853,6 +855,8 @@ export interface KotHeaderBlock {
   readonly table: { readonly label: SemanticLabel; readonly name: DirectionalText } | null;
   readonly orderType: { readonly label: SemanticLabel; readonly value: DirectionalText; readonly code: string } | null;
   readonly customer: { readonly label: SemanticLabel; readonly name: DirectionalText } | null;
+  /** Order-level note entered at checkout; null when empty. */
+  readonly specialInstructions: { readonly label: SemanticLabel; readonly value: DirectionalText } | null;
   readonly timeLabel: SemanticLabel;
   /** Canonical stored timestamp; presentation formatting is a renderer duty. */
   readonly timestamp: DirectionalText;
@@ -1037,6 +1041,7 @@ function isKotDocumentBlock(value: unknown): value is KotDocumentBlock {
       && (value.table === null || (isRecord(value.table) && isSemanticLabel(value.table.label) && isDirectionalText(value.table.name)))
       && (value.orderType === null || (isRecord(value.orderType) && isSemanticLabel(value.orderType.label) && isDirectionalText(value.orderType.value) && typeof value.orderType.code === 'string'))
       && (value.customer === null || (isRecord(value.customer) && isSemanticLabel(value.customer.label) && isDirectionalText(value.customer.name)))
+      && (value.specialInstructions === null || (isRecord(value.specialInstructions) && isSemanticLabel(value.specialInstructions.label) && isDirectionalText(value.specialInstructions.value)))
       && isSemanticLabel(value.timeLabel)
       && isDirectionalText(value.timestamp);
   }
@@ -1103,6 +1108,9 @@ export function buildKotDocument(printData: KotPrintData, printContext: PrintCon
         label: resolveSemanticLabel(labels, 'pos.customer'),
         name: directionalText(printData.order.customerName, base),
       })
+      : null,
+    specialInstructions: typeof printData.order?.specialInstructions === 'string' && printData.order.specialInstructions.trim().length > 0
+      ? Object.freeze({ label: resolveSemanticLabel(labels, 'print.note'), value: directionalText(printData.order.specialInstructions.trim(), base) })
       : null,
     timeLabel: resolveSemanticLabel(labels, 'print.time'),
     timestamp: directionalText(String(printData.order?.createdAt ?? ''), base),

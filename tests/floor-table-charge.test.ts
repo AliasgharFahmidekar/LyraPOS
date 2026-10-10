@@ -188,6 +188,22 @@ async function main() {
     assertEqual(firstBillRes.data.bill.table_charge, 500, 'bill snapshots table charge');
     assertEqual(firstBillRes.data.bill.total, 1500, 'bill total includes table charge');
 
+    console.log('\n3b. Legacy floor formatting still resolves the configured charge');
+
+    insertTable.run('tbl-charge-legacy', 'C-legacy', 4, ' first floor ');
+    const legacyOrderRes = await api(baseUrl, '/api/orders', {
+      method: 'POST',
+      headers: authHeader,
+      body: {
+        type: 'dine_in',
+        table_id: 'tbl-charge-legacy',
+        items: [{ product_id: 'prod-table-charge-a', quantity: 1 }],
+      },
+    });
+    assertEqual(legacyOrderRes.status, 201, 'legacy-formatted floor order is created');
+    assertEqual(legacyOrderRes.data.order.table_charge, 500, 'configured floor charge applies despite whitespace/case differences');
+    assertEqual(legacyOrderRes.data.order.total, 1500, 'legacy-formatted floor order total includes table charge');
+
     console.log('\n4. Changing the floor setting does not rewrite an open order');
 
     const updateFloorCharge = await api(baseUrl, '/api/tables/floor-charges/First%20Floor', {

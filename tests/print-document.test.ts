@@ -658,6 +658,11 @@ import {
   buildKotDocument,
   type KotPrintData,
 } from '../shared/print';
+import {
+  buildKotPrintData,
+  buildKotPrintContext,
+  renderKotDocumentToLines,
+} from '../main/printers/document-kot';
 
 console.log('\n▶ KOT document builder (#443)');
 {
@@ -669,6 +674,7 @@ console.log('\n▶ KOT document builder (#443)');
       tableName: '4',
       orderType: 'DINE IN',
       customerName: 'Asha Kumar',
+      specialInstructions: 'No onions, please',
     },
     items: [
       {
@@ -706,6 +712,8 @@ console.log('\n▶ KOT document builder (#443)');
   assert.equal(header.orderType?.value.text, 'DINE IN');
   assert.equal(header.customer?.label.conceptId, 'pos.customer');
   assert.equal(header.customer?.name.text, 'Asha Kumar');
+  assert.equal(header.specialInstructions?.label.conceptId, 'print.note');
+  assert.equal(header.specialInstructions?.value.text, 'No onions, please');
   assert.equal(header.timestamp.text, '2026-08-21 18:42:00');
   ok('KOT header carries banner/station/order/table/type/time semantics');
 
@@ -734,6 +742,42 @@ console.log('\n▶ KOT document builder (#443)');
   assert.equal(rtlItems?.rows[1].name.direction, 'rtl', 'Persian item name follows rtl base');
   assert.equal((getBlock(rtlDoc as any, 'kot-header' as any) as any)?.orderNumber.direction, 'ltr', 'order number stays an LTR island in rtl tickets');
   ok('direction-aware annotations for RTL-primary kitchen tickets');
+
+  const emptyNote = buildKotDocument(
+    { ...kotData, order: { ...kotData.order, specialInstructions: '   ' } },
+    makeContext(),
+  );
+  assert.equal((getBlock(emptyNote as any, 'kot-header' as any) as any)?.specialInstructions, null,
+    'blank order notes are omitted from the KOT header');
+
+  const rawOrder = {
+    order_number: 'ORD-NOTE-001',
+    created_at: '2026-08-21 18:42:00',
+    type: 'dine_in',
+    table: { name: '4' },
+    special_instructions: 'Please serve after the birthday candle.',
+  };
+  const normalizedKot = buildKotPrintData(rawOrder, [], 'Main Kitchen');
+  assert.equal(normalizedKot.order.specialInstructions, 'Please serve after the birthday candle.',
+    'backend KOT normalization carries the persisted order-level note');
+
+  const renderedNoteDocument = buildKotDocument(
+    normalizedKot,
+    buildKotPrintContext({ columns: 42, language: 'en' }),
+  );
+  const renderedNoteLines = renderKotDocumentToLines(renderedNoteDocument, {
+    columns: 42,
+    language: 'en',
+    useUnicode: true,
+    arabicShaping: false,
+    cutMode: 'full',
+  });
+  assert(renderedNoteLines.some((line) => line.includes('Note: Please serve after the birthday candle.')),
+    'KOT renderer prints the order-level note');
+  const noteLineIndex = renderedNoteLines.findIndex((line) => line.includes('Note: Please serve after the birthday candle.'));
+  const itemSeparatorIndex = renderedNoteLines.findIndex((line) => line === '='.repeat(42));
+  assert(noteLineIndex >= 0 && itemSeparatorIndex > noteLineIndex,
+    'order-level note is printed before the kitchen item section');
 
   // Single-language policy shape (kernel kot_language_policy).
   assert.equal(document.languages.length, 1, 'KOT documents carry exactly one language in v1');
