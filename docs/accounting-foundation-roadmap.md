@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** FORWARD-LOOKING proposal. This document describes intended design and test coverage; it is not a claim that the planned accounting features already exist.
+**Status:** ACTIVE DESIGN. Phase 0 repository discovery and Phase 1 ledger foundation are implemented in code (schema migration 100 and `main/accounting/ledger.ts`). Sales/refund posting, expense workflows, reports and UI in later phases remain planned. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -59,7 +59,7 @@ Important distinction: quantity inventory already exists, and payment methods al
 
 ## 4. Proposed accounting domain model
 
-Final table names and migration numbers are implementation decisions after inspecting the active schema/migration path. The entities below describe responsibilities, not pre-approved exact SQL.
+The Phase 1 implementation now uses the table names and invariants documented in [accounting-implementation-context.md](accounting-implementation-context.md). Later additions must use new append-only migrations; never edit historical migrations. The entities below describe the target responsibilities beyond the current foundation.
 
 ### 4.1 Chart of accounts
 
@@ -302,3 +302,13 @@ Suggested initial tests/files (final paths follow repository conventions):
 - A baseline regression run of the existing payment, refunds, cash sessions/closures, inventory-ledger, recipe lifecycle and daily-sales-export suites.
 
 This sequencing establishes a tested foundation before business events are connected to automatic posting.
+
+
+## Implementation status and next gates
+
+As of this change, Phase 0 discovery and Phase 1 ledger foundation are implemented in code:
+- SQLite migration 100 adds the starter chart, journal header/lines, idempotency/source constraints, audit log and database guards.
+- `main/accounting/ledger.ts` validates and transactionally creates/posts draft journals.
+- `tests/accounting-ledger.test.ts` covers fresh installation, migration from v99, balance rules, idempotency, atomic rollback and posted-entry immutability.
+
+This does **not** yet enable expense entry, account mapping UI, automatic posting from sales/collections/refunds, inventory valuation or accounting reports. The next scoped PR should implement Phase 2, followed by Phase 3. Per product direction, a Windows installer is built for hands-on testing only after Phase 3 and its required CI/regression checks are green.

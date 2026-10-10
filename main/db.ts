@@ -5468,6 +5468,249 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       ).run(now());
     },
   },
+
+  {
+    version: 100,
+    name: 'add_accounting_ledger_foundation',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS accounting_accounts (
+          id TEXT PRIMARY KEY,
+          system_key TEXT UNIQUE,
+          account_code TEXT NOT NULL UNIQUE CHECK (length(trim(account_code)) > 0),
+          name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+          account_type TEXT NOT NULL CHECK (account_type IN ('asset', 'liability', 'equity', 'revenue', 'expense')),
+          normal_balance TEXT NOT NULL CHECK (normal_balance IN ('debit', 'credit')),
+          parent_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0, 1)),
+          is_postable INTEGER NOT NULL DEFAULT 1 CHECK (is_postable IN (0, 1)),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          description TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounting_accounts_parent
+          ON accounting_accounts(parent_account_id);
+        CREATE INDEX IF NOT EXISTS idx_accounting_accounts_type_active
+          ON accounting_accounts(account_type, is_active);
+
+        CREATE TABLE IF NOT EXISTS accounting_sequences (
+          name TEXT PRIMARY KEY,
+          value INTEGER NOT NULL DEFAULT 0 CHECK (value >= 0)
+        );
+        INSERT OR IGNORE INTO accounting_sequences(name, value) VALUES ('journal-entry', 0);
+
+        CREATE TABLE IF NOT EXISTS accounting_journal_entries (
+          id TEXT PRIMARY KEY,
+          entry_number TEXT NOT NULL UNIQUE,
+          entry_date TEXT NOT NULL CHECK (entry_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          description TEXT NOT NULL CHECK (length(trim(description)) > 0),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'posted')),
+          source_type TEXT,
+          source_id TEXT,
+          source_event TEXT,
+          idempotency_key TEXT UNIQUE CHECK (idempotency_key IS NULL OR length(trim(idempotency_key)) > 0),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+          created_by TEXT,
+          posted_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          posted_at TEXT,
+          metadata_json TEXT,
+          CHECK (
+            (source_type IS NULL AND source_id IS NULL AND source_event IS NULL)
+            OR
+            (source_type IS NOT NULL AND length(trim(source_type)) > 0
+              AND source_id IS NOT NULL AND length(trim(source_id)) > 0
+              AND source_event IS NOT NULL AND length(trim(source_event)) > 0)
+          ),
+          CHECK ((status = 'draft' AND posted_at IS NULL) OR (status = 'posted' AND posted_at IS NOT NULL))
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounting_entries_date
+          ON accounting_journal_entries(entry_date, entry_number);
+        CREATE INDEX IF NOT EXISTS idx_accounting_entries_status_date
+          ON accounting_journal_entries(status, entry_date);
+        CREATE INDEX IF NOT EXISTS idx_accounting_entries_source
+          ON accounting_journal_entries(source_type, source_id, source_event);
+        CREATE UNIQUE INDEX IF NOT EXISTS accounting_journal_source_event_unique
+          ON accounting_journal_entries(source_type, source_id, source_event)
+          WHERE source_type IS NOT NULL AND source_id IS NOT NULL AND source_event IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS accounting_journal_lines (
+          id TEXT PRIMARY KEY,
+          journal_entry_id TEXT NOT NULL REFERENCES accounting_journal_entries(id) ON DELETE CASCADE,
+          line_no INTEGER NOT NULL CHECK (line_no > 0),
+          account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          description TEXT,
+          debit_minor INTEGER NOT NULL DEFAULT 0 CHECK (debit_minor >= 0),
+          credit_minor INTEGER NOT NULL DEFAULT 0 CHECK (credit_minor >= 0),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (journal_entry_id, line_no),
+          CHECK (
+            (debit_minor > 0 AND credit_minor = 0)
+            OR
+            (credit_minor > 0 AND debit_minor = 0)
+          )
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounting_lines_entry
+          ON accounting_journal_lines(journal_entry_id, line_no);
+        CREATE INDEX IF NOT EXISTS idx_accounting_lines_account
+          ON accounting_journal_lines(account_id, journal_entry_id);
+
+        CREATE TABLE IF NOT EXISTS accounting_audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          actor_user_id TEXT,
+          before_json TEXT,
+          after_json TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounting_audit_entity
+          ON accounting_audit_log(entity_type, entity_id, id);
+        CREATE INDEX IF NOT EXISTS idx_accounting_audit_created
+          ON accounting_audit_log(created_at, id);
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_insert_draft
+        BEFORE INSERT ON accounting_journal_entries
+        WHEN NEW.status <> 'draft'
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting journal entries must start as drafts');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_post_guard
+        BEFORE UPDATE OF status ON accounting_journal_entries
+        WHEN OLD.status = 'draft' AND NEW.status = 'posted'
+        BEGIN
+          SELECT CASE WHEN
+            (SELECT COUNT(*) FROM accounting_journal_lines WHERE journal_entry_id = NEW.id) < 2
+            THEN RAISE(ABORT, 'Accounting journal requires at least two lines') END;
+          SELECT CASE WHEN
+            COALESCE((SELECT SUM(debit_minor) - SUM(credit_minor)
+              FROM accounting_journal_lines WHERE journal_entry_id = NEW.id), 1) <> 0
+            THEN RAISE(ABORT, 'Accounting journal debits must equal credits') END;
+          SELECT CASE WHEN
+            COALESCE((SELECT SUM(debit_minor)
+              FROM accounting_journal_lines WHERE journal_entry_id = NEW.id), 0) <= 0
+            THEN RAISE(ABORT, 'Accounting journal total must be greater than zero') END;
+          SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM accounting_journal_lines AS line
+            JOIN accounting_accounts AS account ON account.id = line.account_id
+            WHERE line.journal_entry_id = NEW.id
+              AND (account.is_active <> 1 OR account.is_postable <> 1)
+          ) THEN RAISE(ABORT, 'Accounting journal contains an inactive or non-postable account') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_immutable_update
+        BEFORE UPDATE ON accounting_journal_entries
+        WHEN OLD.status = 'posted'
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal entries are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_immutable_delete
+        BEFORE DELETE ON accounting_journal_entries
+        WHEN OLD.status = 'posted'
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal entries cannot be deleted');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_insert
+        BEFORE INSERT ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = NEW.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_update
+        BEFORE UPDATE ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = OLD.journal_entry_id AND status = 'posted'
+        ) OR EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = NEW.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_delete
+        BEFORE DELETE ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = OLD.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_system_account_delete_guard
+        BEFORE DELETE ON accounting_accounts
+        WHEN OLD.is_system = 1
+        BEGIN
+          SELECT RAISE(ABORT, 'System accounting accounts cannot be deleted');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_posted_account_definition_guard
+        BEFORE UPDATE OF account_code, account_type, normal_balance, parent_account_id ON accounting_accounts
+        WHEN OLD.is_system = 1 OR EXISTS (
+          SELECT 1
+          FROM accounting_journal_lines AS line
+          JOIN accounting_journal_entries AS entry ON entry.id = line.journal_entry_id
+          WHERE line.account_id = OLD.id AND entry.status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'System or posted accounting account definitions are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_audit_log_no_update
+        BEFORE UPDATE ON accounting_audit_log
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting audit records are append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_audit_log_no_delete
+        BEFORE DELETE ON accounting_audit_log
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting audit records are append-only');
+        END;
+      `);
+
+      const accounts = [
+        ['acct-assets', 'assets', '1000', 'Assets', 'asset', 'debit', null, 1, 0],
+        ['acct-cash-drawer', 'cash_drawer', '1010', 'Cash drawer', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-bank', 'bank_accounts', '1020', 'Bank accounts', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-payment-clearing', 'payment_clearing', '1030', 'Payment clearing', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-receivables', 'accounts_receivable', '1100', 'Accounts receivable', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-inventory', 'inventory', '1200', 'Inventory', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-liabilities', 'liabilities', '2000', 'Liabilities', 'liability', 'credit', null, 1, 0],
+        ['acct-payables', 'accounts_payable', '2010', 'Accounts payable', 'liability', 'credit', 'acct-liabilities', 1, 1],
+        ['acct-customer-advances', 'customer_advances', '2020', 'Customer advances', 'liability', 'credit', 'acct-liabilities', 1, 1],
+        ['acct-equity', 'equity', '3000', 'Equity', 'equity', 'credit', null, 1, 0],
+        ['acct-owner-capital', 'owner_capital', '3010', 'Owner capital', 'equity', 'credit', 'acct-equity', 1, 1],
+        ['acct-owner-drawings', 'owner_drawings', '3020', 'Owner drawings', 'equity', 'debit', 'acct-equity', 1, 1],
+        ['acct-income', 'income', '4000', 'Income', 'revenue', 'credit', null, 1, 0],
+        ['acct-sales-revenue', 'sales_revenue', '4010', 'Sales revenue', 'revenue', 'credit', 'acct-income', 1, 1],
+        ['acct-sales-discounts', 'sales_discounts', '4020', 'Sales discounts', 'revenue', 'debit', 'acct-income', 1, 1],
+        ['acct-other-income', 'other_income', '4030', 'Other income', 'revenue', 'credit', 'acct-income', 1, 1],
+        ['acct-expenses', 'expenses', '5000', 'Expenses', 'expense', 'debit', null, 1, 0],
+        ['acct-cogs', 'cost_of_goods_sold', '5010', 'Cost of goods sold', 'expense', 'debit', 'acct-expenses', 1, 1],
+        ['acct-operating-expenses', 'operating_expenses', '5020', 'Operating expenses', 'expense', 'debit', 'acct-expenses', 1, 1],
+        ['acct-payment-fees', 'payment_processing_fees', '5030', 'Payment processing fees', 'expense', 'debit', 'acct-expenses', 1, 1],
+      ] as const;
+      const insertAccount = db.prepare(
+        'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
+      );
+      for (const account of accounts) insertAccount.run(...account);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
