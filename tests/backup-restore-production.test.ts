@@ -97,27 +97,6 @@ async function run() {
     const currentVersion = getCurrentSchemaVersion();
     const { path: sameSchemaBackup } = await createBackup();
 
-    // Regression: a version-mismatched data-only restore must not fail when
-    // the live database contains protected accounting rows. Restore is the
-    // privileged replacement path; normal writes remain guarded by triggers.
-    const ledgerEntryId = 'restore-accounting-posted-entry';
-    db.prepare(`
-      INSERT INTO accounting_journal_entries
-        (id, entry_number, entry_date, description, currency_code, payload_hash)
-      VALUES (?, ?, '2026-10-10', 'Restore regression entry', 'IRR', ?)
-    `).run(ledgerEntryId, 'JE-RESTORE-001', 'a'.repeat(64));
-    db.prepare(`
-      INSERT INTO accounting_journal_lines
-        (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor)
-      VALUES ('restore-accounting-line-1', ?, 1, 'acct-cash-drawer', 500, 0),
-             ('restore-accounting-line-2', ?, 2, 'acct-sales-revenue', 0, 500)
-    `).run(ledgerEntryId, ledgerEntryId);
-    db.prepare(`
-      UPDATE accounting_journal_entries
-      SET status = 'posted', posted_at = datetime('now')
-      WHERE id = ?
-    `).run(ledgerEntryId);
-
     // The selected source directory may be read-only (USB/image/network
     // mounts). Restore stages bytes in an application-owned temp directory and
     // must not require write access beside the backup itself.
@@ -315,15 +294,36 @@ async function run() {
     );
 
     clearLinkedData();
+    // Regression: a version-mismatched data-only restore must not fail when
+    // the live database contains protected accounting rows. Restore is the
+    // privileged replacement path; normal writes remain guarded by triggers.
+    const ledgerEntryId = 'restore-accounting-posted-entry';
+    db.prepare(`
+      INSERT INTO accounting_journal_entries
+        (id, entry_number, entry_date, description, currency_code, payload_hash)
+      VALUES (?, ?, '2026-10-10', 'Restore regression entry', 'IRR', ?)
+    `).run(ledgerEntryId, 'JE-RESTORE-001', 'a'.repeat(64));
+    db.prepare(`
+      INSERT INTO accounting_journal_lines
+        (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor)
+      VALUES ('restore-accounting-line-1', ?, 1, 'acct-cash-drawer', 500, 0),
+             ('restore-accounting-line-2', ?, 2, 'acct-sales-revenue', 0, 500)
+    `).run(ledgerEntryId, ledgerEntryId);
+    db.prepare(`
+      UPDATE accounting_journal_entries
+      SET status = 'posted', posted_at = datetime('now')
+      WHERE id = ?
+    `).run(ledgerEntryId);
+
     const restored = restoreBackup(olderBackup, false);
     assert.equal(restored.success, true, 'foreign-key-linked data-only restore succeeds');
     assert.equal(
-      getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE id = ?').get(ledgerEntryId) as { count: number }.count,
+      (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE id = ?').get(ledgerEntryId) as { count: number }).count,
       0,
       'data-only restore can replace a posted accounting entry from an older backup',
     );
     assert.equal(
-      getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE is_system = 1").get() as { count: number }.count >= 20,
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE is_system = 1").get() as { count: number }).count >= 20,
       true,
       'data-only restore preserves the seeded system chart of accounts',
     );
