@@ -227,6 +227,19 @@ function freshInstallChecks(): void {
     /posted accounting journal lines are immutable/i,
     'posted entry cannot accept another line',
   );
+  const postedLine = db.prepare(
+    'SELECT id FROM accounting_journal_lines WHERE journal_entry_id = ? ORDER BY line_no LIMIT 1',
+  ).get(created.id) as { id: string };
+  throws(
+    () => db.prepare("UPDATE accounting_journal_lines SET description = 'tampered' WHERE id = ?").run(postedLine.id),
+    /posted accounting journal lines are immutable/i,
+    'posted line cannot be changed',
+  );
+  throws(
+    () => db.prepare('DELETE FROM accounting_journal_lines WHERE id = ?').run(postedLine.id),
+    /posted accounting journal lines are immutable/i,
+    'posted line cannot be deleted',
+  );
   throws(
     () => db.prepare('DELETE FROM accounting_journal_entries WHERE id = ?').run(created.id),
     /posted accounting journal entries cannot be deleted/i,

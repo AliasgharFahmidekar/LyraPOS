@@ -45,10 +45,9 @@ This index classifies documentation in `docs/` so contributors and AI agents kno
 
 ### Active design & forward-looking plans
 
-| [accounting-implementation-context.md](accounting-implementation-context.md) | Implementation contract for Phase 0/1, migration 100, ledger invariants, test commands, future UI/Settings requirements and Windows release gate. | ACTIVE DESIGN |
-
 | Document | Description | Status |
 | --- | --- | --- |
+| [accounting-implementation-context.md](accounting-implementation-context.md) | Implementation contract for Phase 0/1, migration 100, ledger invariants, test commands, future UI/Settings requirements and Windows release gate. | ACTIVE DESIGN |
 | [accounting-foundation-roadmap.md](accounting-foundation-roadmap.md) | Phased double-entry accounting roadmap; schema and ledger foundation are implemented in migration 100, while operational integration, expenses and reports remain future phases. | ACTIVE DESIGN |
 | [tax-engine-v2-spec.md](tax-engine-v2-spec.md) | Architectural specification for Tax Engine v2, data-only country packs, and future capability plugin boundaries. *(Note: 2026-07-31 amendment establishes that country packs are catalog-only and not auto-bundled).* | ACTIVE DESIGN |
 | [cloud-v2-plan.md](cloud-v2-plan.md) | Client integration plan for FloAdmin v2 cloud coordination. Phase 1 client work is implemented in code; forward-looking multi-device sync and FloAdmin contracts remain in design/specs. | ACTIVE DESIGN / FORWARD-LOOKING |
