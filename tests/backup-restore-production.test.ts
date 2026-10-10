@@ -279,11 +279,18 @@ async function run() {
     );
 
     const legacyPreLedgerBackup = path.join(testDir, 'legacy-pre-ledger.db');
-    copyAndStamp(sameSchemaBackup, legacyPreLedgerBackup, currentVersion - 1);
+    copyAndStamp(sameSchemaBackup, legacyPreLedgerBackup, 99);
     const legacyPreLedgerDb = new Database(legacyPreLedgerBackup);
     legacyPreLedgerDb.pragma('foreign_keys = OFF');
     legacyPreLedgerDb.prepare('UPDATE products SET stock_quantity = ? WHERE id = ?').run(5, 'restore-product');
-    legacyPreLedgerDb.exec('DROP TABLE inventory_movements');
+    legacyPreLedgerDb.exec(`
+      DROP TABLE IF EXISTS accounting_journal_lines;
+      DROP TABLE IF EXISTS accounting_journal_entries;
+      DROP TABLE IF EXISTS accounting_audit_log;
+      DROP TABLE IF EXISTS accounting_sequences;
+      DROP TABLE IF EXISTS accounting_accounts;
+      DROP TABLE inventory_movements;
+    `);
     legacyPreLedgerDb.close();
     const legacyPreLedgerRestore = restoreBackup(legacyPreLedgerBackup, false);
     assert.equal(legacyPreLedgerRestore.success, false, 'pre-ledger backups with stock are rejected without movement history');
@@ -326,6 +333,21 @@ async function run() {
       (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE is_system = 1").get() as { count: number }).count >= 20,
       true,
       'data-only restore preserves the seeded system chart of accounts',
+    );
+    assert.throws(
+      () => getDatabase().prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
+      /system or posted accounting account definitions are immutable/i,
+      'data-only restore reinstates the hardened system-account identity guard',
+    );
+    assert.throws(
+      () => getDatabase().prepare("UPDATE accounting_accounts SET system_key = 'bank_key_reassigned' WHERE id = 'acct-bank'").run(),
+      /system or posted accounting account definitions are immutable/i,
+      'data-only restore reinstates the stable system-key guard',
+    );
+    assert.throws(
+      () => getDatabase().prepare("DELETE FROM accounting_accounts WHERE id = 'acct-bank'").run(),
+      /system accounting accounts cannot be deleted/i,
+      'data-only restore keeps system-account deletion protection',
     );
     assert.equal(
       (getDatabase().prepare('SELECT name FROM products WHERE id = ?').get('restore-product') as { name: string }).name,
