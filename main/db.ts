@@ -2816,6 +2816,31 @@ const ACCOUNTING_LEDGER_TRIGGER_SQL = `
         END;
       `;
 
+const ACCOUNTING_ACCOUNT_DEFINITION_GUARD_SQL = `
+        CREATE TRIGGER IF NOT EXISTS accounting_posted_account_definition_guard
+        BEFORE UPDATE OF account_code, account_type, normal_balance, parent_account_id, is_system, system_key ON accounting_accounts
+        WHEN OLD.is_system = 1
+          OR NEW.is_system = 1
+          OR OLD.system_key IS NOT NULL
+          OR NEW.system_key IS NOT NULL
+          OR EXISTS (
+            SELECT 1
+            FROM accounting_journal_lines AS line
+            JOIN accounting_journal_entries AS entry ON entry.id = line.journal_entry_id
+            WHERE line.account_id = OLD.id AND entry.status = 'posted'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'System or posted accounting account definitions are immutable');
+        END;
+      `;
+
+function recreateAccountingAccountDefinitionGuard(db: Database.Database): void {
+  // v100 shipped the original trigger. Replace it explicitly so both upgraded
+  // databases and privileged restore paths use the hardened identity guard.
+  db.exec('DROP TRIGGER IF EXISTS accounting_posted_account_definition_guard');
+  db.exec(ACCOUNTING_ACCOUNT_DEFINITION_GUARD_SQL);
+}
+
 function dropAccountingLedgerRestoreTriggers(db: Database.Database): void {
   for (const triggerName of ACCOUNTING_LEDGER_RESTORE_TRIGGERS) {
     db.exec(`DROP TRIGGER IF EXISTS ${triggerName}`);
@@ -2825,6 +2850,7 @@ function dropAccountingLedgerRestoreTriggers(db: Database.Database): void {
 function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (!getTables(db).includes('accounting_accounts')) return;
   db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
+  recreateAccountingAccountDefinitionGuard(db);
 }
 
 function dataOnlyRestore(
@@ -5752,6 +5778,15 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
       );
       for (const account of accounts) insertAccount.run(...account);
+    },
+  },
+  {
+    version: 101,
+    name: 'protect_accounting_system_account_identity',
+    up: () => {
+      // Migration 100 remains immutable; this forward migration hardens the
+      // system-account identity guard for both fresh and already-upgraded DBs.
+      recreateAccountingAccountDefinitionGuard(db);
     },
   },
 ];
