@@ -156,7 +156,7 @@ function freshInstallChecks(): void {
         { accountId: 'acct-sales-revenue', debitMinor: 0, creditMinor: 100 },
       ],
     }),
-    /debits must equal credits/i,
+    /total debits must equal total credits/i,
     'unbalanced journal is rejected',
   );
 
