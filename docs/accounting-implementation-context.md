@@ -43,14 +43,14 @@ Resolve these through documented product decisions before implementing automated
 ## 2. Current architecture and migration rules
 
 - Database: `main/db.ts`, using the active `better-sqlite3` connection.
-- Migration registry: `MIGRATIONS` in `main/db.ts`; schema before this PR was v99 and this change appends v100.
+- Migration registry: `MIGRATIONS` in `main/db.ts`; migration 100 introduced the ledger, and migration 101 hardens system-account identity without editing historical migration 100.
 - Ledger domain service: `main/accounting/ledger.ts`. It receives the caller's database connection; do not open a second connection.
 - Automated coverage: `tests/accounting-ledger.test.ts`, invoked by `npm run test:accounting-ledger`.
 - Test harness: `tests/run-electron-node-test.cjs`.
 - Default suite: root `package.json` includes the focused ledger suite.
 - Existing frontend: `frontend/src/`, Next.js/React, shared components/styles, localization, and RTL support.
 
-Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. The migration must pass both a fresh-install test and an upgrade from v99 preserving existing data. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables.
+Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, an upgrade from v99, and an upgrade from an existing v100 database while preserving existing data. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard.
 
 ## 3. Schema delivered by migration 100
 
@@ -58,7 +58,7 @@ Migrations are append-only. Never edit historical migrations, drop customer data
 - Stable text ID and stable `system_key`, unique `account_code`, editable display name, type, normal balance, parent/group link, flags and timestamps.
 - Types: `asset`, `liability`, `equity`, `revenue`, `expense`. Normal side: `debit` or `credit`.
 - `is_postable=0` for group headings; these cannot appear on journal lines. `is_active=0` prevents new posting.
-- System-required accounts cannot be deleted. System account codes, types, normal balance and parent links are protected. Display names may later be localized or edited; application logic must match stable system keys/codes, never display labels.
+- System-required accounts cannot be deleted. For system accounts, `is_system`, `system_key`, account code, type, normal balance and parent links are protected by SQL triggers. A custom account cannot acquire a system flag/key through direct updates. Display names remain editable; application logic must match stable system keys/codes, never display labels.
 
 Seed chart (English names are starter labels, not jurisdiction-specific tax advice):
 | Code | System key | Account |
@@ -145,7 +145,7 @@ For the first usable accounting workflow (Phase 2/3):
 ## 6. Phased implementation and Windows test gate
 
 0. **Discovery/design — done in this PR:** verified existing operational systems, boundaries, migration route, tests and unresolved accounting-policy decisions.
-1. **Ledger core — done in this PR:** migration 100; seeded starter chart; journal headers/lines; integer minor-unit validation; source/idempotency uniqueness; atomic draft creation and posting; audit events; immutable posted records; focused fresh-install/upgrade/service tests.
+1. **Ledger core — done in this PR:** migrations 100–101; seeded starter chart; journal headers/lines; integer minor-unit validation; source/idempotency uniqueness; atomic draft creation and posting; audit events; immutable posted records and system-account identity guards; focused fresh-install, v99-to-v101, v100-to-v101 and service tests.
 2. **Account/expense setup — next PR:** routine expense entry/categories, non-sales income, mappings of existing payment methods to GL accounts, defaults for cash/bank and transfers; Settings subsection inside existing Settings screen. Add end-to-end tests.
 3. **Operational posting — following PR:** committed bill/sale recognition, actual collections including unpaid/partial/split cases, refunds, and reconciliation against existing cash sessions/drawer movements. Resolve the business gates in section 1 first. Add idempotency, retry/order/reconciliation and POS regression tests.
 4. **Supplier purchases/payables:** supplier records and purchase bills/payments linked to the existing stock/supply movements.
