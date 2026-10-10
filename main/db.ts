@@ -2702,8 +2702,9 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
  * Data-only restore is a privileged database replacement operation. Accounting
  * immutability triggers protect normal application writes, but must be removed
  * transactionally while replacing historical rows from a validated backup.
- * The trigger definitions are kept in one shared SQL constant so restore and
- * migration cannot silently drift apart.
+ * The v100 trigger definitions stay frozen in one shared SQL constant so
+ * migration 100 remains reproducible. Newer hardening migrations are applied
+ * separately and are also reinstated by the restore path.
  */
 const ACCOUNTING_LEDGER_TRIGGER_SQL = `
         CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_insert_draft
