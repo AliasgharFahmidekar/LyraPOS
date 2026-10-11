@@ -120,11 +120,12 @@ export function setPaymentAccountMapping(db: DB, methodKey: unknown, accountId: 
 function paymentInput(db: DB, input: any) {
   const status = input?.payment_status === undefined ? 'unpaid' : input.payment_status;
   if (status !== 'paid' && status !== 'unpaid') fail('invalid_payment_status', 'Payment status must be paid or unpaid.');
-  if (status === 'unpaid') return { paymentStatus: status, paymentMethodKey: null, paymentDate: null };
+  if (status === 'unpaid') return { paymentStatus: status, paymentMethodKey: null, paymentAccountId: null, paymentDate: null };
   const key = paymentKey(db, input?.payment_method_key);
   if (key === 'loyalty') fail('invalid_expense_payment_method', 'A loyalty wallet is not a valid expense payment source.');
-  if (!db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key)) fail('payment_mapping_required', 'Map this payment method to an accounting account before using it for a paid expense.', 409);
-  return { paymentStatus: status, paymentMethodKey: key, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
+  const mapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as { account_id: string } | undefined;
+  if (!mapping) fail('payment_mapping_required', 'Map this payment method to an accounting account before using it for a paid expense.', 409);
+  return { paymentStatus: status, paymentMethodKey: key, paymentAccountId: mapping.account_id, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
 }
 function expenseInput(db: DB, input: any) {
   const categoryId = textValue(input?.category_id, 'category_id', 100);
@@ -143,7 +144,7 @@ function expenseInput(db: DB, input: any) {
   };
 }
 function detail(db: DB, id: string): any {
-  return db.prepare('SELECT e.*, c.name AS category_name, c.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name, m.account_id AS payment_account_id, pa.name AS payment_account_name FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=c.expense_account_id LEFT JOIN accounting_payment_method_mappings m ON m.payment_method_key=e.payment_method_key LEFT JOIN accounting_accounts pa ON pa.id=m.account_id WHERE e.id=?').get(id);
+  return db.prepare('SELECT e.*, c.name AS category_name, c.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name, e.payment_account_id AS payment_account_id, pa.name AS payment_account_name FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=c.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id WHERE e.id=?').get(id);
 }
 export function listExpenses(db: DB, filters: any = {}): any[] {
   const clauses: string[] = []; const values: any[] = [];
@@ -166,12 +167,12 @@ export function getExpense(db: DB, id: string): any {
 export function createExpense(db: DB, input: any, actorId: string | null): any {
   const n = expenseInput(db, input), id = randomUUID();
   db.transaction(() => {
-    db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_date,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(id,n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentDate,actorId,actorId);
+    db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_account_id,payment_date,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(id,n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,actorId);
     auditExpenseAction(db, 'expense', id, 'created', actorId, null, {
       id, category_id: n.categoryId, expense_date: n.expenseDate, amount_minor: n.amount,
       currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
-      payment_method_key: n.paymentMethodKey, payment_date: n.paymentDate,
+      payment_method_key: n.paymentMethodKey, payment_account_id: n.paymentAccountId, payment_date: n.paymentDate,
     });
   })();
   return getExpense(db, id);
@@ -181,8 +182,8 @@ export function updateDraftExpense(db: DB, id: string, input: any, actorId: stri
   if (current.status !== 'draft') fail('expense_not_editable', 'Posted or reversed expenses cannot be edited; use a correction entry.', 409);
   const n = expenseInput(db, { ...current, ...input });
   db.transaction(() => {
-    db.prepare('UPDATE accounting_expenses SET category_id=?,expense_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
-      .run(n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentDate,actorId,id,'draft');
+    db.prepare('UPDATE accounting_expenses SET category_id=?,expense_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_account_id=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
+      .run(n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,id,'draft');
     auditExpenseAction(db, 'expense', id, 'updated', actorId, current, {
       id, category_id: n.categoryId, expense_date: n.expenseDate, amount_minor: n.amount,
       currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
