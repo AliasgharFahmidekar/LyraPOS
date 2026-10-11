@@ -218,6 +218,30 @@ try {
   throws(() => expenses.updateDraftExpense(db, unpaid.id, { description: 'change after posting' }, 'manager-1'),
     /posted or reversed expenses cannot be edited/i, 'service rejects edits after expense posting');
   throws(() => expenses.assertAccountingDate('2026-02-30'), /real calendar date/i, 'invalid calendar days are rejected');
+  const transferInput = { source_account_id: 'acct-cash-drawer', destination_account_id: 'acct-bank', amount_minor: 4500, entry_date: '2026-10-12', description: 'Cash deposit to bank' };
+  const transfer = transfers.createCashBankTransfer(db, transferInput, 'manager-1', 'transfer-test-001');
+  equal(transfer.status, 'posted', 'cash/bank transfer posts a journal immediately');
+  equal(transfer.amount_minor, 4500, 'transfer keeps exact integer minor units');
+  equal(transfer.source_account_id, 'acct-cash-drawer', 'transfer credits its source account');
+  equal(transfer.destination_account_id, 'acct-bank', 'transfer debits its destination account');
+  equal(transfer.duplicate, false, 'first transfer request is not marked duplicate');
+  const transferRetry = transfers.createCashBankTransfer(db, transferInput, 'manager-1', 'transfer-test-001');
+  equal(transferRetry.id, transfer.id, 'identical transfer retry returns the original journal');
+  equal(transferRetry.duplicate, true, 'identical transfer retry is marked duplicate');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='cash_bank_transfer' AND source_event='transfer'").get() as any).count, 1, 'transfer retry cannot create duplicate journals');
+  const transferLines = db.prepare('SELECT account_id,debit_minor,credit_minor FROM accounting_journal_lines WHERE journal_entry_id=? ORDER BY line_no').all(transfer.id) as any[];
+  equal(transferLines.length, 2, 'transfer has exactly two journal lines');
+  equal(transferLines[0].account_id, 'acct-bank', 'transfer debits destination account');
+  equal(transferLines[0].debit_minor, 4500, 'transfer destination debit equals transfer amount');
+  equal(transferLines[1].account_id, 'acct-cash-drawer', 'transfer credits source account');
+  equal(transferLines[1].credit_minor, 4500, 'transfer source credit equals transfer amount');
+  equal(transfers.listCashBankTransfers(db).length, 1, 'transfer history lists the posted transfer once');
+  throws(() => transfers.createCashBankTransfer(db, { ...transferInput, destination_account_id: 'acct-cash-drawer' }, 'manager-1', 'transfer-same-account'),
+    /must be different/i, 'transfer rejects identical source and destination accounts');
+  throws(() => transfers.createCashBankTransfer(db, { ...transferInput, amount_minor: 0 }, 'manager-1', 'transfer-zero'),
+    /positive safe integer/i, 'transfer rejects zero amounts');
+  throws(() => transfers.createCashBankTransfer(db, { ...transferInput, amount_minor: 4600 }, 'manager-1', 'transfer-test-001'),
+    /different payload/i, 'reusing a transfer idempotency key with a changed amount is rejected');
   console.log('Accounting expense foundation: ' + checks + ' assertions passed.');
 } catch (error) {
   console.error('Accounting expense foundation failed:', error); process.exitCode = 1;

@@ -182,7 +182,7 @@ The first version must not show a "net profit" KPI until COGS and relevant expen
 
 **Stage 2 — posting and payment-state workflow (implemented in migration 104):** `POST /expenses/:id/post` writes and finalizes one balanced journal for a paid expense (debit the snapshotted expense account, credit its snapshotted mapped payment account) in the same SQLite transaction that marks the expense posted. The journal uses the actual payment date and stable source/idempotency keys. An unpaid expense remains a draft with no journal, so it cannot reduce cash; recognizing unpaid bills against accounts payable is intentionally deferred to the purchase/payables workflow. `POST /expenses/:id/reverse` requires a reason and accounting date and creates a separate posted journal with exact debit/credit sides reversed; original posted journals are never edited. Request-level idempotency from stage 1 remains distinct from posting/reversal idempotency. Schema v104 adds reversal linkage and SQL guards against editing/deleting posted expense records or invalid state transitions.
 
-**Stage 3 — transfers and UI:** cash/bank transfers, expense/category screens and payment-account mapping in the existing Settings UI, with end-to-end tests.
+**Stage 3 — transfers and UI (implementation in progress):** cash/bank transfers, expense/category screens and payment-account mapping in the existing Settings UI, with end-to-end tests. The transfer service posts idempotent, balanced asset-to-asset journals and exposes transfer history; UI integration and full regression verification are being completed.
 
 - Reuse existing payment methods and map them to GL accounts; do not create a second payment-method screen.
 - Add cash/bank transfers and expense journal posting.

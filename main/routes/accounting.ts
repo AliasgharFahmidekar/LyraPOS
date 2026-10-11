@@ -4,6 +4,8 @@ import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
 import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, updateDraftExpense, postExpense, reverseExpense } from '../accounting/expenses';
 import { AccountingLedgerError } from '../accounting/ledger';
+import { createCashBankTransfer, listCashBankTransfers } from '../accounting/transfers';
+import { resolveTenantCurrency } from '../countries';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -25,10 +27,22 @@ function respondError(res: Response, error: any): void {
   console.error('[API] Accounting expense request failed:', error);
   res.status(500).json({ error: 'Unable to process accounting request.' });
 }
+router.get('/transfers', managerOnly, (req, res) => {
+  try { res.json({ transfers: listCashBankTransfers(getDatabase(), req.query) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/transfers', managerOnly, (req, res) => {
+  try {
+    res.status(201).json({ transfer: createCashBankTransfer(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) });
+  } catch (error) { respondError(res, error); }
+});
 router.get('/accounts', managerOnly, (req, res) => {
   try {
     const types = typeof req.query.types === 'string' ? req.query.types.split(',') : undefined;
-    res.json({ accounts: listPostingAccounts(getDatabase(), types) });
+    const db = getDatabase();
+    const regionalRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency')").all() as { key: string; value: string | null }[];
+    const regional = Object.fromEntries(regionalRows.map((row) => [row.key, row.value ?? undefined]));
+    res.json({ accounts: listPostingAccounts(db, types), currency_code: resolveTenantCurrency(regional.currency, regional.country ?? '') });
   } catch (error) { respondError(res, error); }
 });
 router.get('/expense-categories', managerOnly, (req, res) => {

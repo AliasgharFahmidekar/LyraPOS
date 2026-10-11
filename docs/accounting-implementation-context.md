@@ -1,6 +1,6 @@
 # LyraPOS accounting implementation context for AI contributors
 
-**Status:** ACTIVE IMPLEMENTATION. Phase 0, Phase 1, and Phase 2 stages 1–2 are implemented. Schema v104 adds paid-expense journal posting/reversal linkage and SQL lifecycle guards on top of the v103 expense/API foundation. Cash/bank transfers and UI remain future work; unpaid bills still do not create accounts-payable journals in this stage. Read this document before changing accounting code.
+**Status:** ACTIVE IMPLEMENTATION. Phase 0, Phase 1, and Phase 2 stages 1–2 are implemented; Stage 3 transfer API implementation is in progress. Schema v104 adds paid-expense journal posting/reversal linkage and SQL lifecycle guards. Cash/bank transfers use the existing immutable journal ledger without a new operational balance table; UI integration and full verification remain pending. Unpaid bills still do not create accounts-payable journals in this stage. Read this document before changing accounting code.
 
 ## Read first
 
