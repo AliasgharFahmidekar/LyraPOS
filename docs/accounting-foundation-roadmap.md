@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** ACTIVE DESIGN. Phase 0 discovery and Phase 1 ledger foundation are implemented (migrations 100–101 and `main/accounting/ledger.ts`). Phase 2 stage 1 now adds the expense data model and manager-only APIs in migration 102. Expense journal posting, transfers and UI remain to be implemented. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
+**Status:** ACTIVE IMPLEMENTATION. Phase 0, Phase 1, and Phase 2 stage 1 are implemented on this branch (migrations 100–103). Stage 1 now includes expense data/API, configured-store-currency enforcement, request idempotency, complete audit snapshots, and SQLite integrity guards. Expense journal posting, transfers and UI remain future stages. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -178,9 +178,9 @@ The first version must not show a "net profit" KPI until COGS and relevant expen
 
 ### Phase 2 — Expenses and financial accounts
 
-**Stage 1 — data model and API (implemented in migration 102):** expense categories mapped to expense accounts, draft expense create/list/detail/update, paid/unpaid metadata, and mapping of existing payment-method keys to GL accounts. Manager-only endpoints are available under `/api/accounting`; no second payment-method catalogue is created. Coverage: `npm run test:accounting-expenses` plus ledger upgrade tests.
+**Stage 1 — data model and API (implemented in migrations 102–103):** expense categories mapped to expense accounts, draft expense create/list/detail/update, paid/unpaid metadata, and mapping of existing payment-method keys to GL accounts. Manager-only endpoints are available under `/api/accounting`; no second payment-method catalogue is created. Expense currency must match the store's configured currency. `POST /expenses` accepts `Idempotency-Key` and safely returns the existing record for a repeated identical request, while conflicting reuse returns HTTP 409. Audit snapshots capture all expense business fields. Migration 103 adds append-only schema changes, a unique idempotency index and SQL guards for amount, date, currency and idempotency metadata. Coverage: `npm run test:accounting-expenses`, `npm run test:accounting-routes`, plus ledger upgrade tests including v102 expense preservation.
 
-**Stage 2 — posting and payment-state workflow (next):** post paid expenses to the mapped payment account and expense account, keep unpaid expenses from reducing cash, and enforce idempotency/audit-safe corrections.
+**Stage 2 — posting and payment-state workflow (next):** post paid expenses to the mapped payment account and expense account, keep unpaid expenses from reducing cash, and enforce journal-posting idempotency/audit-safe corrections. Request-level expense idempotency is already covered in stage 1; it does not replace idempotency of journal posting.
 
 **Stage 3 — transfers and UI:** cash/bank transfers, expense/category screens and payment-account mapping in the existing Settings UI, with end-to-end tests.
 
@@ -313,8 +313,9 @@ This sequencing establishes a tested foundation before business events are conne
 ## Implementation status and next gates
 
 As of this change, Phase 0 discovery and Phase 1 ledger foundation are implemented in code:
-- SQLite migration 100 adds the starter chart, journal header/lines, idempotency/source constraints, audit log and initial database guards; migration 101 hardens system-account identity without rewriting migration 100.
+- SQLite migration 100 adds the starter chart, journal header/lines, journal idempotency/source constraints, audit log and initial database guards; migration 101 hardens system-account identity without rewriting migration 100. Migration 102 adds expense/category/payment mappings; migration 103 adds expense request idempotency and defensive SQL validation triggers.
 - `main/accounting/ledger.ts` validates and transactionally creates/posts draft journals.
-- `tests/accounting-ledger.test.ts` covers fresh installation, upgrades from v99 and v100, system-account identity guards, balance rules, idempotency, atomic rollback and posted-entry immutability.
+- `tests/accounting-ledger.test.ts` covers fresh installation and upgrades from v99, v100, v101 and v102 (including preserving an existing expense), system-account identity guards, balance rules, idempotency, atomic rollback and posted-entry immutability.
+- `tests/accounting-expenses.test.ts` covers store-currency enforcement, SQL integrity guards, complete expense audit snapshots, idempotent create retries and conflicting key reuse; `tests/accounting-routes.test.ts` covers authentication/role denial and the HTTP idempotency contract.
 
 Stage 1 of Phase 2 now provides expense/category data and manager-only APIs. Expense journal posting, transfers, UI, automatic posting from sales/collections/refunds, inventory valuation and accounting reports remain planned in their later stages. Per product direction, a Windows installer is built for hands-on testing only after Phase 3 and its required CI/regression checks are green.
