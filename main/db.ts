@@ -2699,6 +2699,9 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_expense_insert_guard',
   'accounting_expense_update_guard',
   'accounting_expense_idempotency_immutable',
+  'accounting_expense_posted_fields_immutable',
+  'accounting_expense_state_transition_guard',
+  'accounting_expense_posted_delete_guard',
 ] as const;
 
 /**
@@ -2772,6 +2775,72 @@ const ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL = `
           OR OLD.idempotency_payload_hash IS NOT NEW.idempotency_payload_hash
         BEGIN
           SELECT RAISE(ABORT, 'Accounting expense idempotency identity is immutable');
+        END;
+      `;
+
+const ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL = `
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_posted_fields_immutable
+        BEFORE UPDATE OF category_id, expense_account_id, expense_date, amount_minor, currency_code,
+          description, payee, reference_number, payment_status, payment_method_key, payment_account_id, payment_date
+        ON accounting_expenses
+        WHEN OLD.status IN ('posted', 'reversed')
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting expense details are immutable; use a reversal');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_state_transition_guard
+        BEFORE UPDATE OF status, posted_journal_entry_id, reversal_journal_entry_id, reversal_reason
+        ON accounting_expenses
+        BEGIN
+          SELECT CASE WHEN NOT (
+            (OLD.status = 'draft' AND NEW.status IN ('draft', 'posted'))
+            OR (OLD.status = 'posted' AND NEW.status IN ('posted', 'reversed'))
+            OR (OLD.status = 'reversed' AND NEW.status = 'reversed')
+          ) THEN RAISE(ABORT, 'Invalid accounting expense state transition') END;
+
+          SELECT CASE WHEN NEW.status = 'draft' AND (
+            NEW.posted_journal_entry_id IS NOT NULL
+            OR NEW.reversal_journal_entry_id IS NOT NULL
+            OR NEW.reversal_reason IS NOT NULL
+          ) THEN RAISE(ABORT, 'Draft accounting expenses cannot reference posting or reversal journals') END;
+
+          SELECT CASE WHEN NEW.status = 'posted' AND (
+            NEW.posted_journal_entry_id IS NULL
+            OR (SELECT status FROM accounting_journal_entries WHERE id = NEW.posted_journal_entry_id) IS NOT 'posted'
+            OR NEW.reversal_journal_entry_id IS NOT NULL
+            OR NEW.reversal_reason IS NOT NULL
+          ) THEN RAISE(ABORT, 'Posted expenses require a posted journal and no reversal metadata') END;
+
+          SELECT CASE WHEN OLD.status = 'posted' AND NEW.status = 'posted' AND (
+            NEW.posted_journal_entry_id IS NOT OLD.posted_journal_entry_id
+            OR NEW.reversal_journal_entry_id IS NOT OLD.reversal_journal_entry_id
+            OR NEW.reversal_reason IS NOT OLD.reversal_reason
+          ) THEN RAISE(ABORT, 'Posted expense journal identity is immutable') END;
+
+          SELECT CASE WHEN NEW.status = 'reversed' AND (
+            OLD.status <> 'posted'
+            OR NEW.posted_journal_entry_id IS NOT OLD.posted_journal_entry_id
+            OR NEW.posted_journal_entry_id IS NULL
+            OR NEW.reversal_journal_entry_id IS NULL
+            OR NEW.reversal_journal_entry_id = NEW.posted_journal_entry_id
+            OR COALESCE(length(trim(NEW.reversal_reason)), 0) = 0
+            OR (SELECT status FROM accounting_journal_entries WHERE id = NEW.posted_journal_entry_id) IS NOT 'posted'
+            OR (SELECT status FROM accounting_journal_entries WHERE id = NEW.reversal_journal_entry_id) IS NOT 'posted'
+          ) THEN RAISE(ABORT, 'Expense reversal requires the original and reversal journals to be posted and a reason') END;
+
+          SELECT CASE WHEN OLD.status = 'reversed' AND (
+            NEW.status IS NOT OLD.status
+            OR NEW.posted_journal_entry_id IS NOT OLD.posted_journal_entry_id
+            OR NEW.reversal_journal_entry_id IS NOT OLD.reversal_journal_entry_id
+            OR NEW.reversal_reason IS NOT OLD.reversal_reason
+          ) THEN RAISE(ABORT, 'Reversed accounting expense history is immutable') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_posted_delete_guard
+        BEFORE DELETE ON accounting_expenses
+        WHEN OLD.status IN ('posted', 'reversed')
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting expenses cannot be deleted');
         END;
       `;
 
@@ -2920,7 +2989,10 @@ function dropAccountingLedgerRestoreTriggers(db: Database.Database): void {
 function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (!getTables(db).includes('accounting_accounts')) return;
   db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
-  if (getTables(db).includes('accounting_expenses')) db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
+  if (getTables(db).includes('accounting_expenses')) {
+    db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
+    db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
+  }
   recreateAccountingAccountDefinitionGuard(db);
 }
 
@@ -5945,6 +6017,19 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           ON accounting_expenses(idempotency_key) WHERE idempotency_key IS NOT NULL;
       `);
       db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 104,
+    name: 'accounting_expense_posting_and_reversal',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_expenses ADD COLUMN reversal_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT;
+        ALTER TABLE accounting_expenses ADD COLUMN reversal_reason TEXT;
+        CREATE UNIQUE INDEX accounting_expenses_reversal_journal_unique
+          ON accounting_expenses(reversal_journal_entry_id) WHERE reversal_journal_entry_id IS NOT NULL;
+      `);
+      db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
     },
   },
 ];
