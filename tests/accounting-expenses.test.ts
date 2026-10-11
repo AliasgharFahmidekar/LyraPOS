@@ -59,6 +59,13 @@ try {
     payment_method_key: customKey, payment_date: '2026-10-11',
   }, 'manager-1'), /requires an account of type: asset/i, 'a paid expense cannot use a liability mapping as its payment account');
   expenses.setPaymentAccountMapping(db, customKey, 'acct-bank', 'manager-1');
+  db.prepare('UPDATE payment_methods SET is_active = 0 WHERE id = ?').run(Number(customMethod.lastInsertRowid));
+  throws(() => expenses.createExpense(db, {
+    category_id: category.id, expense_date: '2026-10-11', amount_minor: 1000, currency_code: 'IRR',
+    description: 'Inactive payment methods must not be used for new expenses', payment_status: 'paid',
+    payment_method_key: customKey, payment_date: '2026-10-11',
+  }, 'manager-1'), /active payment method/i, 'inactive custom payment methods cannot pay a new expense');
+  db.prepare('UPDATE payment_methods SET is_active = 1 WHERE id = ?').run(Number(customMethod.lastInsertRowid));
   equal(customMapping.payment_method_name, 'Online Transfer', 'existing custom payment method is exposed in account mapping');
   equal(customMapping.account_id, 'acct-bank', 'custom payment method maps to selected bank account');
   ok(expenses.listPaymentAccountMappings(db).some((item: any) => item.payment_method_key === customKey && item.account_id === 'acct-bank'), 'mapping list returns configured custom payment methods');
