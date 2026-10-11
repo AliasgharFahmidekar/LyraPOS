@@ -49,7 +49,7 @@ const EXPENSE_AUDIT_FIELDS = [
   'created_by', 'updated_by', 'created_at', 'updated_at',
 ] as const;
 
-function expenseAuditSnapshot(row: any): Record<string, unknown> {
+function expenseAuditSnapshot(row: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(EXPENSE_AUDIT_FIELDS.map((field) => [
     field,
     row[field] === undefined ? null : row[field],
@@ -178,21 +178,26 @@ function normalizedHashText(value: unknown): unknown {
   return typeof value === 'string' ? (value.trim() || null) : value;
 }
 
-function expenseRequestHash(input: any): string {
-  const paymentStatus = input?.payment_status === undefined ? 'unpaid' : input.payment_status;
+function expenseRequestHash(value: unknown): string {
+  const input: Record<string, unknown> = value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const paymentStatus = input.payment_status === undefined ? 'unpaid' : input.payment_status;
   const canonicalRequest = {
-    category_id: normalizedHashText(input?.category_id),
-    expense_date: normalizedHashText(input?.expense_date),
-    amount_minor: input?.amount_minor ?? null,
-    currency_code: typeof input?.currency_code === 'string' ? input.currency_code.trim().toUpperCase() : (input?.currency_code ?? null),
-    description: normalizedHashText(input?.description),
-    payee: normalizedHashText(input?.payee),
-    reference_number: normalizedHashText(input?.reference_number),
+    category_id: normalizedHashText(input.category_id),
+    expense_date: normalizedHashText(input.expense_date),
+    amount_minor: input.amount_minor ?? null,
+    currency_code: typeof input.currency_code === 'string' ? input.currency_code.trim().toUpperCase() : (input.currency_code ?? null),
+    description: normalizedHashText(input.description),
+    payee: normalizedHashText(input.payee),
+    reference_number: normalizedHashText(input.reference_number),
     payment_status: paymentStatus,
-    payment_method_key: paymentStatus === 'paid' ? normalizedHashText(input?.payment_method_key) : null,
-    payment_date: paymentStatus === 'paid' ? normalizedHashText(input?.payment_date) : null,
+    payment_method_key: paymentStatus === 'paid' ? normalizedHashText(input.payment_method_key) : null,
+    payment_date: paymentStatus === 'paid' ? normalizedHashText(input.payment_date) : null,
   };
-  return createHash('sha256').update(JSON.stringify(canonicalRequest)).digest('hex');
+  const serialized = JSON.stringify(canonicalRequest);
+  if (serialized === undefined) fail('invalid_expense_payload', 'Expense payload could not be normalized.');
+  return createHash('sha256').update(serialized).digest('hex');
 }
 
 function expenseInput(db: DB, input: any) {
@@ -267,8 +272,9 @@ export function createExpense(db: DB, input: any, actorId: string | null, idempo
       const created = getExpense(db, id);
       auditExpenseAction(db, 'expense', id, 'created', actorId, null, expenseAuditSnapshot(created));
     })();
-  } catch (error: any) {
-    if (idempotencyKey && String(error?.message || '').includes('accounting_expenses.idempotency_key')) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error ?? '');
+    if (idempotencyKey && errorMessage.includes('accounting_expenses.idempotency_key')) {
       const existing = db.prepare('SELECT id, idempotency_payload_hash FROM accounting_expenses WHERE idempotency_key = ?').get(idempotencyKey) as
         { id: string; idempotency_payload_hash: string | null } | undefined;
       if (existing) {
