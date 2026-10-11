@@ -12,6 +12,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 const dbModule = require('../main/db');
 const { initDatabase, getDatabase, getCurrentSchemaVersion, closeDatabase } = dbModule;
 const expenses = require('../main/accounting/expenses');
+const transfers = require('../main/accounting/transfers');
 let checks = 0;
 function equal(actual: unknown, expected: unknown, message: string): void { assert.equal(actual, expected, message); checks++; }
 function ok(value: unknown, message: string): void { assert.ok(value, message); checks++; }
