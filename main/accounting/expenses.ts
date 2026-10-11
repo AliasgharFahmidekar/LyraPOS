@@ -54,9 +54,12 @@ function categoryInput(db: DB, input: any) {
   };
 }
 export function listPostingAccounts(db: DB, accountTypes?: string[]): any[] {
-  const types = Array.isArray(accountTypes) ? accountTypes.filter((type) => ['asset','liability','equity','revenue','expense'].includes(type)) : [];
   const rows = db.prepare('SELECT id, account_code, name, account_type, normal_balance, parent_account_id, is_active, is_postable FROM accounting_accounts WHERE is_active = 1 AND is_postable = 1 ORDER BY account_code').all() as any[];
-  return types.length ? rows.filter((account) => types.includes(account.account_type)) : rows;
+  if (accountTypes === undefined) return rows;
+  const allowedTypes = new Set(['asset', 'liability', 'equity', 'revenue', 'expense']);
+  const types = accountTypes.filter((type) => allowedTypes.has(type));
+  if (types.length === 0) return [];
+  return rows.filter((account) => types.includes(account.account_type));
 }
 export function listExpenseCategories(db: DB, includeInactive = false): any[] {
   return db.prepare(
@@ -159,8 +162,14 @@ export function listExpenses(db: DB, filters: any = {}): any[] {
   if (filters.from) { clauses.push('e.expense_date >= ?'); values.push(assertAccountingDate(filters.from, 'from')); }
   if (filters.to) { clauses.push('e.expense_date <= ?'); values.push(assertAccountingDate(filters.to, 'to')); }
   if (filters.category_id) { clauses.push('e.category_id = ?'); values.push(textValue(filters.category_id, 'category_id', 100)); }
-  if (filters.status && ['draft','posted','reversed'].includes(String(filters.status))) { clauses.push('e.status = ?'); values.push(filters.status); }
-  if (filters.payment_status && ['paid','unpaid'].includes(String(filters.payment_status))) { clauses.push('e.payment_status = ?'); values.push(filters.payment_status); }
+  if (filters.status !== undefined && filters.status !== '') {
+    if (typeof filters.status !== 'string' || !['draft', 'posted', 'reversed'].includes(filters.status)) fail('invalid_status', 'Status filter must be draft, posted, or reversed.');
+    clauses.push('e.status = ?'); values.push(filters.status);
+  }
+  if (filters.payment_status !== undefined && filters.payment_status !== '') {
+    if (typeof filters.payment_status !== 'string' || !['paid', 'unpaid'].includes(filters.payment_status)) fail('invalid_payment_status', 'Payment status filter must be paid or unpaid.');
+    clauses.push('e.payment_status = ?'); values.push(filters.payment_status);
+  }
   const limit = filters.limit === undefined ? 100 : Number(filters.limit), offset = filters.offset === undefined ? 0 : Number(filters.offset);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) fail('invalid_limit', 'Limit must be between 1 and 500.');
   if (!Number.isSafeInteger(offset) || offset < 0) fail('invalid_offset', 'Offset must be a non-negative integer.');
