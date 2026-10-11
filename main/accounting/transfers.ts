@@ -35,7 +35,7 @@ function transferAccount(db: DB, value: unknown): string {
   return row.id;
 }
 const TRANSFER_SELECT =
-  "SELECT entry.id, entry.entry_number, entry.entry_date, entry.description, entry.currency_code, " +
+  "SELECT entry.id, entry.entry_number, entry.entry_date, entry.description, entry.currency_code, entry.status, " +
   "source.account_id AS source_account_id, sourceAccount.name AS source_account_name, " +
   "destination.account_id AS destination_account_id, destinationAccount.name AS destination_account_name, " +
   "source.credit_minor AS amount_minor " +
