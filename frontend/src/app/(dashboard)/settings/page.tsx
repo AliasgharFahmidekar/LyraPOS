@@ -161,7 +161,6 @@ function SettingsNavItem({
 }
 
 function KdsDefaultViewCard() {
-  const locale = useLocale();
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
   const [view, setView] = useState<'tabs' | 'kanban'>('tabs');
