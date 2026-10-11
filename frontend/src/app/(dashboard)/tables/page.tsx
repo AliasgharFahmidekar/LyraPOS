@@ -235,18 +235,26 @@ export default function TablesPage() {
     localStorage.setItem('tables_showDetails', String(next));
   };
 
+  const loadTables = async () => {
+    const [{ data: tableData }, { data: chargeData }] = await Promise.all([
+      api.get('/tables'),
+      api.get('/tables/floor-charges'),
+    ]);
+    const nextCharges: Record<string, string> = {};
+    for (const row of chargeData.floorCharges || []) {
+      nextCharges[String(row.floor)] = String(row.default_table_charge ?? 0);
+    }
+    return {
+      tables: (tableData.tables || []) as Table[],
+      floorCharges: nextCharges,
+    };
+  };
+
   const fetchTables = async () => {
     try {
-      const [{ data: tableData }, { data: chargeData }] = await Promise.all([
-        api.get('/tables'),
-        api.get('/tables/floor-charges'),
-      ]);
-      setTables(tableData.tables || []);
-      const nextCharges: Record<string, string> = {};
-      for (const row of chargeData.floorCharges || []) {
-        nextCharges[String(row.floor)] = String(row.default_table_charge ?? 0);
-      }
-      setFloorCharges(nextCharges);
+      const result = await loadTables();
+      setTables(result.tables);
+      setFloorCharges(result.floorCharges);
     } catch {
       toast.error(tTables('loadFailed'));
     } finally {
@@ -255,7 +263,22 @@ export default function TablesPage() {
   };
 
   useEffect(() => {
-    void fetchTables();
+    let cancelled = false;
+    void loadTables()
+      .then((result) => {
+        if (cancelled) return;
+        setTables(result.tables);
+        setFloorCharges(result.floorCharges);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error(tTables('loadFailed'));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutMode]);
 
