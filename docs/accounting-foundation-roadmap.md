@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** ACTIVE IMPLEMENTATION. Phase 0, Phase 1, and Phase 2 stage 1 are implemented on this branch (migrations 100–103). Stage 1 now includes expense data/API, configured-store-currency enforcement, request idempotency, complete audit snapshots, and SQLite integrity guards. Expense journal posting, transfers and UI remain future stages. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
+**Status:** ACTIVE IMPLEMENTATION. Phase 0, Phase 1, and Phase 2 stages 1–2 are implemented on this branch (migrations 100–104). Stage 1 provides expense data/API, configured-store-currency enforcement, request idempotency, audit snapshots, and SQL integrity guards. Stage 2 adds paid-expense journal posting, idempotent retries, and audit-safe journal reversal. Cash/bank transfers and UI remain future stages. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -180,13 +180,13 @@ The first version must not show a "net profit" KPI until COGS and relevant expen
 
 **Stage 1 — data model and API (implemented in migrations 102–103):** expense categories mapped to expense accounts, draft expense create/list/detail/update, paid/unpaid metadata, and mapping of existing payment-method keys to GL accounts. Manager-only endpoints are available under `/api/accounting`; no second payment-method catalogue is created. Expense currency must match the store's configured currency. `POST /expenses` accepts `Idempotency-Key` and safely returns the existing record for a repeated identical request, while conflicting reuse returns HTTP 409. Audit snapshots capture all expense business fields. Migration 103 adds append-only schema changes, a unique idempotency index and SQL guards for amount, date, currency and idempotency metadata. Coverage: `npm run test:accounting-expenses`, `npm run test:accounting-routes`, plus ledger upgrade tests including v102 expense preservation.
 
-**Stage 2 — posting and payment-state workflow (next):** post paid expenses to the mapped payment account and expense account, keep unpaid expenses from reducing cash, and enforce journal-posting idempotency/audit-safe corrections. Request-level expense idempotency is already covered in stage 1; it does not replace idempotency of journal posting.
+**Stage 2 — posting and payment-state workflow (implemented in migration 104):** `POST /expenses/:id/post` writes and finalizes one balanced journal for a paid expense (debit the snapshotted expense account, credit its snapshotted mapped payment account) in the same SQLite transaction that marks the expense posted. The journal uses the actual payment date and stable source/idempotency keys. An unpaid expense remains a draft with no journal, so it cannot reduce cash; recognizing unpaid bills against accounts payable is intentionally deferred to the purchase/payables workflow. `POST /expenses/:id/reverse` requires a reason and accounting date and creates a separate posted journal with exact debit/credit sides reversed; original posted journals are never edited. Request-level idempotency from stage 1 remains distinct from posting/reversal idempotency. Schema v104 adds reversal linkage and SQL guards against editing/deleting posted expense records or invalid state transitions.
 
 **Stage 3 — transfers and UI:** cash/bank transfers, expense/category screens and payment-account mapping in the existing Settings UI, with end-to-end tests.
 
 - Reuse existing payment methods and map them to GL accounts; do not create a second payment-method screen.
 - Add cash/bank transfers and expense journal posting.
-- Acceptance: paid expenses update the correct account and expense report once; transfers change account balances but do not affect income or expenses; drafts/posted corrections follow audit rules.
+- Acceptance: a paid expense creates exactly one balanced posted journal against its stored expense/payment-account snapshots; retrying a post does not duplicate it; unpaid drafts create no cash movement; reversals create exactly one opposite journal and retain the original; posted expense details cannot be edited/deleted directly. Stage 3 transfers must change account balances without affecting income or expenses.
 
 ### Phase 3 — Sales, collections and refunds posting
 - Post from existing bills, payment lines and committed refunds after confirming source lifecycle semantics.
