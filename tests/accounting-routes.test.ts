@@ -60,6 +60,8 @@ async function main(): Promise<void> {
     for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
       equal((await request(app).get('/api/accounting/accounts').set(headers)).status, 403, role + ' cannot read accounting accounts');
       equal((await request(app).post('/api/accounting/expenses').set(headers).send({})).status, 403, role + ' cannot create accounting expenses');
+      equal((await request(app).post('/api/accounting/expenses/not-an-id/post').set(headers).send({})).status, 403, role + ' cannot post accounting expenses');
+      equal((await request(app).post('/api/accounting/expenses/not-an-id/reverse').set(headers).send({ reason: 'x', reversal_date: '2026-10-11' })).status, 403, role + ' cannot reverse accounting expenses');
     }
     equal((await request(app).get('/api/accounting/accounts').set(owner)).status, 200, 'owner can read posting accounts');
     equal((await request(app).get('/api/accounting/accounts').set(manager)).status, 200, 'manager can read posting accounts');
@@ -111,6 +113,48 @@ async function main(): Promise<void> {
 
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(firstId) as any).count,
       1, 'idempotent retry does not duplicate the expense audit event');
+
+    equal((await request(app).post('/api/accounting/expenses/' + firstId + '/post').set(cashier).send({})).status,
+      403, 'cashier cannot post a manager-owned accounting expense');
+    const postResponse = await request(app).post('/api/accounting/expenses/' + firstId + '/post').set(manager).send({});
+    equal(postResponse.status, 200, 'manager can post a paid expense');
+    equal(postResponse.body.expense?.status, 'posted', 'post endpoint returns posted expense state');
+    const postedJournalId = postResponse.body.expense?.posted_journal_entry_id;
+    ok(typeof postedJournalId === 'string' && postedJournalId.length > 0, 'post response links the journal entry');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid' AND status='posted'").get(firstId) as any).count,
+      1, 'API posting creates exactly one posted expense journal');
+    const postRetry = await request(app).post('/api/accounting/expenses/' + firstId + '/post').set(manager).send({});
+    equal(postRetry.status, 200, 'reposting an expense is a successful idempotent retry');
+    equal(postRetry.body.expense?.duplicate, true, 'post retry is explicitly marked duplicate');
+    equal(postRetry.body.expense?.posted_journal_entry_id, postedJournalId, 'retry returns the existing journal link');
+
+    const unpaidResponse = await request(app).post('/api/accounting/expenses').set(manager).send({
+      ...payload, description: 'API unpaid expense', payment_status: 'unpaid', payment_method_key: undefined, payment_date: undefined,
+    });
+    equal(unpaidResponse.status, 201, 'manager can save an unpaid expense draft');
+    const unpaidId = unpaidResponse.body.expense?.id;
+    ok(typeof unpaidId === 'string' && unpaidId.length > 0, 'unpaid expense response contains an identifier');
+    const postUnpaid = await request(app).post('/api/accounting/expenses/' + unpaidId + '/post').set(manager).send({});
+    equal(postUnpaid.status, 409, 'unpaid expense cannot be posted as a cash outflow');
+    equal(postUnpaid.body.code, 'expense_unpaid', 'unpaid posting rejection has a stable error code');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(unpaidId) as any).count,
+      0, 'unpaid posting rejection leaves the ledger and cash account untouched');
+
+    const reversePayload = { reason: 'API correction', reversal_date: '2026-10-12' };
+    const reverseResponse = await request(app).post('/api/accounting/expenses/' + firstId + '/reverse').set(manager).send(reversePayload);
+    equal(reverseResponse.status, 200, 'manager can reverse a posted expense with a reason and date');
+    equal(reverseResponse.body.expense?.status, 'reversed', 'reverse endpoint returns reversed expense state');
+    const reversalJournalId = reverseResponse.body.expense?.reversal_journal_entry_id;
+    ok(typeof reversalJournalId === 'string' && reversalJournalId.length > 0, 'reverse response links a separate reversal journal');
+    const reverseRetry = await request(app).post('/api/accounting/expenses/' + firstId + '/reverse').set(manager).send(reversePayload);
+    equal(reverseRetry.status, 200, 'identical reversal retry is idempotent');
+    equal(reverseRetry.body.expense?.duplicate, true, 'identical reversal retry is marked duplicate');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(firstId) as any).count,
+      2, 'posted expense plus reversal leave exactly two posted source journals');
+    const reverseConflict = await request(app).post('/api/accounting/expenses/' + firstId + '/reverse').set(manager)
+      .send({ ...reversePayload, reason: 'Different correction' });
+    equal(reverseConflict.status, 409, 'a reversal cannot be changed by retrying with a different reason');
+    equal(reverseConflict.body.code, 'expense_reversal_conflict', 'reversal conflict has a stable error code');
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
     try { closeDatabase(); } catch {}
