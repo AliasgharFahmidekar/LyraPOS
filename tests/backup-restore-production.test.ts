@@ -284,6 +284,9 @@ async function run() {
     legacyPreLedgerDb.pragma('foreign_keys = OFF');
     legacyPreLedgerDb.prepare('UPDATE products SET stock_quantity = ? WHERE id = ?').run(5, 'restore-product');
     legacyPreLedgerDb.exec(`
+      DROP TABLE IF EXISTS accounting_expenses;
+      DROP TABLE IF EXISTS accounting_payment_method_mappings;
+      DROP TABLE IF EXISTS accounting_expense_categories;
       DROP TABLE IF EXISTS accounting_journal_lines;
       DROP TABLE IF EXISTS accounting_journal_entries;
       DROP TABLE IF EXISTS accounting_audit_log;
@@ -291,6 +294,13 @@ async function run() {
       DROP TABLE IF EXISTS accounting_accounts;
       DROP TABLE inventory_movements;
     `);
+    for (const table of ['accounting_expense_categories', 'accounting_payment_method_mappings', 'accounting_expenses', 'accounting_accounts']) {
+      assert.equal(
+        (legacyPreLedgerDb.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name=?").get(table) as { count: number }).count,
+        0,
+        'pre-ledger fixture excludes ' + table,
+      );
+    }
     legacyPreLedgerDb.close();
     const legacyPreLedgerRestore = restoreBackup(legacyPreLedgerBackup, false);
     assert.equal(legacyPreLedgerRestore.success, false, 'pre-ledger backups with stock are rejected without movement history');
