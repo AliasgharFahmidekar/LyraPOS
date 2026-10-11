@@ -116,8 +116,8 @@ The service also validates inputs; SQL guards provide defense in depth. Use the 
 
 - `accounting_expense_categories` maps manager-defined categories to active, postable expense accounts. Categories are deactivated rather than deleted once used.
 - `accounting_payment_method_mappings` maps the existing built-in (`cash`, `card`, `loyalty`) and custom (`custom:<id>`) payment-method keys to existing GL accounts; it does not create a second payment-method catalogue.
-- `accounting_expenses` stores auditable draft expenses using integer `amount_minor`, currency code, expense date, category, payee/reference, and paid/unpaid state. A paid expense requires an existing payment-method mapping and payment date.
-- Manager-only endpoints are mounted at `/api/accounting`: `GET/POST/PUT /expense-categories`, `GET/PUT /payment-account-mappings`, and `GET/POST/PUT /expenses` (including `GET /expenses/:id`).
+- `accounting_expenses` stores auditable draft expenses using integer `amount_minor`, currency code, expense date, category, payee/reference, and paid/unpaid state. A paid expense requires an existing payment-method mapping and payment date. Category, expense and mapping mutations also append records to `accounting_audit_log` in the same transaction.
+- Manager-only endpoints are mounted at `/api/accounting`: `GET /accounts`, `GET/POST/PUT /expense-categories`, `GET/PUT /payment-account-mappings`, and `GET/POST/PUT /expenses` (including `GET /expenses/:id`).
 - This increment does not yet post expense journals, implement transfers, or add UI. Those remain Phase 2 stages 2 and 3. Posted expenses are not editable through the draft API.
 
 ## 4. Ledger service contract
