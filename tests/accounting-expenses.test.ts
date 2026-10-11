@@ -77,6 +77,9 @@ try {
     description: 'Corrected electricity bill', payment_status: 'unpaid',
   }, 'manager-1');
   equal(edited.amount_minor, 275000, 'draft expense can be edited');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(unpaid.id) as any).count, 2, 'expense creation and edit are both audited');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense_category' AND entity_id=?").get(category.id) as any).count, 1, 'expense category creation is audited');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id='cash'").get() as any).count, 1, 'payment account mapping is audited');
   throws(() => expenses.assertAccountingDate('2026-02-30'), /real calendar date/i, 'invalid calendar days are rejected');
   console.log('Accounting expense foundation: ' + checks + ' assertions passed.');
 } catch (error) {
