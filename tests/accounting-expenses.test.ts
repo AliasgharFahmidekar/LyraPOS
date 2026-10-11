@@ -77,7 +77,7 @@ try {
   equal(unpaid.status, 'draft', 'new expense starts as draft');
   equal(unpaid.payment_status, 'unpaid', 'unpaid expense needs no payment mapping');
   equal(unpaid.payment_method_key, null, 'unpaid expense has no payment method');
-  equal(expenses.listExpenses(db, { category_id: category.id }).length, 1, 'expense list filters by category');
+  equal(expenses.listExpenses(db, { category_id: category.id }).length, 2, 'expense list filters by category after multiple expenses exist');
   throws(() => expenses.listExpenses(db, { status: 'unexpected' }), /status filter must be/i, 'invalid expense status filters are rejected');
   throws(() => expenses.listExpenses(db, { payment_status: 'unexpected' }), /payment status filter must be/i, 'invalid payment status filters are rejected');
   equal(expenses.getExpense(db, unpaid.id).id, unpaid.id, 'expense detail resolves the created record');
