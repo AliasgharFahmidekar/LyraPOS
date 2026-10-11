@@ -66,6 +66,27 @@ function copyAndStamp(sourcePath: string, destinationPath: string, schemaVersion
   fs.copyFileSync(sourcePath, destinationPath);
   const backupDb = new Database(destinationPath);
   backupDb.pragma('foreign_keys = OFF');
+
+  // A lower user_version must be paired with the schema that existed then.
+  // Stamping a v102-shaped file as v101 masked restore behavior for tables
+  // added by Phase 2; v99 fixtures must omit both ledger generations.
+  if (schemaVersion < 102) {
+    backupDb.exec(`
+      DROP TABLE IF EXISTS accounting_expenses;
+      DROP TABLE IF EXISTS accounting_payment_method_mappings;
+      DROP TABLE IF EXISTS accounting_expense_categories;
+    `);
+  }
+  if (schemaVersion < 100) {
+    backupDb.exec(`
+      DROP TABLE IF EXISTS accounting_journal_lines;
+      DROP TABLE IF EXISTS accounting_journal_entries;
+      DROP TABLE IF EXISTS accounting_audit_log;
+      DROP TABLE IF EXISTS accounting_sequences;
+      DROP TABLE IF EXISTS accounting_accounts;
+    `);
+  }
+
   backupDb.prepare("UPDATE _flo_meta SET value = ? WHERE key = 'schema_version'").run(String(schemaVersion));
   backupDb.pragma(`user_version = ${schemaVersion}`);
   backupDb.close();
