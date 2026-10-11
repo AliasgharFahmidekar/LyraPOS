@@ -56,11 +56,17 @@ function freshInstallChecks(): void {
   initDatabase();
   const db = getDatabase();
 
-  equal(getCurrentSchemaVersion(), 103, 'fresh install reaches schema version 103');
+  equal(getCurrentSchemaVersion(), 104, 'fresh install reaches schema version 104');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
     'accounting_journal_lines', 'accounting_audit_log',
   ]) check(tableExists(db, table), 'fresh install creates ' + table);
+  const expenseColumns = (db.pragma('table_info(accounting_expenses)') as Array<{ name: string }>).map((column) => column.name);
+  check(expenseColumns.includes('reversal_journal_entry_id'), 'fresh install includes expense reversal journal link');
+  check(expenseColumns.includes('reversal_reason'), 'fresh install includes expense reversal reason');
+  for (const trigger of ['accounting_expense_posted_fields_immutable', 'accounting_expense_state_transition_guard', 'accounting_expense_posted_delete_guard']) {
+    check(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger), 'fresh install creates ' + trigger);
+  }
 
   const accounts = db.prepare('SELECT id, account_code, is_postable FROM accounting_accounts ORDER BY account_code').all() as any[];
   equal(accounts.length, 20, 'migration seeds the starter chart of accounts');
@@ -322,7 +328,7 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 103, 'existing database upgrades from v99 through schema version 103');
+  equal(getCurrentSchemaVersion(), 104, 'existing database upgrades from v99 through schema version 104');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
@@ -357,7 +363,7 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 103, 'v100 database upgrades through schema version 103');
+  equal(getCurrentSchemaVersion(), 104, 'v100 database upgrades through schema version 104');
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
     /system or posted accounting account definitions are immutable/i,
@@ -404,17 +410,23 @@ function upgradeFromVersion102Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 103, 'v102 database upgrades to schema version 103');
-  const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
-  equal(preserved.id, 'expense-v102-preserve', 'v103 migration preserves existing expense records');
-  equal(preserved.amount_minor, 2500, 'v103 migration preserves existing expense amount');
-  equal(preserved.currency_code, 'IRR', 'v103 migration preserves existing expense currency');
+  equal(getCurrentSchemaVersion(), 104, 'v102 database upgrades to schema version 104');
+  const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key,reversal_journal_entry_id,reversal_reason FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
+  equal(preserved.id, 'expense-v102-preserve', 'upgrade preserves existing expense records');
+  equal(preserved.amount_minor, 2500, 'upgrade preserves existing expense amount');
+  equal(preserved.currency_code, 'IRR', 'upgrade preserves existing expense currency');
   equal(preserved.idempotency_key, null, 'pre-existing expenses keep a null optional idempotency key');
+  equal(preserved.reversal_journal_entry_id, null, 'pre-existing expenses receive a null reversal journal link');
+  equal(preserved.reversal_reason, null, 'pre-existing expenses receive no fabricated reversal reason');
   check(
     !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='accounting_expense_insert_guard'").get(),
     'v103 installs expense integrity guards',
   );
-  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v103 upgrade passes integrity_check');
+  check(
+    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='accounting_expense_state_transition_guard'").get(),
+    'v104 installs expense lifecycle guards on upgrade',
+  );
+  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v104 upgrade passes integrity_check');
 
   closeDatabase();
   fs.rmSync(activeTestDir, { recursive: true, force: true });
@@ -437,7 +449,7 @@ function upgradeFromVersion101Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 103, 'v101 database upgrades through schema version 103');
+  equal(getCurrentSchemaVersion(), 104, 'v101 database upgrades through schema version 104');
   check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
   check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
   check(tableExists(db, 'accounting_expenses'), 'expense migration creates expenses');
