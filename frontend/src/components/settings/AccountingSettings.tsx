@@ -52,7 +52,7 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
   const [transferDescription, setTransferDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const digits = useMemo(() => {
-    try { return new Intl.NumberFormat(locale, { style: 'currency', currency }).resolvedOptions().maximumFractionDigits; } catch { return 0; }
+    try { return new Intl.NumberFormat(locale, { style: 'currency', currency }).resolvedOptions().maximumFractionDigits || 0; } catch { return 0; }
   }, [currency, locale]);
   const load = useCallback(async () => {
     const results = await Promise.all([
