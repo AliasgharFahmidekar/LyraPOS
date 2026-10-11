@@ -52,13 +52,13 @@ try {
   const customMethod = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Online Transfer',1,10,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
   const customKey = 'custom:' + Number(customMethod.lastInsertRowid);
   const customMapping = expenses.setPaymentAccountMapping(db, customKey, 'acct-bank', 'manager-1');
-  expenses.setPaymentAccountMapping(db, customKey, 'acct-payables', 'manager-1');
-  throws(() => expenses.createExpense(db, {
+  throws(() => expenses.setPaymentAccountMapping(db, customKey, 'acct-payables', 'manager-1'), /requires an account of type: asset/i, 'custom payment methods cannot map to liability accounts');
+  const customPaid = expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 1000, currency_code: 'IRR',
-    description: 'Must not credit a liability as cash paid', payment_status: 'paid',
+    description: 'Custom payment uses its asset account', payment_status: 'paid',
     payment_method_key: customKey, payment_date: '2026-10-11',
-  }, 'manager-1'), /requires an account of type: asset/i, 'a paid expense cannot use a liability mapping as its payment account');
-  expenses.setPaymentAccountMapping(db, customKey, 'acct-bank', 'manager-1');
+  }, 'manager-1');
+  equal(customPaid.payment_account_id, 'acct-bank', 'paid custom-method expense snapshots its mapped asset account');
   db.prepare('UPDATE payment_methods SET is_active = 0 WHERE id = ?').run(Number(customMethod.lastInsertRowid));
   throws(() => expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 1000, currency_code: 'IRR',
