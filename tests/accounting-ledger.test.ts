@@ -385,6 +385,37 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
 }
 
+function upgradeFromVersion101Checks(): void {
+  activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lyra-accounting-v101-upgrade-'));
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations.filter((migration: any) => migration.version <= 101));
+  initDatabase();
+
+  let db = getDatabase();
+  equal(getCurrentSchemaVersion(), 101, 'migration fixture starts at schema version 101');
+  check(!tableExists(db, 'accounting_expenses'), 'v101 fixture does not contain phase 2 expense tables');
+  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('accounting_v101_preserve_me', 'keep-me', CURRENT_TIMESTAMP)").run();
+
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
+  runPendingMigrations();
+  db = getDatabase();
+  equal(getCurrentSchemaVersion(), 102, 'v101 database upgrades to schema version 102');
+  check(tableExists(db, 'accounting_expense_categories'), 'v102 upgrade creates expense categories');
+  check(tableExists(db, 'accounting_payment_method_mappings'), 'v102 upgrade creates payment account mappings');
+  check(tableExists(db, 'accounting_expenses'), 'v102 upgrade creates expenses');
+  equal(
+    (db.prepare("SELECT value FROM settings WHERE key = 'accounting_v101_preserve_me'").get() as any).value,
+    'keep-me',
+    'v101 to v102 upgrade preserves pre-existing settings',
+  );
+
+  closeDatabase();
+  fs.rmSync(activeTestDir, { recursive: true, force: true });
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
+}
+
 function main(): void {
   console.log('LyraPOS accounting ledger foundation tests');
   try {
@@ -392,6 +423,7 @@ function main(): void {
       freshInstallChecks();
       upgradeFromPreviousSchemaChecks();
       upgradeFromVersion100Checks();
+      upgradeFromVersion101Checks();
     } catch (error: any) {
       if (isNativeAbiMismatch(error)) {
         console.log('SKIP: better-sqlite3 is built for a different native ABI.');
