@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { RegionalNotConfiguredError, resolveTenantCurrency } from '../countries';
+import { createDraftJournalEntry, postJournalEntry } from './ledger';
 type DB = Database.Database;
 
 export class AccountingExpenseError extends Error {
@@ -46,6 +47,7 @@ const EXPENSE_AUDIT_FIELDS = [
   'id', 'category_id', 'expense_account_id', 'expense_date', 'amount_minor', 'currency_code',
   'description', 'payee', 'reference_number', 'payment_status', 'payment_method_key',
   'payment_account_id', 'payment_date', 'status', 'posted_journal_entry_id',
+  'reversal_journal_entry_id', 'reversal_reason',
   'created_by', 'updated_by', 'created_at', 'updated_at',
 ] as const;
 
@@ -300,4 +302,118 @@ export function updateDraftExpense(db: DB, id: string, input: any, actorId: stri
     auditExpenseAction(db, 'expense', id, 'updated', actorId, expenseAuditSnapshot(current), expenseAuditSnapshot(getExpense(db, id)));
   })();
   return getExpense(db, id);
+}
+
+
+export function postExpense(db: DB, id: string, actorId: string | null): any {
+  const expenseId = textValue(id, 'expense_id', 100);
+  const current = getExpense(db, expenseId);
+  if (current.status === 'posted') {
+    if (!current.posted_journal_entry_id) fail('expense_journal_missing', 'Posted expense has no linked journal entry.', 409);
+    const journal = db.prepare('SELECT status FROM accounting_journal_entries WHERE id = ?')
+      .get(current.posted_journal_entry_id) as { status: string } | undefined;
+    if (journal?.status !== 'posted') fail('expense_journal_invalid', 'Posted expense journal is missing or not posted.', 409);
+    return { ...current, duplicate: true };
+  }
+  if (current.status === 'reversed') fail('expense_reversed', 'A reversed expense cannot be posted again.', 409);
+  if (current.payment_status !== 'paid' || !current.payment_account_id || !current.payment_date) {
+    fail('expense_unpaid', 'Only expenses already marked as paid can be posted in this stage.', 409);
+  }
+
+  return db.transaction(() => {
+    const fresh = getExpense(db, expenseId);
+    if (fresh.status !== 'draft') fail('expense_not_postable', 'Only draft expenses can be posted.', 409);
+    if (fresh.payment_status !== 'paid' || !fresh.payment_account_id || !fresh.payment_date) {
+      fail('expense_unpaid', 'Only expenses already marked as paid can be posted in this stage.', 409);
+    }
+
+    const journal = createDraftJournalEntry(db, {
+      entryDate: fresh.payment_date,
+      description: 'Expense: ' + fresh.description,
+      currencyCode: fresh.currency_code,
+      lines: [
+        { accountId: fresh.expense_account_id, debitMinor: fresh.amount_minor, creditMinor: 0, description: fresh.description },
+        { accountId: fresh.payment_account_id, debitMinor: 0, creditMinor: fresh.amount_minor, description: fresh.description },
+      ],
+      createdBy: actorId,
+      sourceType: 'expense',
+      sourceId: fresh.id,
+      sourceEvent: 'expense_paid',
+      idempotencyKey: 'expense:' + fresh.id + ':paid',
+    });
+    const postedJournal = postJournalEntry(db, journal.id, actorId);
+    db.prepare("UPDATE accounting_expenses SET status='posted', posted_journal_entry_id=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='draft'")
+      .run(postedJournal.id, actorId, fresh.id);
+    const saved = getExpense(db, fresh.id);
+    auditExpenseAction(db, 'expense', fresh.id, 'posted', actorId, expenseAuditSnapshot(fresh), expenseAuditSnapshot(saved));
+    return { ...saved, duplicate: false };
+  })();
+}
+
+export function reverseExpense(
+  db: DB,
+  id: string,
+  reasonInput: unknown,
+  reversalDateInput: unknown,
+  actorId: string | null,
+): any {
+  const expenseId = textValue(id, 'expense_id', 100);
+  const reason = textValue(reasonInput, 'reversal_reason', 500);
+  const reversalDate = assertAccountingDate(reversalDateInput, 'reversal_date');
+  const current = getExpense(db, expenseId);
+
+  if (current.status === 'reversed') {
+    const reversal = current.reversal_journal_entry_id
+      ? db.prepare('SELECT entry_date, status FROM accounting_journal_entries WHERE id = ?')
+        .get(current.reversal_journal_entry_id) as { entry_date: string; status: string } | undefined
+      : undefined;
+    if (current.reversal_reason !== reason || reversal?.entry_date !== reversalDate || reversal?.status !== 'posted') {
+      fail('expense_reversal_conflict', 'This expense has already been reversed with a different reason or date.', 409);
+    }
+    return { ...current, duplicate: true };
+  }
+  if (current.status !== 'posted' || !current.posted_journal_entry_id) {
+    fail('expense_not_reversible', 'Only a posted expense can be reversed.', 409);
+  }
+
+  return db.transaction(() => {
+    const fresh = getExpense(db, expenseId);
+    if (fresh.status !== 'posted' || !fresh.posted_journal_entry_id) {
+      fail('expense_not_reversible', 'Only a posted expense can be reversed.', 409);
+    }
+    const original = db.prepare(
+      'SELECT entry.entry_number, entry.currency_code, entry.status, line.account_id, line.debit_minor, line.credit_minor, line.description ' +
+      'FROM accounting_journal_entries AS entry JOIN accounting_journal_lines AS line ON line.journal_entry_id = entry.id ' +
+      'WHERE entry.id = ? ORDER BY line.line_no',
+    ).all(fresh.posted_journal_entry_id) as Array<{
+      entry_number: string; currency_code: string; status: string;
+      account_id: string; debit_minor: number; credit_minor: number; description: string | null;
+    }>;
+    if (original.length < 2 || original.some((line) => line.status !== 'posted')) {
+      fail('expense_journal_invalid', 'The original expense journal is missing, unposted, or incomplete.', 409);
+    }
+
+    const journal = createDraftJournalEntry(db, {
+      entryDate: reversalDate,
+      description: 'Reversal of ' + original[0].entry_number + ': ' + reason,
+      currencyCode: fresh.currency_code,
+      lines: original.map((line) => ({
+        accountId: line.account_id,
+        debitMinor: line.credit_minor,
+        creditMinor: line.debit_minor,
+        description: 'Reversal: ' + (line.description || fresh.description),
+      })),
+      createdBy: actorId,
+      sourceType: 'expense',
+      sourceId: fresh.id,
+      sourceEvent: 'expense_reversal',
+      idempotencyKey: 'expense:' + fresh.id + ':reversal',
+    });
+    const postedJournal = postJournalEntry(db, journal.id, actorId);
+    db.prepare("UPDATE accounting_expenses SET status='reversed', reversal_journal_entry_id=?, reversal_reason=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='posted'")
+      .run(postedJournal.id, reason, actorId, fresh.id);
+    const saved = getExpense(db, fresh.id);
+    auditExpenseAction(db, 'expense', fresh.id, 'reversed', actorId, expenseAuditSnapshot(fresh), expenseAuditSnapshot(saved));
+    return { ...saved, duplicate: false };
+  })();
 }
