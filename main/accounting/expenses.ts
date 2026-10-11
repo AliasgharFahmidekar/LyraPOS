@@ -104,7 +104,7 @@ function paymentKey(db: DB, value: unknown, requireActive = false): string {
   return key;
 }
 function mappedAccount(db: DB, key: string, accountId: unknown): string {
-  const types = key === 'cash' || key === 'card' ? ['asset'] : key === 'loyalty' ? ['liability'] : ['asset', 'liability'];
+  const types = key === 'loyalty' ? ['liability'] : ['asset'];
   return postingAccount(db, accountId, types).id;
 }
 export function listPaymentAccountMappings(db: DB): any[] {
