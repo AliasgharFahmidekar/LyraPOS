@@ -2942,7 +2942,7 @@ export default function SettingsPage() {
           <PaymentMethodsSettings isAdmin={isAdmin} />
         </TabsContent>
 
-        {isAdmin && <TabsContent value="accounting"><AccountingSettings isAdmin={isAdmin} /></TabsContent>
+        {isAdmin && <TabsContent value="accounting"><AccountingSettings isAdmin={isAdmin} /></TabsContent>}
 
         {isAdmin && (
         <TabsContent value="appearance">
