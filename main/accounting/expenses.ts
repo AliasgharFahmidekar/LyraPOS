@@ -43,7 +43,7 @@ function categoryInput(db: DB, input: any) {
     active: input?.is_active === undefined ? 1 : (input.is_active === true || input.is_active === 1 ? 1 : 0),
   };
 }
-export function listExpenseCategories(db: DB, includeInactive = false): any[] {
+export function listPostingAccounts(db: DB, accountTypes?: string[]): any[] {\n  const types = Array.isArray(accountTypes) ? accountTypes.filter((type) => ['asset','liability','equity','revenue','expense'].includes(type)) : [];\n  const rows = db.prepare('SELECT id, account_code, name, account_type, normal_balance, parent_account_id, is_active, is_postable FROM accounting_accounts WHERE is_active = 1 AND is_postable = 1 ORDER BY account_code').all() as any[];\n  return types.length ? rows.filter((account) => types.includes(account.account_type)) : rows;\n}\nexport function listExpenseCategories(db: DB, includeInactive = false): any[] {
   return db.prepare(
     'SELECT c.id, c.name, c.expense_account_id, a.account_code, a.name AS expense_account_name, c.is_active, c.created_by, c.updated_by, c.created_at, c.updated_at, ' +
     '(SELECT COUNT(*) FROM accounting_expenses e WHERE e.category_id = c.id) AS expense_count ' +
