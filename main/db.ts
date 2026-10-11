@@ -5832,6 +5832,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           reference_number TEXT,
           payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'paid')),
           payment_method_key TEXT,
+          payment_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           payment_date TEXT CHECK (
             payment_date IS NULL OR (
               length(payment_date) = 10 AND payment_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
@@ -5844,8 +5845,8 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CHECK (
-            (payment_status = 'unpaid' AND payment_method_key IS NULL AND payment_date IS NULL)
-            OR (payment_status = 'paid' AND payment_method_key IS NOT NULL AND payment_date IS NOT NULL)
+            (payment_status = 'unpaid' AND payment_method_key IS NULL AND payment_account_id IS NULL AND payment_date IS NULL)
+            OR (payment_status = 'paid' AND payment_method_key IS NOT NULL AND payment_account_id IS NOT NULL AND payment_date IS NOT NULL)
           ),
           CHECK (
             (status = 'draft' AND posted_journal_entry_id IS NULL)
