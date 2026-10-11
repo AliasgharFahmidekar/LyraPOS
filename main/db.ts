@@ -5790,6 +5790,78 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       recreateAccountingAccountDefinitionGuard(db);
     },
   },
+
+  {
+    version: 102,
+    name: 'accounting_expense_foundation',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_expense_categories (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+          expense_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          created_by TEXT,
+          updated_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE accounting_payment_method_mappings (
+          payment_method_key TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          updated_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (
+            payment_method_key IN ('cash', 'card', 'loyalty')
+            OR payment_method_key GLOB 'custom:[1-9][0-9]*'
+          )
+        );
+
+        CREATE TABLE accounting_expenses (
+          id TEXT PRIMARY KEY,
+          category_id TEXT NOT NULL REFERENCES accounting_expense_categories(id) ON DELETE RESTRICT,
+          expense_date TEXT NOT NULL CHECK (
+            length(expense_date) = 10 AND expense_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+          ),
+          amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          description TEXT NOT NULL CHECK (length(trim(description)) > 0),
+          payee TEXT,
+          reference_number TEXT,
+          payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'paid')),
+          payment_method_key TEXT,
+          payment_date TEXT CHECK (
+            payment_date IS NULL OR (
+              length(payment_date) = 10 AND payment_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+            )
+          ),
+          status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'posted', 'reversed')),
+          posted_journal_entry_id TEXT UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          created_by TEXT,
+          updated_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (
+            (payment_status = 'unpaid' AND payment_method_key IS NULL AND payment_date IS NULL)
+            OR (payment_status = 'paid' AND payment_method_key IS NOT NULL AND payment_date IS NOT NULL)
+          ),
+          CHECK (
+            (status = 'draft' AND posted_journal_entry_id IS NULL)
+            OR (status IN ('posted', 'reversed') AND posted_journal_entry_id IS NOT NULL)
+          )
+        );
+
+        CREATE INDEX accounting_expenses_date_idx
+          ON accounting_expenses(expense_date DESC, created_at DESC);
+        CREATE INDEX accounting_expenses_category_idx
+          ON accounting_expenses(category_id, expense_date DESC);
+        CREATE INDEX accounting_expenses_status_idx
+          ON accounting_expenses(status, payment_status, expense_date DESC);
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
