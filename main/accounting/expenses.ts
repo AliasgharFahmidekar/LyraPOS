@@ -93,12 +93,14 @@ export function saveExpenseCategory(db: DB, input: any, actorId: string | null, 
   }
   return listExpenseCategories(db, true).find((row: any) => row.id === id);
 }
-function paymentKey(db: DB, value: unknown): string {
+function paymentKey(db: DB, value: unknown, requireActive = false): string {
   const key = textValue(value, 'payment_method_key', 80);
   if (key === 'cash' || key === 'card' || key === 'loyalty') return key;
   const match = /^custom:([1-9]\d*)$/.exec(key);
   if (!match) fail('invalid_payment_method_key', 'Choose a supported existing payment method.');
-  if (!db.prepare('SELECT id FROM payment_methods WHERE id = ?').get(Number(match[1]))) fail('payment_method_not_found', 'The selected custom payment method does not exist.', 404);
+  const method = db.prepare('SELECT id, is_active FROM payment_methods WHERE id = ?').get(Number(match[1])) as { id: number; is_active: number } | undefined;
+  if (!method) fail('payment_method_not_found', 'The selected custom payment method does not exist.', 404);
+  if (requireActive && method.is_active !== 1) fail('payment_method_inactive', 'Choose an active payment method for a new expense payment.', 409);
   return key;
 }
 function mappedAccount(db: DB, key: string, accountId: unknown): string {
@@ -131,7 +133,7 @@ function paymentInput(db: DB, input: any) {
   const status = input?.payment_status === undefined ? 'unpaid' : input.payment_status;
   if (status !== 'paid' && status !== 'unpaid') fail('invalid_payment_status', 'Payment status must be paid or unpaid.');
   if (status === 'unpaid') return { paymentStatus: status, paymentMethodKey: null, paymentAccountId: null, paymentDate: null };
-  const key = paymentKey(db, input?.payment_method_key);
+  const key = paymentKey(db, input?.payment_method_key, true);
   if (key === 'loyalty') fail('invalid_expense_payment_method', 'A loyalty wallet is not a valid expense payment source.');
   const mapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as { account_id: string } | undefined;
   if (!mapping) fail('payment_mapping_required', 'Map this payment method to an accounting account before using it for a paid expense.', 409);
