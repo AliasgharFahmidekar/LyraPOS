@@ -41,10 +41,16 @@ function auditExpenseAction(db: DB, entityType: string, entityId: string, action
     .run(entityType, entityId, action, actorId, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after));
 }
 function categoryInput(db: DB, input: any) {
+  let active: number | null = null;
+  if (input?.is_active !== undefined) {
+    if (input.is_active === true || input.is_active === 1) active = 1;
+    else if (input.is_active === false || input.is_active === 0) active = 0;
+    else fail('invalid_is_active', 'Category active state must be a boolean.');
+  }
   return {
     name: textValue(input?.name, 'name', 80),
     accountId: postingAccount(db, input?.expense_account_id, ['expense']).id,
-    active: input?.is_active === undefined ? 1 : (input.is_active === true || input.is_active === 1 ? 1 : 0),
+    active,
   };
 }
 export function listPostingAccounts(db: DB, accountTypes?: string[]): any[] {
@@ -66,15 +72,16 @@ export function saveExpenseCategory(db: DB, input: any, actorId: string | null, 
     db.transaction(() => {
       const before = categoryId ? db.prepare('SELECT id,name,expense_account_id,is_active FROM accounting_expense_categories WHERE id=?').get(categoryId) as any : null;
       if (categoryId && !before) fail('category_not_found', 'Expense category was not found.', 404);
+      const active = n.active ?? (before ? before.is_active : 1);
       if (categoryId) {
         db.prepare('UPDATE accounting_expense_categories SET name=?, expense_account_id=?, is_active=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
-          .run(n.name, n.accountId, n.active, actorId, categoryId);
+          .run(n.name, n.accountId, active, actorId, categoryId);
       } else {
         db.prepare('INSERT INTO accounting_expense_categories (id,name,expense_account_id,is_active,created_by,updated_by) VALUES (?,?,?,?,?,?)')
-          .run(id, n.name, n.accountId, n.active, actorId, actorId);
+          .run(id, n.name, n.accountId, active, actorId, actorId);
       }
       auditExpenseAction(db, 'expense_category', id, categoryId ? 'updated' : 'created', actorId, before, {
-        id, name: n.name, expense_account_id: n.accountId, is_active: n.active,
+        id, name: n.name, expense_account_id: n.accountId, is_active: active,
       });
     })();
   } catch (e: any) {
@@ -125,7 +132,8 @@ function paymentInput(db: DB, input: any) {
   if (key === 'loyalty') fail('invalid_expense_payment_method', 'A loyalty wallet is not a valid expense payment source.');
   const mapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as { account_id: string } | undefined;
   if (!mapping) fail('payment_mapping_required', 'Map this payment method to an accounting account before using it for a paid expense.', 409);
-  return { paymentStatus: status, paymentMethodKey: key, paymentAccountId: mapping.account_id, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
+  const paymentAccount = postingAccount(db, mapping.account_id, ['asset']);
+  return { paymentStatus: status, paymentMethodKey: key, paymentAccountId: paymentAccount.id, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
 }
 function expenseInput(db: DB, input: any) {
   const categoryId = textValue(input?.category_id, 'category_id', 100);
