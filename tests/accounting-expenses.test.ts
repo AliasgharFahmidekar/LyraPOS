@@ -30,6 +30,7 @@ try {
   const selectableAccounts = expenses.listPostingAccounts(db, ['expense']);
   ok(selectableAccounts.some((account: any) => account.id === 'acct-operating-expenses'), 'account API source lists active posting expense accounts');
   ok(!selectableAccounts.some((account: any) => account.id === 'acct-expenses'), 'account selection excludes non-postable group accounts');
+  equal(expenses.listPostingAccounts(db, ['not-an-account-type']).length, 0, 'invalid account-type filters return no accounts instead of all accounts');
 
   const category = expenses.saveExpenseCategory(db, { name: 'Utilities', expense_account_id: 'acct-operating-expenses' }, 'manager-1');
   equal(category.name, 'Utilities', 'category is created');
@@ -70,6 +71,8 @@ try {
   equal(unpaid.payment_status, 'unpaid', 'unpaid expense needs no payment mapping');
   equal(unpaid.payment_method_key, null, 'unpaid expense has no payment method');
   equal(expenses.listExpenses(db, { category_id: category.id }).length, 1, 'expense list filters by category');
+  throws(() => expenses.listExpenses(db, { status: 'unexpected' }), /status filter must be/i, 'invalid expense status filters are rejected');
+  throws(() => expenses.listExpenses(db, { payment_status: 'unexpected' }), /payment status filter must be/i, 'invalid payment status filters are rejected');
   equal(expenses.getExpense(db, unpaid.id).id, unpaid.id, 'expense detail resolves the created record');
 
   throws(() => expenses.createExpense(db, {
