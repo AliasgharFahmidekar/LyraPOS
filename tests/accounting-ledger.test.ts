@@ -56,7 +56,7 @@ function freshInstallChecks(): void {
   initDatabase();
   const db = getDatabase();
 
-  equal(getCurrentSchemaVersion(), 102, 'fresh install reaches schema version 102');
+  equal(getCurrentSchemaVersion(), 103, 'fresh install reaches schema version 103');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
     'accounting_journal_lines', 'accounting_audit_log',
