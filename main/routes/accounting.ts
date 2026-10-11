@@ -2,7 +2,8 @@ import { Router, Request, Response } from 'express';
 import { getDatabase } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
-import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, updateDraftExpense } from '../accounting/expenses';
+import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, updateDraftExpense, postExpense, reverseExpense } from '../accounting/expenses';
+import { AccountingLedgerError } from '../accounting/ledger';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -13,6 +14,10 @@ function actorId(req: Request): string | null {
 function respondError(res: Response, error: any): void {
   if (error instanceof AccountingExpenseError) {
     res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
+  }
+  if (error instanceof AccountingLedgerError) {
+    const status = error.code === 'entry_not_found' ? 404 : error.code === 'idempotency_conflict' ? 409 : 400;
+    res.status(status).json({ error: error.message, code: error.code }); return;
   }
   if (String(error?.message || '').includes('UNIQUE constraint')) {
     res.status(409).json({ error: 'A conflicting accounting record already exists.', code: 'duplicate_record' }); return;
@@ -61,5 +66,14 @@ router.get('/expenses/:id', managerOnly, (req, res) => {
 router.put('/expenses/:id', managerOnly, (req, res) => {
   try { res.json({ expense: updateDraftExpense(getDatabase(), String(req.params.id), req.body, actorId(req)) }); }
   catch (error) { respondError(res, error); }
+});
+router.post('/expenses/:id/post', managerOnly, (req, res) => {
+  try { res.json({ expense: postExpense(getDatabase(), String(req.params.id), actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/expenses/:id/reverse', managerOnly, (req, res) => {
+  try {
+    res.json({ expense: reverseExpense(getDatabase(), String(req.params.id), req.body?.reason, req.body?.reversal_date, actorId(req)) });
+  } catch (error) { respondError(res, error); }
 });
 export { router as accountingRoutes };
