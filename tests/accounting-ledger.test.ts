@@ -322,7 +322,7 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 102, 'existing database upgrades from v99 through schema version 102');
+  equal(getCurrentSchemaVersion(), 103, 'existing database upgrades from v99 through schema version 103');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
@@ -357,7 +357,7 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 102, 'v100 database upgrades through schema version 102');
+  equal(getCurrentSchemaVersion(), 103, 'v100 database upgrades through schema version 103');
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
     /system or posted accounting account definitions are immutable/i,
@@ -385,6 +385,43 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
 }
 
+function upgradeFromVersion102Checks(): void {
+  activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lyra-accounting-v102-upgrade-'));
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations.filter((migration: any) => migration.version <= 102));
+  initDatabase();
+
+  let db = getDatabase();
+  equal(getCurrentSchemaVersion(), 102, 'migration fixture starts at schema version 102');
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('country', 'IR', CURRENT_TIMESTAMP)").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'IRR', CURRENT_TIMESTAMP)").run();
+  db.prepare('INSERT INTO accounting_expense_categories (id,name,expense_account_id) VALUES (?,?,?)')
+    .run('expense-category-v102', 'Existing utilities', 'acct-operating-expenses');
+  db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description,payment_status) VALUES (?,?,?,?,?,?,?,?)')
+    .run('expense-v102-preserve', 'expense-category-v102', 'acct-operating-expenses', '2026-10-11', 2500, 'IRR', 'Pre-migration expense', 'unpaid');
+
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
+  runPendingMigrations();
+  db = getDatabase();
+  equal(getCurrentSchemaVersion(), 103, 'v102 database upgrades to schema version 103');
+  const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
+  equal(preserved.id, 'expense-v102-preserve', 'v103 migration preserves existing expense records');
+  equal(preserved.amount_minor, 2500, 'v103 migration preserves existing expense amount');
+  equal(preserved.currency_code, 'IRR', 'v103 migration preserves existing expense currency');
+  equal(preserved.idempotency_key, null, 'pre-existing expenses keep a null optional idempotency key');
+  check(
+    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='accounting_expense_insert_guard'").get(),
+    'v103 installs expense integrity guards',
+  );
+  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v103 upgrade passes integrity_check');
+
+  closeDatabase();
+  fs.rmSync(activeTestDir, { recursive: true, force: true });
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
+}
+
 function upgradeFromVersion101Checks(): void {
   activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lyra-accounting-v101-upgrade-'));
   MIGRATIONS.length = 0;
@@ -400,10 +437,10 @@ function upgradeFromVersion101Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 102, 'v101 database upgrades to schema version 102');
-  check(tableExists(db, 'accounting_expense_categories'), 'v102 upgrade creates expense categories');
-  check(tableExists(db, 'accounting_payment_method_mappings'), 'v102 upgrade creates payment account mappings');
-  check(tableExists(db, 'accounting_expenses'), 'v102 upgrade creates expenses');
+  equal(getCurrentSchemaVersion(), 103, 'v101 database upgrades through schema version 103');
+  check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
+  check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
+  check(tableExists(db, 'accounting_expenses'), 'expense migration creates expenses');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_v101_preserve_me'").get() as any).value,
     'keep-me',
@@ -424,6 +461,7 @@ function main(): void {
       upgradeFromPreviousSchemaChecks();
       upgradeFromVersion100Checks();
       upgradeFromVersion101Checks();
+      upgradeFromVersion102Checks();
     } catch (error: any) {
       if (isNativeAbiMismatch(error)) {
         console.log('SKIP: better-sqlite3 is built for a different native ABI.');
