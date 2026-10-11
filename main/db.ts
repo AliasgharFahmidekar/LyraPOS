@@ -2696,6 +2696,9 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_posted_account_definition_guard',
   'accounting_audit_log_no_update',
   'accounting_audit_log_no_delete',
+  'accounting_expense_insert_guard',
+  'accounting_expense_update_guard',
+  'accounting_expense_idempotency_immutable',
 ] as const;
 
 /**
@@ -2706,6 +2709,72 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
  * migration 100 remains reproducible. Newer hardening migrations are applied
  * separately and are also reinstated by the restore path.
  */
+/**
+ * Expense-specific integrity guards introduced by migration 103. Kept separate
+ * from migration 100's ledger SQL because the expense table does not exist yet
+ * when a new database first runs migration 100. The restore path also drops and
+ * recreates these guards around a validated data-only restore.
+ */
+const ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL = `
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_insert_guard
+        BEFORE INSERT ON accounting_expenses
+        BEGIN
+          SELECT CASE WHEN typeof(NEW.amount_minor) <> 'integer'
+            OR NEW.amount_minor < 1
+            OR NEW.amount_minor > 9007199254740991
+            THEN RAISE(ABORT, 'Accounting expense amount must be a positive safe integer') END;
+          SELECT CASE WHEN date(NEW.expense_date, '+0 days') IS NULL
+            OR date(NEW.expense_date, '+0 days') <> NEW.expense_date
+            THEN RAISE(ABORT, 'Accounting expense date must be a real calendar date') END;
+          SELECT CASE WHEN COALESCE((SELECT value FROM settings WHERE key = 'currency'), '') = ''
+            OR NEW.currency_code <> (SELECT value FROM settings WHERE key = 'currency')
+            THEN RAISE(ABORT, 'Accounting expense currency must match the configured store currency') END;
+          SELECT CASE WHEN
+            (NEW.idempotency_key IS NULL AND NEW.idempotency_payload_hash IS NOT NULL)
+            OR (NEW.idempotency_key IS NOT NULL AND (
+              length(trim(NEW.idempotency_key)) < 1
+              OR length(NEW.idempotency_key) > 128
+              OR NEW.idempotency_payload_hash IS NULL
+              OR length(NEW.idempotency_payload_hash) <> 64
+              OR NEW.idempotency_payload_hash GLOB '*[^0-9a-f]*'
+            ))
+            THEN RAISE(ABORT, 'Accounting expense idempotency key and payload hash are invalid') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_update_guard
+        BEFORE UPDATE ON accounting_expenses
+        BEGIN
+          SELECT CASE WHEN typeof(NEW.amount_minor) <> 'integer'
+            OR NEW.amount_minor < 1
+            OR NEW.amount_minor > 9007199254740991
+            THEN RAISE(ABORT, 'Accounting expense amount must be a positive safe integer') END;
+          SELECT CASE WHEN date(NEW.expense_date, '+0 days') IS NULL
+            OR date(NEW.expense_date, '+0 days') <> NEW.expense_date
+            THEN RAISE(ABORT, 'Accounting expense date must be a real calendar date') END;
+          SELECT CASE WHEN COALESCE((SELECT value FROM settings WHERE key = 'currency'), '') = ''
+            OR NEW.currency_code <> (SELECT value FROM settings WHERE key = 'currency')
+            THEN RAISE(ABORT, 'Accounting expense currency must match the configured store currency') END;
+          SELECT CASE WHEN
+            (NEW.idempotency_key IS NULL AND NEW.idempotency_payload_hash IS NOT NULL)
+            OR (NEW.idempotency_key IS NOT NULL AND (
+              length(trim(NEW.idempotency_key)) < 1
+              OR length(NEW.idempotency_key) > 128
+              OR NEW.idempotency_payload_hash IS NULL
+              OR length(NEW.idempotency_payload_hash) <> 64
+              OR NEW.idempotency_payload_hash GLOB '*[^0-9a-f]*'
+            ))
+            THEN RAISE(ABORT, 'Accounting expense idempotency key and payload hash are invalid') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_idempotency_immutable
+        BEFORE UPDATE OF idempotency_key, idempotency_payload_hash ON accounting_expenses
+        WHEN OLD.idempotency_key IS NOT NEW.idempotency_key
+          OR OLD.idempotency_payload_hash IS NOT NEW.idempotency_payload_hash
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting expense idempotency identity is immutable');
+        END;
+      `;
+
 const ACCOUNTING_LEDGER_TRIGGER_SQL = `
         CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_insert_draft
         BEFORE INSERT ON accounting_journal_entries
@@ -2851,6 +2920,7 @@ function dropAccountingLedgerRestoreTriggers(db: Database.Database): void {
 function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (!getTables(db).includes('accounting_accounts')) return;
   db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
+  if (getTables(db).includes('accounting_expenses')) db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
   recreateAccountingAccountDefinitionGuard(db);
 }
 
@@ -5862,6 +5932,19 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE INDEX accounting_expenses_status_idx
           ON accounting_expenses(status, payment_status, expense_date DESC);
       `);
+    },
+  },
+  {
+    version: 103,
+    name: 'accounting_expense_integrity_and_idempotency',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_expenses ADD COLUMN idempotency_key TEXT;
+        ALTER TABLE accounting_expenses ADD COLUMN idempotency_payload_hash TEXT;
+        CREATE UNIQUE INDEX accounting_expenses_idempotency_key_unique
+          ON accounting_expenses(idempotency_key) WHERE idempotency_key IS NOT NULL;
+      `);
+      db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
     },
   },
 ];
