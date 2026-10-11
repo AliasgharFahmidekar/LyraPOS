@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** ACTIVE DESIGN. Phase 0 repository discovery and Phase 1 ledger foundation are implemented in code (migrations 100–101 and `main/accounting/ledger.ts`). Sales/refund posting, expense workflows, reports and UI in later phases remain planned. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
+**Status:** ACTIVE DESIGN. Phase 0 discovery and Phase 1 ledger foundation are implemented (migrations 100–101 and `main/accounting/ledger.ts`). Phase 2 stage 1 now adds the expense data model and manager-only APIs in migration 102. Expense journal posting, transfers and UI remain to be implemented. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -177,7 +177,13 @@ The first version must not show a "net profit" KPI until COGS and relevant expen
 - Acceptance: balance/precision/account/source invariants are enforced in backend transactions; old databases upgrade without data loss; core POS workflows still work offline.
 
 ### Phase 2 — Expenses and financial accounts
-- Add expense categories, expense creation/list/detail and account mapping screens.
+
+**Stage 1 — data model and API (implemented in migration 102):** expense categories mapped to expense accounts, draft expense create/list/detail/update, paid/unpaid metadata, and mapping of existing payment-method keys to GL accounts. Manager-only endpoints are available under `/api/accounting`; no second payment-method catalogue is created. Coverage: `npm run test:accounting-expenses` plus ledger upgrade tests.
+
+**Stage 2 — posting and payment-state workflow (next):** post paid expenses to the mapped payment account and expense account, keep unpaid expenses from reducing cash, and enforce idempotency/audit-safe corrections.
+
+**Stage 3 — transfers and UI:** cash/bank transfers, expense/category screens and payment-account mapping in the existing Settings UI, with end-to-end tests.
+
 - Reuse existing payment methods and map them to GL accounts; do not create a second payment-method screen.
 - Add cash/bank transfers and expense journal posting.
 - Acceptance: paid expenses update the correct account and expense report once; transfers change account balances but do not affect income or expenses; drafts/posted corrections follow audit rules.
@@ -311,4 +317,4 @@ As of this change, Phase 0 discovery and Phase 1 ledger foundation are implement
 - `main/accounting/ledger.ts` validates and transactionally creates/posts draft journals.
 - `tests/accounting-ledger.test.ts` covers fresh installation, upgrades from v99 and v100, system-account identity guards, balance rules, idempotency, atomic rollback and posted-entry immutability.
 
-This does **not** yet enable expense entry, account mapping UI, automatic posting from sales/collections/refunds, inventory valuation or accounting reports. The next scoped PR should implement Phase 2, followed by Phase 3. Per product direction, a Windows installer is built for hands-on testing only after Phase 3 and its required CI/regression checks are green.
+This does **not** yet enable expense UI, expense journal posting, account transfers, UI, automatic posting from sales/collections/refunds, inventory valuation or accounting reports. The next scoped PR should implement Phase 2, followed by Phase 3. Per product direction, a Windows installer is built for hands-on testing only after Phase 3 and its required CI/regression checks are green.
