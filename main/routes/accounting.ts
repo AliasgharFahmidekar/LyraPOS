@@ -51,7 +51,7 @@ router.get('/expenses', managerOnly, (req, res) => {
   catch (error) { respondError(res, error); }
 });
 router.post('/expenses', managerOnly, (req, res) => {
-  try { res.status(201).json({ expense: createExpense(getDatabase(), req.body, actorId(req)) }); }
+  try { res.status(201).json({ expense: createExpense(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) }); }
   catch (error) { respondError(res, error); }
 });
 router.get('/expenses/:id', managerOnly, (req, res) => {
