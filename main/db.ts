@@ -5822,6 +5822,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE TABLE accounting_expenses (
           id TEXT PRIMARY KEY,
           category_id TEXT NOT NULL REFERENCES accounting_expense_categories(id) ON DELETE RESTRICT,
+          expense_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           expense_date TEXT NOT NULL CHECK (
             length(expense_date) = 10 AND expense_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
           ),
