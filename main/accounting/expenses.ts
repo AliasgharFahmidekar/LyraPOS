@@ -36,6 +36,10 @@ function postingAccount(db: DB, accountId: unknown, types: string[]): any {
   if (!types.includes(account.account_type)) fail('invalid_account_type', 'This operation requires an account of type: ' + types.join(' or ') + '.');
   return account;
 }
+function auditExpenseAction(db: DB, entityType: string, entityId: string, action: string, actorId: string | null, before: unknown, after: unknown): void {
+  db.prepare('INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(entityType, entityId, action, actorId, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after));
+}
 function categoryInput(db: DB, input: any) {
   return {
     name: textValue(input?.name, 'name', 80),
@@ -60,14 +64,18 @@ export function saveExpenseCategory(db: DB, input: any, actorId: string | null, 
   const n = categoryInput(db, input); const id = categoryId || randomUUID();
   try {
     db.transaction(() => {
+      const before = categoryId ? db.prepare('SELECT id,name,expense_account_id,is_active FROM accounting_expense_categories WHERE id=?').get(categoryId) as any : null;
+      if (categoryId && !before) fail('category_not_found', 'Expense category was not found.', 404);
       if (categoryId) {
-        if (!db.prepare('SELECT id FROM accounting_expense_categories WHERE id = ?').get(categoryId)) fail('category_not_found', 'Expense category was not found.', 404);
         db.prepare('UPDATE accounting_expense_categories SET name=?, expense_account_id=?, is_active=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
           .run(n.name, n.accountId, n.active, actorId, categoryId);
       } else {
         db.prepare('INSERT INTO accounting_expense_categories (id,name,expense_account_id,is_active,created_by,updated_by) VALUES (?,?,?,?,?,?)')
           .run(id, n.name, n.accountId, n.active, actorId, actorId);
       }
+      auditExpenseAction(db, 'expense_category', id, categoryId ? 'updated' : 'created', actorId, before, {
+        id, name: n.name, expense_account_id: n.accountId, is_active: n.active,
+      });
     })();
   } catch (e: any) {
     if (String(e?.message || '').includes('UNIQUE constraint failed: accounting_expense_categories.name')) fail('duplicate_category', 'An expense category with this name already exists.', 409);
@@ -101,8 +109,12 @@ export function listPaymentAccountMappings(db: DB): any[] {
 }
 export function setPaymentAccountMapping(db: DB, methodKey: unknown, accountId: unknown, actorId: string | null): any {
   const key = paymentKey(db, methodKey); const account = mappedAccount(db, key, accountId);
-  db.prepare('INSERT INTO accounting_payment_method_mappings (payment_method_key,account_id,updated_by) VALUES (?,?,?) ON CONFLICT(payment_method_key) DO UPDATE SET account_id=excluded.account_id, updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP')
-    .run(key, account, actorId);
+  const before = db.prepare('SELECT payment_method_key,account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as any;
+  db.transaction(() => {
+    db.prepare('INSERT INTO accounting_payment_method_mappings (payment_method_key,account_id,updated_by) VALUES (?,?,?) ON CONFLICT(payment_method_key) DO UPDATE SET account_id=excluded.account_id, updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP')
+      .run(key, account, actorId);
+    auditExpenseAction(db, 'payment_method_mapping', key, before ? 'updated' : 'created', actorId, before, { payment_method_key: key, account_id: account });
+  })();
   return listPaymentAccountMappings(db).find((m) => m.payment_method_key === key);
 }
 function paymentInput(db: DB, input: any) {
@@ -153,15 +165,29 @@ export function getExpense(db: DB, id: string): any {
 }
 export function createExpense(db: DB, input: any, actorId: string | null): any {
   const n = expenseInput(db, input), id = randomUUID();
-  db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_date,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id,n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentDate,actorId,actorId);
+  db.transaction(() => {
+    db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_date,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(id,n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentDate,actorId,actorId);
+    auditExpenseAction(db, 'expense', id, 'created', actorId, null, {
+      id, category_id: n.categoryId, expense_date: n.expenseDate, amount_minor: n.amount,
+      currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
+      payment_method_key: n.paymentMethodKey, payment_date: n.paymentDate,
+    });
+  })();
   return getExpense(db, id);
 }
 export function updateDraftExpense(db: DB, id: string, input: any, actorId: string | null): any {
   const current = getExpense(db, id);
   if (current.status !== 'draft') fail('expense_not_editable', 'Posted or reversed expenses cannot be edited; use a correction entry.', 409);
   const n = expenseInput(db, { ...current, ...input });
-  db.prepare('UPDATE accounting_expenses SET category_id=?,expense_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
-    .run(n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentDate,actorId,id,'draft');
+  db.transaction(() => {
+    db.prepare('UPDATE accounting_expenses SET category_id=?,expense_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
+      .run(n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentDate,actorId,id,'draft');
+    auditExpenseAction(db, 'expense', id, 'updated', actorId, current, {
+      id, category_id: n.categoryId, expense_date: n.expenseDate, amount_minor: n.amount,
+      currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
+      payment_method_key: n.paymentMethodKey, payment_date: n.paymentDate,
+    });
+  })();
   return getExpense(db, id);
 }
