@@ -317,4 +317,4 @@ As of this change, Phase 0 discovery and Phase 1 ledger foundation are implement
 - `main/accounting/ledger.ts` validates and transactionally creates/posts draft journals.
 - `tests/accounting-ledger.test.ts` covers fresh installation, upgrades from v99 and v100, system-account identity guards, balance rules, idempotency, atomic rollback and posted-entry immutability.
 
-This does **not** yet enable expense UI, expense journal posting, account transfers, UI, automatic posting from sales/collections/refunds, inventory valuation or accounting reports. The next scoped PR should implement Phase 2, followed by Phase 3. Per product direction, a Windows installer is built for hands-on testing only after Phase 3 and its required CI/regression checks are green.
+Stage 1 of Phase 2 now provides expense/category data and manager-only APIs. Expense journal posting, transfers, UI, automatic posting from sales/collections/refunds, inventory valuation and accounting reports remain planned in their later stages. Per product direction, a Windows installer is built for hands-on testing only after Phase 3 and its required CI/regression checks are green.
