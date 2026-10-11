@@ -19,11 +19,15 @@ function throws(fn: () => unknown, pattern: RegExp, message: string): void { ass
 function resetDb(): any {
   try { closeDatabase(); } catch {}
   activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lyra-accounting-expenses-case-'));
-  initDatabase(); return getDatabase();
+  initDatabase();
+  const db = getDatabase();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('country', 'IR', CURRENT_TIMESTAMP)").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'IRR', CURRENT_TIMESTAMP)").run();
+  return db;
 }
 try {
   const db = resetDb();
-  equal(getCurrentSchemaVersion(), 102, 'fresh install reaches schema v102');
+  equal(getCurrentSchemaVersion(), 103, 'fresh install reaches schema v103');
   for (const table of ['accounting_expense_categories','accounting_payment_method_mappings','accounting_expenses']) {
     ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'migration creates ' + table);
   }
@@ -37,6 +41,24 @@ try {
   equal(category.expense_account_id, 'acct-operating-expenses', 'category maps to the selected expense account');
   throws(() => expenses.saveExpenseCategory(db, { name: 'Wrong account', expense_account_id: 'acct-cash-drawer' }, 'manager-1'), /requires an account of type: expense/i, 'category cannot map to cash');
   throws(() => expenses.saveExpenseCategory(db, { name: 'Utilities', expense_account_id: 'acct-operating-expenses' }, 'manager-1'), /already exists/i, 'category names are case-insensitively unique');
+
+  throws(() => expenses.createExpense(db, {
+    category_id: category.id, expense_date: '2026-10-11', amount_minor: 1000, currency_code: 'USD',
+    description: 'Wrong currency must be rejected',
+  }, 'manager-1'), /must match the configured store currency/i, 'expense currency must match the configured store currency');
+
+  throws(() => db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description) VALUES (?,?,?,?,?,?,?)')
+    .run('direct-fractional-amount', category.id, 'acct-operating-expenses', '2026-10-11', 1.5, 'IRR', 'Direct fractional amount'),
+    /safe integer/i, 'database trigger rejects fractional expense minor units');
+  throws(() => db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description) VALUES (?,?,?,?,?,?,?)')
+    .run('direct-invalid-date', category.id, 'acct-operating-expenses', '2026-02-30', 100, 'IRR', 'Direct invalid date'),
+    /real calendar date/i, 'database trigger rejects impossible calendar dates');
+  throws(() => db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description) VALUES (?,?,?,?,?,?,?)')
+    .run('direct-wrong-currency', category.id, 'acct-operating-expenses', '2026-10-11', 100, 'USD', 'Direct wrong currency'),
+    /configured store currency/i, 'database trigger rejects mismatched store currency');
+  throws(() => db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description,idempotency_key) VALUES (?,?,?,?,?,?,?,?)')
+    .run('direct-bad-idempotency', category.id, 'acct-operating-expenses', '2026-10-11', 100, 'IRR', 'Invalid idempotency fields', 'direct-key'),
+    /idempotency key and payload hash/i, 'database trigger rejects incomplete idempotency metadata');
 
   const inactiveCategory = expenses.saveExpenseCategory(db, { name: 'Archived costs', expense_account_id: 'acct-operating-expenses', is_active: false }, 'manager-1');
   equal(inactiveCategory.is_active, 0, 'category can be deactivated explicitly');
@@ -93,27 +115,43 @@ try {
     payment_status: 'paid', payment_method_key: 'card', payment_date: '2026-10-11',
   }, 'manager-1'), /map this payment method/i, 'paid expense requires a mapped payment method');
 
-  const paid = expenses.createExpense(db, {
-    category_id: category.id, expense_date: '2026-10-11', amount_minor: 12000, currency_code: 'IRR', description: 'Paid for supplies',
+  const paidRequest = {
+    category_id: category.id, expense_date: '2026-10-11', amount_minor: 12000, currency_code: 'IRR',
+    description: 'Paid for supplies', payee: 'Coffee Supplier', reference_number: 'INV-12000',
     payment_status: 'paid', payment_method_key: 'cash', payment_date: '2026-10-11',
-  }, 'manager-1');
+  };
+  const paid = expenses.createExpense(db, paidRequest, 'manager-1', 'expense-request-0001');
+  const creationAudit = JSON.parse((db.prepare("SELECT after_json FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? ORDER BY id DESC LIMIT 1").get(paid.id) as any).after_json);
+  equal(creationAudit.payee, 'Coffee Supplier', 'expense creation audit snapshot includes payee');
+  equal(creationAudit.reference_number, 'INV-12000', 'expense creation audit snapshot includes reference number');
   equal(paid.payment_status, 'paid', 'paid expense keeps payment state');
   equal(paid.payment_account_id, 'acct-cash-drawer', 'expense detail snapshots the mapped payment account');
   expenses.setPaymentAccountMapping(db, 'cash', 'acct-bank', 'manager-1');
   equal(expenses.getExpense(db, paid.id).payment_account_id, 'acct-cash-drawer', 'later mapping changes do not rewrite an existing expense payment account');
+  const replayedPaid = expenses.createExpense(db, paidRequest, 'manager-1', 'expense-request-0001');
+  equal(replayedPaid.id, paid.id, 'retry with the same idempotency key returns the original expense');
+  equal(replayedPaid.payment_account_id, 'acct-cash-drawer', 'idempotent retry retains the original payment account snapshot after mapping changes');
+  equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_expenses WHERE idempotency_key = ?').get('expense-request-0001') as any).count, 1, 'idempotent retry does not create a duplicate expense');
+  throws(() => expenses.createExpense(db, { ...paidRequest, amount_minor: 12001 }, 'manager-1', 'expense-request-0001'),
+    /already used with a different expense payload/i, 'reusing an idempotency key with changed content is rejected');
   expenses.saveExpenseCategory(db, { name: 'Utilities', expense_account_id: 'acct-payment-fees' }, 'manager-1', category.id);
   equal(expenses.getExpense(db, unpaid.id).expense_account_id, 'acct-operating-expenses', 'category remapping does not rewrite an existing draft expense account');
   equal(expenses.getExpense(db, paid.id).expense_account_id, 'acct-operating-expenses', 'category remapping does not rewrite a paid expense account');
   const edited = expenses.updateDraftExpense(db, unpaid.id, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 275000, currency_code: 'IRR',
-    description: 'Corrected electricity bill', payment_status: 'paid',
-    payment_method_key: 'cash', payment_date: '2026-10-11',
+    description: 'Corrected electricity bill', payee: 'Electric Company', reference_number: 'ELEC-2026-10',
+    payment_status: 'paid', payment_method_key: 'cash', payment_date: '2026-10-11',
   }, 'manager-1');
   equal(edited.amount_minor, 275000, 'draft expense can be edited');
   equal(edited.expense_account_id, 'acct-operating-expenses', 'editing a draft keeps its original account snapshot when category is unchanged');
   equal(edited.payment_account_id, 'acct-bank', 'changing a draft to paid snapshots the currently mapped payment account');
   const expenseAuditAfterEdit = JSON.parse((db.prepare("SELECT after_json FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? ORDER BY id DESC LIMIT 1").get(unpaid.id) as any).after_json);
   equal(expenseAuditAfterEdit.payment_account_id, 'acct-bank', 'expense audit after-snapshot records the selected payment account');
+  equal(expenseAuditAfterEdit.payee, 'Electric Company', 'expense edit audit snapshot includes the updated payee');
+  equal(expenseAuditAfterEdit.reference_number, 'ELEC-2026-10', 'expense edit audit snapshot includes the updated reference number');
+  const expenseAuditBeforeEdit = JSON.parse((db.prepare("SELECT before_json FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? ORDER BY id DESC LIMIT 1").get(unpaid.id) as any).before_json);
+  equal(expenseAuditBeforeEdit.payee, null, 'expense edit audit before-snapshot preserves the previous payee');
+  equal(expenseAuditBeforeEdit.reference_number, null, 'expense edit audit before-snapshot preserves the previous reference number');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(unpaid.id) as any).count, 2, 'expense creation and edit are both audited');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense_category' AND entity_id=?").get(category.id) as any).count, 2, 'expense category creation and remapping are audited');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id='cash'").get() as any).count, 2, 'payment account mapping changes are audited');
