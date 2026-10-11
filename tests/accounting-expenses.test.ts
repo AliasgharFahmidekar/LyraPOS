@@ -37,6 +37,12 @@ try {
   throws(() => expenses.saveExpenseCategory(db, { name: 'Wrong account', expense_account_id: 'acct-cash-drawer' }, 'manager-1'), /requires an account of type: expense/i, 'category cannot map to cash');
   throws(() => expenses.saveExpenseCategory(db, { name: 'Utilities', expense_account_id: 'acct-operating-expenses' }, 'manager-1'), /already exists/i, 'category names are case-insensitively unique');
 
+  const inactiveCategory = expenses.saveExpenseCategory(db, { name: 'Archived costs', expense_account_id: 'acct-operating-expenses', is_active: false }, 'manager-1');
+  equal(inactiveCategory.is_active, 0, 'category can be deactivated explicitly');
+  const inactiveAfterEdit = expenses.saveExpenseCategory(db, { name: 'Archived costs', expense_account_id: 'acct-payment-fees' }, 'manager-1', inactiveCategory.id);
+  equal(inactiveAfterEdit.is_active, 0, 'editing an inactive category without is_active does not reactivate it');
+  throws(() => expenses.saveExpenseCategory(db, { name: 'Bad active value', expense_account_id: 'acct-operating-expenses', is_active: 'false' }, 'manager-1'), /must be a boolean/i, 'invalid active flags are rejected');
+
   const mapping = expenses.setPaymentAccountMapping(db, 'cash', 'acct-cash-drawer', 'manager-1');
   equal(mapping.account_id, 'acct-cash-drawer', 'cash maps to cash drawer');
   throws(() => expenses.setPaymentAccountMapping(db, 'cash', 'acct-operating-expenses', 'manager-1'), /requires an account of type: asset/i, 'cash cannot map to expense account');
@@ -45,6 +51,13 @@ try {
   const customMethod = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Online Transfer',1,10,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
   const customKey = 'custom:' + Number(customMethod.lastInsertRowid);
   const customMapping = expenses.setPaymentAccountMapping(db, customKey, 'acct-bank', 'manager-1');
+  expenses.setPaymentAccountMapping(db, customKey, 'acct-payables', 'manager-1');
+  throws(() => expenses.createExpense(db, {
+    category_id: category.id, expense_date: '2026-10-11', amount_minor: 1000, currency_code: 'IRR',
+    description: 'Must not credit a liability as cash paid', payment_status: 'paid',
+    payment_method_key: customKey, payment_date: '2026-10-11',
+  }, 'manager-1'), /requires an account of type: asset/i, 'a paid expense cannot use a liability mapping as its payment account');
+  expenses.setPaymentAccountMapping(db, customKey, 'acct-bank', 'manager-1');
   equal(customMapping.payment_method_name, 'Online Transfer', 'existing custom payment method is exposed in account mapping');
   equal(customMapping.account_id, 'acct-bank', 'custom payment method maps to selected bank account');
   ok(expenses.listPaymentAccountMappings(db).some((item: any) => item.payment_method_key === customKey && item.account_id === 'acct-bank'), 'mapping list returns configured custom payment methods');
