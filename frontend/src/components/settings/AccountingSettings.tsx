@@ -78,7 +78,11 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
     setCategoryId((v) => categoryRows.some((c) => c.id === v && c.is_active === 1) ? v : (categoryRows.find((c) => c.is_active === 1)?.id || ''));
     setNewCategoryAccount((v) => accountRows.some((a) => a.id === v && a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1) ? v : (accountRows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1)?.id || ''));
   }, []);
-  useEffect(() => {\n    // Loading server state here is intentional; the state updates occur after the asynchronous request resolves.\n    // eslint-disable-next-line react-hooks/set-state-in-effect\n    void load().catch(() => toast.error(t.loadFailed));\n  }, [load, t.loadFailed]);
+  useEffect(() => {
+    // Loading server state here is intentional; the state updates occur after the asynchronous request resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load().catch(() => toast.error(t.loadFailed));
+  }, [load, t.loadFailed]);
   const money = (minor: number) => new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: digits }).format(minor / (10 ** digits));
   const selectClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
   const inputClass = selectClass;
