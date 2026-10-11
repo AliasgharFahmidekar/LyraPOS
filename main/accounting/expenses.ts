@@ -1,5 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { RegionalNotConfiguredError, resolveTenantCurrency } from '../countries';
 type DB = Database.Database;
 
 export class AccountingExpenseError extends Error {
@@ -39,6 +40,20 @@ function postingAccount(db: DB, accountId: unknown, types: string[]): any {
 function auditExpenseAction(db: DB, entityType: string, entityId: string, action: string, actorId: string | null, before: unknown, after: unknown): void {
   db.prepare('INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?)')
     .run(entityType, entityId, action, actorId, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after));
+}
+
+const EXPENSE_AUDIT_FIELDS = [
+  'id', 'category_id', 'expense_account_id', 'expense_date', 'amount_minor', 'currency_code',
+  'description', 'payee', 'reference_number', 'payment_status', 'payment_method_key',
+  'payment_account_id', 'payment_date', 'status', 'posted_journal_entry_id',
+  'created_by', 'updated_by', 'created_at', 'updated_at',
+] as const;
+
+function expenseAuditSnapshot(row: any): Record<string, unknown> {
+  return Object.fromEntries(EXPENSE_AUDIT_FIELDS.map((field) => [
+    field,
+    row[field] === undefined ? null : row[field],
+  ]));
 }
 function categoryInput(db: DB, input: any) {
   let active: number | null = null;
@@ -140,6 +155,46 @@ function paymentInput(db: DB, input: any) {
   const paymentAccount = postingAccount(db, mapping.account_id, ['asset']);
   return { paymentStatus: status, paymentMethodKey: key, paymentAccountId: paymentAccount.id, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
 }
+function configuredStoreCurrency(db: DB): string {
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency')").all() as { key: string; value: string | null }[];
+  const settings = Object.fromEntries(rows.map((row) => [row.key, row.value ?? undefined]));
+  try {
+    return resolveTenantCurrency(settings.currency, settings.country ?? '');
+  } catch (error) {
+    if (error instanceof RegionalNotConfiguredError) {
+      fail('regional_not_configured', 'Configure the store country and currency before recording expenses.', 409);
+    }
+    throw error;
+  }
+}
+
+function idempotencyKeyValue(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return textValue(value, 'idempotency_key', 128);
+}
+
+function normalizedHashText(value: unknown): unknown {
+  if (value === undefined || value === null || value === '') return null;
+  return typeof value === 'string' ? (value.trim() || null) : value;
+}
+
+function expenseRequestHash(input: any): string {
+  const paymentStatus = input?.payment_status === undefined ? 'unpaid' : input.payment_status;
+  const canonicalRequest = {
+    category_id: normalizedHashText(input?.category_id),
+    expense_date: normalizedHashText(input?.expense_date),
+    amount_minor: input?.amount_minor ?? null,
+    currency_code: typeof input?.currency_code === 'string' ? input.currency_code.trim().toUpperCase() : (input?.currency_code ?? null),
+    description: normalizedHashText(input?.description),
+    payee: normalizedHashText(input?.payee),
+    reference_number: normalizedHashText(input?.reference_number),
+    payment_status: paymentStatus,
+    payment_method_key: paymentStatus === 'paid' ? normalizedHashText(input?.payment_method_key) : null,
+    payment_date: paymentStatus === 'paid' ? normalizedHashText(input?.payment_date) : null,
+  };
+  return createHash('sha256').update(JSON.stringify(canonicalRequest)).digest('hex');
+}
+
 function expenseInput(db: DB, input: any) {
   const categoryId = textValue(input?.category_id, 'category_id', 100);
   const category = db.prepare('SELECT c.id,c.is_active,c.expense_account_id,a.account_type,a.is_active AS account_active,a.is_postable FROM accounting_expense_categories c JOIN accounting_accounts a ON a.id=c.expense_account_id WHERE c.id=?').get(categoryId) as any;
@@ -149,6 +204,10 @@ function expenseInput(db: DB, input: any) {
   if (!Number.isSafeInteger(amount) || amount <= 0) fail('invalid_amount', 'Amount must be a positive safe integer in currency minor units.');
   const currency = typeof input?.currency_code === 'string' ? input.currency_code.trim().toUpperCase() : '';
   if (!/^[A-Z]{3}$/.test(currency)) fail('invalid_currency', 'Currency code must be a three-letter code.');
+  const storeCurrency = configuredStoreCurrency(db);
+  if (currency !== storeCurrency) {
+    fail('expense_currency_mismatch', 'Expense currency must match the configured store currency (' + storeCurrency + ').', 409);
+  }
   return {
     categoryId, expenseAccountId: category.expense_account_id, amount, currency, description: textValue(input?.description, 'description', 500),
     expenseDate: assertAccountingDate(input?.expense_date, 'expense_date'),
@@ -183,17 +242,44 @@ export function getExpense(db: DB, id: string): any {
   if (!row) fail('expense_not_found', 'Expense was not found.', 404);
   return row;
 }
-export function createExpense(db: DB, input: any, actorId: string | null): any {
+export function createExpense(db: DB, input: any, actorId: string | null, idempotencyKeyInput?: unknown): any {
+  const idempotencyKey = idempotencyKeyValue(idempotencyKeyInput);
+  const requestHash = idempotencyKey ? expenseRequestHash(input) : null;
+
+  // Resolve retries before revalidating mutable category/account mappings. A
+  // retry must return the original record even if settings changed after commit.
+  if (idempotencyKey) {
+    const existing = db.prepare('SELECT id, idempotency_payload_hash FROM accounting_expenses WHERE idempotency_key = ?').get(idempotencyKey) as
+      { id: string; idempotency_payload_hash: string | null } | undefined;
+    if (existing) {
+      if (existing.idempotency_payload_hash !== requestHash) {
+        fail('idempotency_key_conflict', 'This Idempotency-Key was already used with a different expense payload.', 409);
+      }
+      return getExpense(db, existing.id);
+    }
+  }
+
   const n = expenseInput(db, input), id = randomUUID();
-  db.transaction(() => {
-    db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_account_id,payment_date,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(id,n.categoryId,n.expenseAccountId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,actorId);
-    auditExpenseAction(db, 'expense', id, 'created', actorId, null, {
-      id, category_id: n.categoryId, expense_account_id: n.expenseAccountId, expense_date: n.expenseDate, amount_minor: n.amount,
-      currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
-      payment_method_key: n.paymentMethodKey, payment_account_id: n.paymentAccountId, payment_date: n.paymentDate,
-    });
-  })();
+  try {
+    db.transaction(() => {
+      db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_account_id,payment_date,created_by,updated_by,idempotency_key,idempotency_payload_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id,n.categoryId,n.expenseAccountId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,actorId,idempotencyKey,requestHash);
+      const created = getExpense(db, id);
+      auditExpenseAction(db, 'expense', id, 'created', actorId, null, expenseAuditSnapshot(created));
+    })();
+  } catch (error: any) {
+    if (idempotencyKey && String(error?.message || '').includes('accounting_expenses.idempotency_key')) {
+      const existing = db.prepare('SELECT id, idempotency_payload_hash FROM accounting_expenses WHERE idempotency_key = ?').get(idempotencyKey) as
+        { id: string; idempotency_payload_hash: string | null } | undefined;
+      if (existing) {
+        if (existing.idempotency_payload_hash !== requestHash) {
+          fail('idempotency_key_conflict', 'This Idempotency-Key was already used with a different expense payload.', 409);
+        }
+        return getExpense(db, existing.id);
+      }
+    }
+    throw error;
+  }
   return getExpense(db, id);
 }
 export function updateDraftExpense(db: DB, id: string, input: any, actorId: string | null): any {
@@ -205,11 +291,7 @@ export function updateDraftExpense(db: DB, id: string, input: any, actorId: stri
   db.transaction(() => {
     db.prepare('UPDATE accounting_expenses SET category_id=?,expense_account_id=?,expense_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_account_id=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
       .run(n.categoryId,n.expenseAccountId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,id,'draft');
-    auditExpenseAction(db, 'expense', id, 'updated', actorId, current, {
-      id, category_id: n.categoryId, expense_account_id: n.expenseAccountId, expense_date: n.expenseDate, amount_minor: n.amount,
-      currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
-      payment_method_key: n.paymentMethodKey, payment_account_id: n.paymentAccountId, payment_date: n.paymentDate,
-    });
+    auditExpenseAction(db, 'expense', id, 'updated', actorId, expenseAuditSnapshot(current), expenseAuditSnapshot(getExpense(db, id)));
   })();
   return getExpense(db, id);
 }
