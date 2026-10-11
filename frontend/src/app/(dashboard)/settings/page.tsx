@@ -253,6 +253,7 @@ function KdsDefaultViewCard() {
 
 
 export default function SettingsPage() {
+  const locale = useLocale();
   const router = useRouter();
   const { currentTenant, user, updateCurrentTenant } = useAuthStore();
   const posSettings = usePosSettingsStore();

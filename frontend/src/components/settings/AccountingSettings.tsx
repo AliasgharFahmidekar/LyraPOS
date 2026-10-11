@@ -66,10 +66,10 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
     setExpenses(results[3].data.expenses || []); setTransfers(results[4].data.transfers || []);
     const assets = accountRows.filter((a) => a.account_type === 'asset' && a.is_active === 1 && a.is_postable === 1);
     setSourceAccount((v) => assets.some((a) => a.id === v) ? v : (assets[0]?.id || ''));
-    setDestinationAccount((v) => assets.some((a) => a.id === v && a.id !== sourceAccount) ? v : (assets.find((a) => a.id !== sourceAccount)?.id || ''));
+    setDestinationAccount((v) => assets.some((a) => a.id === v) ? v : (assets[1]?.id || assets[0]?.id || ''));
     setCategoryId((v) => categoryRows.some((c) => c.id === v && c.is_active === 1) ? v : (categoryRows.find((c) => c.is_active === 1)?.id || ''));
     setNewCategoryAccount((v) => accountRows.some((a) => a.id === v && a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1) ? v : (accountRows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1)?.id || ''));
-  }, [sourceAccount]);
+  }, []);
   useEffect(() => { void load().catch(() => toast.error(t.loadFailed)); }, [load, t.loadFailed]);
   const money = (minor: number) => new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: digits }).format(minor / (10 ** digits));
   const selectClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';

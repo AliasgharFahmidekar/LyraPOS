@@ -59,6 +59,8 @@ async function main(): Promise<void> {
     equal((await request(app).get('/api/accounting/expenses')).status, 401, 'unauthenticated expense list is denied');
     for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
       equal((await request(app).get('/api/accounting/accounts').set(headers)).status, 403, role + ' cannot read accounting accounts');
+      equal((await request(app).get('/api/accounting/transfers').set(headers)).status, 403, role + ' cannot read accounting transfers');
+      equal((await request(app).post('/api/accounting/transfers').set(headers).send({})).status, 403, role + ' cannot create accounting transfers');
       equal((await request(app).post('/api/accounting/expenses').set(headers).send({})).status, 403, role + ' cannot create accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/post').set(headers).send({})).status, 403, role + ' cannot post accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/reverse').set(headers).send({ reason: 'x', reversal_date: '2026-10-11' })).status, 403, role + ' cannot reverse accounting expenses');
@@ -155,6 +157,18 @@ async function main(): Promise<void> {
       .send({ ...reversePayload, reason: 'Different correction' });
     equal(reverseConflict.status, 409, 'a reversal cannot be changed by retrying with a different reason');
     equal(reverseConflict.body.code, 'expense_reversal_conflict', 'reversal conflict has a stable error code');
+    equal((await request(app).get('/api/accounting/transfers')).status, 401, 'unauthenticated transfer history is denied');
+    const transferPayload = { source_account_id: 'acct-cash-drawer', destination_account_id: 'acct-bank', amount_minor: 7500, entry_date: '2026-10-12', description: 'API cash deposit' };
+    const transferResponse = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'api-transfer-stage3-1').send(transferPayload);
+    equal(transferResponse.status, 201, 'manager can create a cash/bank transfer');
+    equal(transferResponse.body.transfer?.status, 'posted', 'transfer route returns a posted journal');
+    equal(transferResponse.body.transfer?.amount_minor, 7500, 'transfer route preserves exact amount');
+    const transferRetry = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'api-transfer-stage3-1').send(transferPayload);
+    equal(transferRetry.status, 201, 'identical transfer retry succeeds');
+    equal(transferRetry.body.transfer?.duplicate, true, 'transfer retry is marked duplicate');
+    equal((await request(app).get('/api/accounting/transfers').set(manager)).body.transfers?.length, 1, 'manager can list transfer history');
+    const transferConflict = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'api-transfer-stage3-1').send({ ...transferPayload, amount_minor: 7600 });
+    equal(transferConflict.status, 409, 'changed transfer payload cannot reuse an idempotency key');
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
     try { closeDatabase(); } catch {}
