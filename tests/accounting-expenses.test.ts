@@ -27,7 +27,7 @@ function resetDb(): any {
 }
 try {
   const db = resetDb();
-  equal(getCurrentSchemaVersion(), 103, 'fresh install reaches schema v103');
+  equal(getCurrentSchemaVersion(), 104, 'fresh install reaches schema v104');
   for (const table of ['accounting_expense_categories','accounting_payment_method_mappings','accounting_expenses']) {
     ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'migration creates ' + table);
   }
@@ -99,6 +99,9 @@ try {
   equal(unpaid.status, 'draft', 'new expense starts as draft');
   equal(unpaid.payment_status, 'unpaid', 'unpaid expense needs no payment mapping');
   equal(unpaid.payment_method_key, null, 'unpaid expense has no payment method');
+  throws(() => expenses.postExpense(db, unpaid.id, 'manager-1'), /only expenses already marked as paid/i, 'unpaid draft cannot be posted');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(unpaid.id) as any).count,
+    0, 'unpaid expense creates no journal and cannot reduce cash');
   equal(expenses.listExpenses(db, { category_id: category.id }).length, 2, 'expense list filters by category after multiple expenses exist');
   throws(() => expenses.listExpenses(db, { status: 'unexpected' }), /status filter must be/i, 'invalid expense status filters are rejected');
   throws(() => expenses.listExpenses(db, { payment_status: 'unexpected' }), /payment status filter must be/i, 'invalid payment status filters are rejected');
@@ -134,6 +137,55 @@ try {
   equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_expenses WHERE idempotency_key = ?').get('expense-request-0001') as any).count, 1, 'idempotent retry does not create a duplicate expense');
   throws(() => expenses.createExpense(db, { ...paidRequest, amount_minor: 12001 }, 'manager-1', 'expense-request-0001'),
     /already used with a different expense payload/i, 'reusing an idempotency key with changed content is rejected');
+
+  const postedPaid = expenses.postExpense(db, paid.id, 'manager-1');
+  equal(postedPaid.status, 'posted', 'paid expense becomes posted after its journal commits');
+  equal(postedPaid.duplicate, false, 'first expense post is not reported as a retry');
+  const paidJournal = db.prepare('SELECT id, status, entry_date, currency_code, source_type, source_id, source_event FROM accounting_journal_entries WHERE id=?')
+    .get(postedPaid.posted_journal_entry_id) as any;
+  equal(paidJournal.status, 'posted', 'expense journal is finalized in the same posting transaction');
+  equal(paidJournal.entry_date, '2026-10-11', 'expense journal uses the actual payment date');
+  equal(paidJournal.source_event, 'expense_paid', 'expense journal has a stable source event');
+  const paidLines = db.prepare('SELECT account_id,debit_minor,credit_minor FROM accounting_journal_lines WHERE journal_entry_id=? ORDER BY line_no')
+    .all(paidJournal.id) as any[];
+  equal(paidLines.length, 2, 'paid expense creates a two-line double-entry journal');
+  equal(paidLines[0].account_id, 'acct-operating-expenses', 'expense journal debits the snapshotted expense account');
+  equal(paidLines[0].debit_minor, 12000, 'expense debit matches exact integer amount');
+  equal(paidLines[1].account_id, 'acct-cash-drawer', 'expense journal credits the original mapped payment account');
+  equal(paidLines[1].credit_minor, 12000, 'payment credit matches exact integer amount');
+  const postedRetry = expenses.postExpense(db, paid.id, 'manager-1');
+  equal(postedRetry.duplicate, true, 'reposting the same expense is idempotent');
+  equal(postedRetry.posted_journal_entry_id, paidJournal.id, 'retry returns the existing posted journal');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid'").get(paid.id) as any).count,
+    1, 'expense posting retry cannot create a second journal');
+  throws(() => db.prepare('UPDATE accounting_expenses SET amount_minor=amount_minor+1 WHERE id=?').run(paid.id),
+    /posted accounting expense details are immutable/i, 'SQL guard protects posted expense amount from direct mutation');
+  throws(() => db.prepare("UPDATE accounting_expenses SET status='draft', posted_journal_entry_id=NULL WHERE id=?").run(paid.id),
+    /invalid accounting expense state transition|posted expense journal identity is immutable/i, 'SQL guard prevents unposting a posted expense');
+
+  const reversedPaid = expenses.reverseExpense(db, paid.id, 'Duplicate entry correction', '2026-10-12', 'manager-1');
+  equal(reversedPaid.status, 'reversed', 'reversal marks the expense reversed without editing the original journal');
+  equal(reversedPaid.reversal_reason, 'Duplicate entry correction', 'reversal reason is recorded on the expense');
+  ok(!!reversedPaid.reversal_journal_entry_id, 'reversal stores a separate journal reference');
+  const reversalJournal = db.prepare('SELECT status,source_event FROM accounting_journal_entries WHERE id=?').get(reversedPaid.reversal_journal_entry_id) as any;
+  equal(reversalJournal.status, 'posted', 'reversal journal is posted');
+  equal(reversalJournal.source_event, 'expense_reversal', 'reversal journal has a distinct idempotent source event');
+  const reversalLines = db.prepare('SELECT account_id,debit_minor,credit_minor FROM accounting_journal_lines WHERE journal_entry_id=? ORDER BY line_no')
+    .all(reversedPaid.reversal_journal_entry_id) as any[];
+  equal(reversalLines.length, 2, 'reversal has the same number of lines as the original journal');
+  equal(reversalLines[0].account_id, paidLines[0].account_id, 'reversal preserves the original debit account');
+  equal(reversalLines[0].debit_minor, 0, 'reversal credits the original debit');
+  equal(reversalLines[0].credit_minor, 12000, 'reversal credit exactly negates the original debit');
+  equal(reversalLines[1].debit_minor, 12000, 'reversal debit exactly negates the original payment credit');
+  equal(reversalLines[1].credit_minor, 0, 'reversal removes the original credit side');
+  equal(expenses.reverseExpense(db, paid.id, 'Duplicate entry correction', '2026-10-12', 'manager-1').duplicate, true,
+    'retrying an identical reversal returns the existing reversal');
+  throws(() => expenses.reverseExpense(db, paid.id, 'Different reason', '2026-10-12', 'manager-1'),
+    /already been reversed with a different reason or date/i, 'a reversal cannot be silently repurposed with another reason');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(paid.id) as any).count,
+    2, 'posting and reversal together produce exactly two source journals');
+  throws(() => db.prepare('DELETE FROM accounting_expenses WHERE id=?').run(paid.id),
+    /posted accounting expenses cannot be deleted/i, 'SQL guard prevents deleting a reversed financial record');
   expenses.saveExpenseCategory(db, { name: 'Utilities', expense_account_id: 'acct-payment-fees' }, 'manager-1', category.id);
   equal(expenses.getExpense(db, unpaid.id).expense_account_id, 'acct-operating-expenses', 'category remapping does not rewrite an existing draft expense account');
   equal(expenses.getExpense(db, paid.id).expense_account_id, 'acct-operating-expenses', 'category remapping does not rewrite a paid expense account');
@@ -158,6 +210,13 @@ try {
   const mappingAudit = db.prepare("SELECT before_json, after_json FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id='cash' ORDER BY id DESC LIMIT 1").get() as any;
   equal(JSON.parse(mappingAudit.before_json).account_id, 'acct-cash-drawer', 'mapping audit preserves the previous account');
   equal(JSON.parse(mappingAudit.after_json).account_id, 'acct-bank', 'mapping audit records the new account');
+  const postedEditedExpense = expenses.postExpense(db, unpaid.id, 'manager-1');
+  equal(postedEditedExpense.status, 'posted', 'a draft edited to paid can be posted');
+  equal(postedEditedExpense.payment_account_id, 'acct-bank', 'edited expense posts to the snapshotted mapped account');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid'").get(unpaid.id) as any).count,
+    1, 'edited expense receives one posted journal');
+  throws(() => expenses.updateDraftExpense(db, unpaid.id, { description: 'change after posting' }, 'manager-1'),
+    /posted or reversed expenses cannot be edited/i, 'service rejects edits after expense posting');
   throws(() => expenses.assertAccountingDate('2026-02-30'), /real calendar date/i, 'invalid calendar days are rejected');
   console.log('Accounting expense foundation: ' + checks + ' assertions passed.');
 } catch (error) {
