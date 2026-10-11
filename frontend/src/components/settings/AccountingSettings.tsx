@@ -17,7 +17,7 @@ const labels = {
 };
 function amountToMinor(value: string, digits: number): number | null {
   const normalized = value.trim().replace(/,/g, '');
-  if (!/^\\d+(\\.\\d+)?$/.test(normalized)) return null;
+  if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
   const parts = normalized.split('.');
   const fraction = parts[1] || '';
   if (fraction.length > digits) return null;
