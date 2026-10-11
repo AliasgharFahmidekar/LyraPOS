@@ -99,10 +99,14 @@ try {
   equal(expenses.getExpense(db, paid.id).expense_account_id, 'acct-operating-expenses', 'category remapping does not rewrite a paid expense account');
   const edited = expenses.updateDraftExpense(db, unpaid.id, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 275000, currency_code: 'IRR',
-    description: 'Corrected electricity bill', payment_status: 'unpaid',
+    description: 'Corrected electricity bill', payment_status: 'paid',
+    payment_method_key: 'cash', payment_date: '2026-10-11',
   }, 'manager-1');
   equal(edited.amount_minor, 275000, 'draft expense can be edited');
   equal(edited.expense_account_id, 'acct-operating-expenses', 'editing a draft keeps its original account snapshot when category is unchanged');
+  equal(edited.payment_account_id, 'acct-bank', 'changing a draft to paid snapshots the currently mapped payment account');
+  const expenseAuditAfterEdit = JSON.parse((db.prepare("SELECT after_json FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? ORDER BY id DESC LIMIT 1").get(unpaid.id) as any).after_json);
+  equal(expenseAuditAfterEdit.payment_account_id, 'acct-bank', 'expense audit after-snapshot records the selected payment account');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(unpaid.id) as any).count, 2, 'expense creation and edit are both audited');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense_category' AND entity_id=?").get(category.id) as any).count, 2, 'expense category creation and remapping are audited');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id='cash'").get() as any).count, 2, 'payment account mapping changes are audited');
