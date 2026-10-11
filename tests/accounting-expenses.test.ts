@@ -241,6 +241,9 @@ try {
     /must be different/i, 'transfer rejects identical source and destination accounts');
   throws(() => transfers.createCashBankTransfer(db, { ...transferInput, amount_minor: 0 }, 'manager-1', 'transfer-zero'),
     /positive safe integer/i, 'transfer rejects zero amounts');
+  const inventoryAccount = db.prepare("SELECT id FROM accounting_accounts WHERE system_key='inventory'").get() as { id: string } | undefined;
+  if (inventoryAccount) throws(() => transfers.createCashBankTransfer(db, { ...transferInput, source_account_id: inventoryAccount.id }, 'manager-1', 'transfer-inventory'),
+    /cash, bank, payment-clearing/i, 'transfer rejects inventory accounts as cash/bank accounts');
   throws(() => transfers.createCashBankTransfer(db, { ...transferInput, amount_minor: 4600 }, 'manager-1', 'transfer-test-001'),
     /different payload/i, 'reusing a transfer idempotency key with a changed amount is rejected');
   console.log('Accounting expense foundation: ' + checks + ' assertions passed.');

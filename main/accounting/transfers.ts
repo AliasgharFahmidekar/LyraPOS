@@ -26,10 +26,13 @@ function configuredCurrency(db: DB): string {
 }
 function transferAccount(db: DB, value: unknown): string {
   const id = requiredText(value, 'account_id', 100);
-  const row = db.prepare('SELECT id, account_type, is_active, is_postable FROM accounting_accounts WHERE id=?').get(id) as
-    { id: string; account_type: string; is_active: number; is_postable: number } | undefined;
+  const row = db.prepare('SELECT id, system_key, account_type, is_active, is_postable FROM accounting_accounts WHERE id=?').get(id) as
+    { id: string; system_key: string | null; account_type: string; is_active: number; is_postable: number } | undefined;
   if (!row) fail('account_not_found', 'Accounting account was not found.', 404);
   if (row.account_type !== 'asset') fail('invalid_transfer_account_type', 'Transfers can only use asset accounts.');
+  if (row.system_key && !['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(row.system_key)) {
+    fail('invalid_transfer_account_type', 'Transfers can only use cash, bank, payment-clearing, or custom liquid-asset accounts.');
+  }
   if (row.is_active !== 1) fail('account_inactive', 'Choose an active accounting account.', 409);
   if (row.is_postable !== 1) fail('account_not_postable', 'Choose a posting account, not a grouping account.', 409);
   return row.id;

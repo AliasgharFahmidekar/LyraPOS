@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale } from 'use-intl';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -16,7 +16,11 @@ const labels = {
   fa: { title: 'حسابداری', expenses: 'هزینه‌ها', transfers: 'انتقال صندوق و بانک', setup: 'دسته‌بندی و نگاشت حساب‌ها', amount: 'مبلغ', date: 'تاریخ', description: 'شرح', category: 'دسته‌بندی', payee: 'پرداخت به (اختیاری)', reference: 'شماره پیگیری (اختیاری)', paid: 'پرداخت‌شده', unpaid: 'پرداخت‌نشده', method: 'روش پرداخت', paymentDate: 'تاریخ پرداخت', createExpense: 'ثبت هزینه', post: 'ثبت در دفتر کل', reverse: 'برگشت سند', reversalReason: 'دلیل برگشت', reversalDate: 'تاریخ حسابداری برگشت (سال-ماه-روز)', status: 'وضعیت', draft: 'پیش‌نویس', posted: 'ثبت‌شده', reversed: 'برگشت‌خورده', transferFrom: 'حساب مبدأ', transferTo: 'حساب مقصد', transfer: 'ثبت انتقال', history: 'تاریخچه انتقال‌ها', categoryName: 'نام دسته‌بندی جدید', expenseAccount: 'حساب هزینه', createCategory: 'افزودن دسته‌بندی', mapping: 'روش پرداخت ← حسابداری', noRows: 'هنوز رکوردی ثبت نشده است', loadFailed: 'بارگذاری اطلاعات حسابداری انجام نشد.', saveFailed: 'ذخیره اطلاعات حسابداری انجام نشد.', required: 'فیلدهای ضروری، مبلغ معتبر و تاریخ را کامل کنید.', amountHint: 'مبلغ را با واحد پول فروشگاه وارد کنید.', reversalConfirm: 'این عملیات سند معکوس جداگانه می‌سازد و سند اصلی را تغییر نمی‌دهد.', duplicateAccounts: 'حساب مبدأ و مقصد باید متفاوت باشند.' }
 };
 function amountToMinor(value: string, digits: number): number | null {
-  const normalized = value.trim().replace(/,/g, '');
+  const normalized = value.trim()
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[٬,]/g, '')
+    .replace(/٫/g, '.');
   if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
   const parts = normalized.split('.');
   const fraction = parts[1] || '';
@@ -51,6 +55,10 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
   const [transferDate, setTransferDate] = useState(today());
   const [transferDescription, setTransferDescription] = useState('');
   const [busy, setBusy] = useState(false);
+  const expenseRequestKey = useRef('');
+  const expenseRequestPayload = useRef('');
+  const transferRequestKey = useRef('');
+  const transferRequestPayload = useRef('');
   const digits = useMemo(() => {
     try { return new Intl.NumberFormat(locale, { style: 'currency', currency }).resolvedOptions().maximumFractionDigits || 0; } catch { return 0; }
   }, [currency, locale]);
@@ -70,7 +78,7 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
     setCategoryId((v) => categoryRows.some((c) => c.id === v && c.is_active === 1) ? v : (categoryRows.find((c) => c.is_active === 1)?.id || ''));
     setNewCategoryAccount((v) => accountRows.some((a) => a.id === v && a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1) ? v : (accountRows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1)?.id || ''));
   }, []);
-  useEffect(() => { void load().catch(() => toast.error(t.loadFailed)); }, [load, t.loadFailed]);
+  useEffect(() => {\n    // Loading server state here is intentional; the state updates occur after the asynchronous request resolves.\n    // eslint-disable-next-line react-hooks/set-state-in-effect\n    void load().catch(() => toast.error(t.loadFailed));\n  }, [load, t.loadFailed]);
   const money = (minor: number) => new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: digits }).format(minor / (10 ** digits));
   const selectClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
   const inputClass = selectClass;
@@ -84,8 +92,14 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
     try {
       const payload: Record<string, unknown> = { category_id: categoryId, amount_minor: minor, currency_code: currency, description: description.trim(), expense_date: expenseDate, payment_status: paymentStatus, payee: payee.trim() || null, reference_number: reference.trim() || null };
       if (paymentStatus === 'paid') Object.assign(payload, { payment_method_key: paymentMethod, payment_date: paymentDate });
-      const response = await api.post('/accounting/expenses', payload, { headers: { 'Idempotency-Key': token() } });
+      const payloadSignature = JSON.stringify(payload);
+      if (expenseRequestPayload.current !== payloadSignature) {
+        expenseRequestPayload.current = payloadSignature;
+        expenseRequestKey.current = token();
+      }
+      const response = await api.post('/accounting/expenses', payload, { headers: { 'Idempotency-Key': expenseRequestKey.current } });
       if (paymentStatus === 'paid' && response.data.expense.status === 'draft') await api.post('/accounting/expenses/' + response.data.expense.id + '/post', {});
+      expenseRequestKey.current = ''; expenseRequestPayload.current = '';
       setAmount(''); setDescription(''); setPayee(''); setReference(''); await load();
     } catch { toast.error(t.saveFailed); } finally { setBusy(false); }
   }
@@ -104,7 +118,14 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
     if (!sourceAccount || !destinationAccount || sourceAccount === destinationAccount || !transferDescription.trim() || minor === null) { toast.error(sourceAccount === destinationAccount ? t.duplicateAccounts : t.required); return; }
     setBusy(true);
     try {
-      await api.post('/accounting/transfers', { source_account_id: sourceAccount, destination_account_id: destinationAccount, amount_minor: minor, entry_date: transferDate, description: transferDescription.trim() }, { headers: { 'Idempotency-Key': token() } });
+      const payload = { source_account_id: sourceAccount, destination_account_id: destinationAccount, amount_minor: minor, entry_date: transferDate, description: transferDescription.trim() };
+      const payloadSignature = JSON.stringify(payload);
+      if (transferRequestPayload.current !== payloadSignature) {
+        transferRequestPayload.current = payloadSignature;
+        transferRequestKey.current = token();
+      }
+      await api.post('/accounting/transfers', payload, { headers: { 'Idempotency-Key': transferRequestKey.current } });
+      transferRequestKey.current = ''; transferRequestPayload.current = '';
       setTransferAmount(''); setTransferDescription(''); await load();
     } catch { toast.error(t.saveFailed); } finally { setBusy(false); }
   }
