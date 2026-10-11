@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDatabase } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
-import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, updateDraftExpense } from '../accounting/expenses';
+import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, updateDraftExpense } from '../accounting/expenses';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -20,7 +20,7 @@ function respondError(res: Response, error: any): void {
   console.error('[API] Accounting expense request failed:', error);
   res.status(500).json({ error: 'Unable to process accounting request.' });
 }
-router.get('/expense-categories', managerOnly, (req, res) => {
+router.get('/accounts', managerOnly, (req, res) => {\n  try {\n    const types = typeof req.query.types === 'string' ? req.query.types.split(',') : undefined;\n    res.json({ accounts: listPostingAccounts(getDatabase(), types) });\n  } catch (error) { respondError(res, error); }\n});\nrouter.get('/expense-categories', managerOnly, (req, res) => {
   try { res.json({ categories: listExpenseCategories(getDatabase(), req.query.include_inactive === 'true') }); }
   catch (error) { respondError(res, error); }
 });
