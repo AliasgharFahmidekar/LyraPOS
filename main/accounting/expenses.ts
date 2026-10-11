@@ -129,7 +129,7 @@ function paymentInput(db: DB, input: any) {
 }
 function expenseInput(db: DB, input: any) {
   const categoryId = textValue(input?.category_id, 'category_id', 100);
-  const category = db.prepare('SELECT c.id,c.is_active,a.account_type,a.is_active AS account_active,a.is_postable FROM accounting_expense_categories c JOIN accounting_accounts a ON a.id=c.expense_account_id WHERE c.id=?').get(categoryId) as any;
+  const category = db.prepare('SELECT c.id,c.is_active,c.expense_account_id,a.account_type,a.is_active AS account_active,a.is_postable FROM accounting_expense_categories c JOIN accounting_accounts a ON a.id=c.expense_account_id WHERE c.id=?').get(categoryId) as any;
   if (!category) fail('category_not_found', 'Expense category was not found.', 404);
   if (category.is_active !== 1 || category.account_active !== 1 || category.is_postable !== 1 || category.account_type !== 'expense') fail('category_unavailable', 'Choose an active category mapped to an active expense account.', 409);
   const amount = input?.amount_minor;
@@ -137,14 +137,14 @@ function expenseInput(db: DB, input: any) {
   const currency = typeof input?.currency_code === 'string' ? input.currency_code.trim().toUpperCase() : '';
   if (!/^[A-Z]{3}$/.test(currency)) fail('invalid_currency', 'Currency code must be a three-letter code.');
   return {
-    categoryId, amount, currency, description: textValue(input?.description, 'description', 500),
+    categoryId, expenseAccountId: category.expense_account_id, amount, currency, description: textValue(input?.description, 'description', 500),
     expenseDate: assertAccountingDate(input?.expense_date, 'expense_date'),
     ...paymentInput(db, input), payee: optionalText(input?.payee, 'payee', 160),
     referenceNumber: optionalText(input?.reference_number, 'reference_number', 120),
   };
 }
 function detail(db: DB, id: string): any {
-  return db.prepare('SELECT e.*, c.name AS category_name, c.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name, e.payment_account_id AS payment_account_id, pa.name AS payment_account_name FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=c.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id WHERE e.id=?').get(id);
+  return db.prepare('SELECT e.*, c.name AS category_name, e.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name, e.payment_account_id AS payment_account_id, pa.name AS payment_account_name FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id WHERE e.id=?').get(id);
 }
 export function listExpenses(db: DB, filters: any = {}): any[] {
   const clauses: string[] = []; const values: any[] = [];
@@ -156,7 +156,7 @@ export function listExpenses(db: DB, filters: any = {}): any[] {
   const limit = filters.limit === undefined ? 100 : Number(filters.limit), offset = filters.offset === undefined ? 0 : Number(filters.offset);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) fail('invalid_limit', 'Limit must be between 1 and 500.');
   if (!Number.isSafeInteger(offset) || offset < 0) fail('invalid_offset', 'Offset must be a non-negative integer.');
-  return db.prepare('SELECT e.*, c.name AS category_name, c.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=c.expense_account_id ' + (clauses.length ? 'WHERE ' + clauses.join(' AND ') + ' ' : '') + 'ORDER BY e.expense_date DESC,e.created_at DESC,e.id DESC LIMIT ? OFFSET ?')
+  return db.prepare('SELECT e.*, c.name AS category_name, a.account_code AS expense_account_code, a.name AS expense_account_name FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id ' + (clauses.length ? 'WHERE ' + clauses.join(' AND ') + ' ' : '') + 'ORDER BY e.expense_date DESC,e.created_at DESC,e.id DESC LIMIT ? OFFSET ?')
     .all(...values, limit, offset);
 }
 export function getExpense(db: DB, id: string): any {
@@ -167,10 +167,10 @@ export function getExpense(db: DB, id: string): any {
 export function createExpense(db: DB, input: any, actorId: string | null): any {
   const n = expenseInput(db, input), id = randomUUID();
   db.transaction(() => {
-    db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_account_id,payment_date,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(id,n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,actorId);
+    db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_account_id,payment_date,created_by,updated_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(id,n.categoryId,n.expenseAccountId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,actorId);
     auditExpenseAction(db, 'expense', id, 'created', actorId, null, {
-      id, category_id: n.categoryId, expense_date: n.expenseDate, amount_minor: n.amount,
+      id, category_id: n.categoryId, expense_account_id: n.expenseAccountId, expense_date: n.expenseDate, amount_minor: n.amount,
       currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
       payment_method_key: n.paymentMethodKey, payment_account_id: n.paymentAccountId, payment_date: n.paymentDate,
     });
@@ -181,11 +181,13 @@ export function updateDraftExpense(db: DB, id: string, input: any, actorId: stri
   const current = getExpense(db, id);
   if (current.status !== 'draft') fail('expense_not_editable', 'Posted or reversed expenses cannot be edited; use a correction entry.', 409);
   const n = expenseInput(db, { ...current, ...input });
+  if (current.category_id === n.categoryId) n.expenseAccountId = current.expense_account_id;
+  if (current.payment_status === 'paid' && n.paymentStatus === 'paid' && n.paymentMethodKey === current.payment_method_key) n.paymentAccountId = current.payment_account_id;
   db.transaction(() => {
-    db.prepare('UPDATE accounting_expenses SET category_id=?,expense_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_account_id=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
-      .run(n.categoryId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,id,'draft');
+    db.prepare('UPDATE accounting_expenses SET category_id=?,expense_account_id=?,expense_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_account_id=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
+      .run(n.categoryId,n.expenseAccountId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,id,'draft');
     auditExpenseAction(db, 'expense', id, 'updated', actorId, current, {
-      id, category_id: n.categoryId, expense_date: n.expenseDate, amount_minor: n.amount,
+      id, category_id: n.categoryId, expense_account_id: n.expenseAccountId, expense_date: n.expenseDate, amount_minor: n.amount,
       currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
       payment_method_key: n.paymentMethodKey, payment_date: n.paymentDate,
     });
