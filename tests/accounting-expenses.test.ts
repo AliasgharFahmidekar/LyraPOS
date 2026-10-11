@@ -38,6 +38,13 @@ try {
   throws(() => expenses.setPaymentAccountMapping(db, 'cash', 'acct-operating-expenses', 'manager-1'), /requires an account of type: asset/i, 'cash cannot map to expense account');
   throws(() => expenses.setPaymentAccountMapping(db, 'custom:999999', 'acct-bank', 'manager-1'), /custom payment method does not exist/i, 'unknown custom payment methods are rejected');
 
+  const customMethod = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Online Transfer',1,10,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
+  const customKey = 'custom:' + Number(customMethod.lastInsertRowid);
+  const customMapping = expenses.setPaymentAccountMapping(db, customKey, 'acct-bank', 'manager-1');
+  equal(customMapping.payment_method_name, 'Online Transfer', 'existing custom payment method is exposed in account mapping');
+  equal(customMapping.account_id, 'acct-bank', 'custom payment method maps to selected bank account');
+  ok(expenses.listPaymentAccountMappings(db).some((item: any) => item.payment_method_key === customKey && item.account_id === 'acct-bank'), 'mapping list returns configured custom payment methods');
+
   const unpaid = expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 250000, currency_code: 'IRR',
     description: 'Monthly electricity', payment_status: 'unpaid',
