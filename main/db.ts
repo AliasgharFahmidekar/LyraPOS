@@ -5815,7 +5815,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CHECK (
             payment_method_key IN ('cash', 'card', 'loyalty')
-            OR payment_method_key GLOB 'custom:[1-9][0-9]*'
+            OR (payment_method_key GLOB 'custom:[1-9]*' AND substr(payment_method_key, 8) NOT GLOB '*[^0-9]*')
           )
         );
 
