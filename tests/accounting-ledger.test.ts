@@ -56,7 +56,7 @@ function freshInstallChecks(): void {
   initDatabase();
   const db = getDatabase();
 
-  equal(getCurrentSchemaVersion(), 101, 'fresh install reaches schema version 101');
+  equal(getCurrentSchemaVersion(), 102, 'fresh install reaches schema version 102');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
     'accounting_journal_lines', 'accounting_audit_log',
@@ -322,7 +322,7 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 101, 'existing database upgrades from v99 through schema version 101');
+  equal(getCurrentSchemaVersion(), 102, 'existing database upgrades from v99 through schema version 102');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
@@ -357,7 +357,7 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 101, 'v100 database upgrades to schema version 101');
+  equal(getCurrentSchemaVersion(), 102, 'v100 database upgrades through schema version 102');
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
     /system or posted accounting account definitions are immutable/i,
