@@ -43,9 +43,9 @@ Resolve these through documented product decisions before implementing automated
 ## 2. Current architecture and migration rules
 
 - Database: `main/db.ts`, using the active `better-sqlite3` connection.
-- Migration registry: `MIGRATIONS` in `main/db.ts`; migration 100 introduced the ledger, and migration 101 hardens system-account identity without editing historical migration 100.
+- Migration registry: `MIGRATIONS` in `main/db.ts`; migration 100 introduced the ledger, migration 101 hardens system-account identity, and migration 102 adds expense categories, expense drafts, and payment-method account mappings. Historical migrations remain immutable.
 - Ledger domain service: `main/accounting/ledger.ts`. It receives the caller's database connection; do not open a second connection.
-- Automated coverage: `tests/accounting-ledger.test.ts`, invoked by `npm run test:accounting-ledger`.
+- Automated coverage: `tests/accounting-ledger.test.ts` (`npm run test:accounting-ledger`) and `tests/accounting-expenses.test.ts` (`npm run test:accounting-expenses`).
 - Test harness: `tests/run-electron-node-test.cjs`.
 - Default suite: root `package.json` includes the focused ledger suite.
 - Existing frontend: `frontend/src/`, Next.js/React, shared components/styles, localization, and RTL support.
@@ -109,6 +109,16 @@ Append-only action records with entity/action, actor ID and before/after JSON sn
 - Audit records cannot be updated or deleted.
 
 The service also validates inputs; SQL guards provide defense in depth. Use the service instead of direct SQL updates.
+
+
+
+## 3.1 Phase 2 foundation currently implemented (schema v102)
+
+- `accounting_expense_categories` maps manager-defined categories to active, postable expense accounts. Categories are deactivated rather than deleted once used.
+- `accounting_payment_method_mappings` maps the existing built-in (`cash`, `card`, `loyalty`) and custom (`custom:<id>`) payment-method keys to existing GL accounts; it does not create a second payment-method catalogue.
+- `accounting_expenses` stores auditable draft expenses using integer `amount_minor`, currency code, expense date, category, payee/reference, and paid/unpaid state. A paid expense requires an existing payment-method mapping and payment date.
+- Manager-only endpoints are mounted at `/api/accounting`: `GET/POST/PUT /expense-categories`, `GET/PUT /payment-account-mappings`, and `GET/POST/PUT /expenses` (including `GET /expenses/:id`).
+- This increment does not yet post expense journals, implement transfers, or add UI. Those remain Phase 2 stages 2 and 3. Posted expenses are not editable through the draft API.
 
 ## 4. Ledger service contract
 
