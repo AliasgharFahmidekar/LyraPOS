@@ -206,7 +206,7 @@ export function updateDraftExpense(db: DB, id: string, input: any, actorId: stri
     auditExpenseAction(db, 'expense', id, 'updated', actorId, current, {
       id, category_id: n.categoryId, expense_account_id: n.expenseAccountId, expense_date: n.expenseDate, amount_minor: n.amount,
       currency_code: n.currency, description: n.description, payment_status: n.paymentStatus,
-      payment_method_key: n.paymentMethodKey, payment_date: n.paymentDate,
+      payment_method_key: n.paymentMethodKey, payment_account_id: n.paymentAccountId, payment_date: n.paymentDate,
     });
   })();
   return getExpense(db, id);
