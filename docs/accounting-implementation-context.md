@@ -1,6 +1,6 @@
 # LyraPOS accounting implementation context for AI contributors
 
-**Status:** ACTIVE DESIGN. This document describes the accounting implementation added in Phase 0/1 and the constraints for future phases. Read it before changing accounting code.
+**Status:** ACTIVE IMPLEMENTATION. Phase 0, Phase 1, and Phase 2 stage 1 are implemented. Schema v103 adds expense data/API foundations, request idempotency, configured-currency enforcement, database integrity guards, and complete expense audit snapshots. Expense journal posting, transfers, and UI remain future work. Read this document before changing accounting code.
 
 ## Read first
 
@@ -43,14 +43,14 @@ Resolve these through documented product decisions before implementing automated
 ## 2. Current architecture and migration rules
 
 - Database: `main/db.ts`, using the active `better-sqlite3` connection.
-- Migration registry: `MIGRATIONS` in `main/db.ts`; migration 100 introduced the ledger, migration 101 hardens system-account identity, and migration 102 adds expense categories, expense drafts, and payment-method account mappings. Historical migrations remain immutable.
+- Migration registry: `MIGRATIONS` in `main/db.ts`; migration 100 introduced the ledger, migration 101 hardens system-account identity, migration 102 adds expense categories/drafts/payment-account mappings, and migration 103 adds expense idempotency plus database-level integrity guards. Historical migrations remain immutable.
 - Ledger domain service: `main/accounting/ledger.ts`. It receives the caller's database connection; do not open a second connection.
-- Automated coverage: `tests/accounting-ledger.test.ts` (`npm run test:accounting-ledger`) and `tests/accounting-expenses.test.ts` (`npm run test:accounting-expenses`).
+- Automated coverage: `tests/accounting-ledger.test.ts` (`npm run test:accounting-ledger`), `tests/accounting-expenses.test.ts` (`npm run test:accounting-expenses`), and manager-route authorization/idempotency coverage in `tests/accounting-routes.test.ts` (`npm run test:accounting-routes`).
 - Test harness: `tests/run-electron-node-test.cjs`.
 - Default suite: root `package.json` includes the focused ledger suite.
 - Existing frontend: `frontend/src/`, Next.js/React, shared components/styles, localization, and RTL support.
 
-Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, an upgrade from v99, and an upgrade from an existing v100 database while preserving existing data. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard.
+Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, upgrades from v99, v100, v101 and a v102 database containing an existing expense, preserving operational and accounting data. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard; migration 103 adds columns/indexes/triggers without rewriting old expense records.
 
 ## 3. Schema delivered by migration 100
 
@@ -112,13 +112,13 @@ The service also validates inputs; SQL guards provide defense in depth. Use the 
 
 
 
-## 3.1 Phase 2 foundation currently implemented (schema v102)
+## 3.1 Phase 2 stage 1 foundation currently implemented (schema v103)
 
 - `accounting_expense_categories` maps manager-defined categories to active, postable expense accounts. Categories are deactivated rather than deleted once used.
 - `accounting_payment_method_mappings` maps the existing built-in (`cash`, `card`, `loyalty`) and custom (`custom:<id>`) payment-method keys to existing GL accounts; it does not create a second payment-method catalogue.
-- `accounting_expenses` stores auditable draft expenses using integer `amount_minor`, currency code, expense date, category, payee/reference, and paid/unpaid state. A paid expense requires an existing payment-method mapping and payment date. Category, expense and mapping mutations also append records to `accounting_audit_log` in the same transaction.
-- Manager-only endpoints are mounted at `/api/accounting`: `GET /accounts`, `GET/POST/PUT /expense-categories`, `GET/PUT /payment-account-mappings`, and `GET/POST/PUT /expenses` (including `GET /expenses/:id`).
-- This increment does not yet post expense journals, implement transfers, or add UI. Those remain Phase 2 stages 2 and 3. Posted expenses are not editable through the draft API.
+- `accounting_expenses` stores auditable draft expenses using integer `amount_minor`, the configured store currency, expense date, category, payee/reference, and paid/unpaid state. Service validation and migration-103 SQL triggers reject unsafe/fractional amounts, impossible calendar dates and currency mismatches. A paid expense requires an existing payment-method mapping and payment date. Category, expense and mapping mutations append records to `accounting_audit_log` in the same transaction; expense before/after snapshots include all business fields.
+- Manager-only endpoints are mounted at `/api/accounting`: `GET /accounts`, `GET/POST/PUT /expense-categories`, `GET/PUT /payment-account-mappings`, and `GET/POST/PUT /expenses` (including `GET /expenses/:id`). `POST /expenses` accepts the standard `Idempotency-Key` header; the same key and normalized request returns the original expense, while reusing the key with a different payload returns HTTP 409. Key/hash pairs are stored immutably and indexed uniquely.
+- This increment does not yet post expense journals, implement transfers, or add UI. Those remain Phase 2 stages 2 and 3. Request idempotency prevents duplicate expense drafts; journal-posting idempotency and audit-safe correction entries are still required in stage 2. Posted/reversed expenses are not editable through the draft API.
 
 ## 4. Ledger service contract
 
@@ -156,8 +156,8 @@ For the first usable accounting workflow (Phase 2/3):
 
 0. **Discovery/design — done in this PR:** verified existing operational systems, boundaries, migration route, tests and unresolved accounting-policy decisions.
 1. **Ledger core — done in this PR:** migrations 100–101; seeded starter chart; journal headers/lines; integer minor-unit validation; source/idempotency uniqueness; atomic draft creation and posting; audit events; immutable posted records and system-account identity guards; focused fresh-install, v99-to-v101, v100-to-v101 and service tests.
-2. **Account/expense setup — next PR:** routine expense entry/categories, non-sales income, mappings of existing payment methods to GL accounts, defaults for cash/bank and transfers; Settings subsection inside existing Settings screen. Add end-to-end tests.
-3. **Operational posting — following PR:** committed bill/sale recognition, actual collections including unpaid/partial/split cases, refunds, and reconciliation against existing cash sessions/drawer movements. Resolve the business gates in section 1 first. Add idempotency, retry/order/reconciliation and POS regression tests.
+2. **Phase 2 stage 1 — implemented on the current PR branch:** expense categories/drafts and payment-account mappings; owner/manager-only API; configured-store-currency enforcement; request idempotency; complete audit snapshots; migration 103 SQL guards; fresh/upgrade/route tests. The screens are deliberately not part of stage 1.
+3. **Phase 2 stage 2 — next:** post paid expenses to the mapped expense/payment accounts, keep unpaid expenses from reducing cash, and implement journal-level idempotency plus audit-safe correction/reversal behavior. Before implementation, resolve the remaining accounting-policy gates in section 1; also define partial payments/payables and reporting behavior. Add failure-injection, retry and regression tests.
 4. **Supplier purchases/payables:** supplier records and purchase bills/payments linked to the existing stock/supply movements.
 5. **Inventory valuation/COGS:** attach values to current stock and recipe consumption without running another quantity stock engine; explicit costing method and waste/restoration tests.
 6. **Financial reports and close controls:** account ledger, trial balance, reconciled P&L, balance sheet only when supported by complete postings, export and period control.
@@ -181,6 +181,8 @@ Do not claim installer validation complete until the Windows artifact has actual
 At minimum for this implementation series:
 ```sh
 npm run test:accounting-ledger
+npm run test:accounting-expenses
+npm run test:accounting-routes
 npm run build
 npm run lint
 npm run test:script-coverage
