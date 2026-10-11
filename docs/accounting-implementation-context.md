@@ -1,6 +1,6 @@
 # LyraPOS accounting implementation context for AI contributors
 
-**Status:** ACTIVE IMPLEMENTATION. Phase 0, Phase 1, and Phase 2 stage 1 are implemented. Schema v103 adds expense data/API foundations, request idempotency, configured-currency enforcement, database integrity guards, and complete expense audit snapshots. Expense journal posting, transfers, and UI remain future work. Read this document before changing accounting code.
+**Status:** ACTIVE IMPLEMENTATION. Phase 0, Phase 1, and Phase 2 stages 1–2 are implemented. Schema v104 adds paid-expense journal posting/reversal linkage and SQL lifecycle guards on top of the v103 expense/API foundation. Cash/bank transfers and UI remain future work; unpaid bills still do not create accounts-payable journals in this stage. Read this document before changing accounting code.
 
 ## Read first
 
@@ -43,14 +43,14 @@ Resolve these through documented product decisions before implementing automated
 ## 2. Current architecture and migration rules
 
 - Database: `main/db.ts`, using the active `better-sqlite3` connection.
-- Migration registry: `MIGRATIONS` in `main/db.ts`; migration 100 introduced the ledger, migration 101 hardens system-account identity, migration 102 adds expense categories/drafts/payment-account mappings, and migration 103 adds expense idempotency plus database-level integrity guards. Historical migrations remain immutable.
+- Migration registry: `MIGRATIONS` in `main/db.ts`; migration 100 introduced the ledger, migration 101 hardens system-account identity, migration 102 adds expense categories/drafts/payment-account mappings, migration 103 adds expense request idempotency and data-integrity guards, and migration 104 adds reversal linkage plus posted-expense lifecycle guards. Historical migrations remain immutable.
 - Ledger domain service: `main/accounting/ledger.ts`. It receives the caller's database connection; do not open a second connection.
 - Automated coverage: `tests/accounting-ledger.test.ts` (`npm run test:accounting-ledger`), `tests/accounting-expenses.test.ts` (`npm run test:accounting-expenses`), and manager-route authorization/idempotency coverage in `tests/accounting-routes.test.ts` (`npm run test:accounting-routes`).
 - Test harness: `tests/run-electron-node-test.cjs`.
 - Default suite: root `package.json` includes the focused ledger suite.
 - Existing frontend: `frontend/src/`, Next.js/React, shared components/styles, localization, and RTL support.
 
-Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, upgrades from v99, v100, v101 and a v102 database containing an existing expense, preserving operational and accounting data. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard; migration 103 adds columns/indexes/triggers without rewriting old expense records.
+Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, upgrades from v99, v100, v101 and a v102 database containing an existing expense, preserving operational and accounting data. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard; migration 103 adds idempotency columns/indexes/triggers and migration 104 adds reversal columns/indexes/triggers without rewriting old expense records.
 
 ## 3. Schema delivered by migration 100
 
@@ -120,6 +120,17 @@ The service also validates inputs; SQL guards provide defense in depth. Use the 
 - Manager-only endpoints are mounted at `/api/accounting`: `GET /accounts`, `GET/POST/PUT /expense-categories`, `GET/PUT /payment-account-mappings`, and `GET/POST/PUT /expenses` (including `GET /expenses/:id`). `POST /expenses` accepts the standard `Idempotency-Key` header; the same key and normalized request returns the original expense, while reusing the key with a different payload returns HTTP 409. Key/hash pairs are stored immutably and indexed uniquely.
 - This increment does not yet post expense journals, implement transfers, or add UI. Those remain Phase 2 stages 2 and 3. Request idempotency prevents duplicate expense drafts; journal-posting idempotency and audit-safe correction entries are still required in stage 2. Posted/reversed expenses are not editable through the draft API.
 
+
+
+## 3.2 Phase 2 stage 2 — expense posting and reversals (schema v104)
+
+- `POST /api/accounting/expenses/:id/post` posts only an expense already marked `paid`. Within one SQLite transaction it creates a balanced journal, posts the journal, links it to the expense and appends the expense audit event. The journal uses the expense's snapshotted expense account and payment account, integer amount, store currency and actual payment date. Debit = expense account; credit = mapped cash/bank asset account. It never re-resolves a historical payment-account mapping at posting time.
+- Posting uses a stable journal source triple (`expense`, expense ID, `expense_paid`) and a deterministic idempotency key. Repeated posting returns the existing journal; changed data cannot create a second event. An existing posted expense with a missing/unposted linked journal fails closed instead of claiming success.
+- An expense whose `payment_status` is `unpaid` remains a draft and has no journal or cash credit. This stage intentionally does **not** book an expense against accounts payable; unpaid supplier bills/payables are a later workflow and must not be described as a paid cash expense.
+- `POST /api/accounting/expenses/:id/reverse` requires a reason and a valid accounting date. It posts a separate journal with each original line's debit/credit sides swapped, links the reversal to the expense and preserves the original posted journal. A retry with the same reason/date returns the same reversal; conflicting retry inputs return HTTP 409. It does not erase the original posting or rewrite the original lines.
+- Migration 104 adds `reversal_journal_entry_id` and `reversal_reason` plus SQL guards for valid state transitions, linked posted journal identities, immutable details after posting/reversal, and preventing deletion of posted/reversed expenses. The backup/restore trigger path drops and recreates these new guards with the existing accounting trigger set.
+- Authorization remains owner/manager only. Route coverage verifies cashier/server/chef denial as well as successful posting, idempotent retries, unpaid rejection, and reversal conflicts.
+
 ## 4. Ledger service contract
 
 `main/accounting/ledger.ts` exposes:
@@ -157,7 +168,7 @@ For the first usable accounting workflow (Phase 2/3):
 0. **Discovery/design — done in this PR:** verified existing operational systems, boundaries, migration route, tests and unresolved accounting-policy decisions.
 1. **Ledger core — done in this PR:** migrations 100–101; seeded starter chart; journal headers/lines; integer minor-unit validation; source/idempotency uniqueness; atomic draft creation and posting; audit events; immutable posted records and system-account identity guards; focused fresh-install, v99-to-v101, v100-to-v101 and service tests.
 2. **Phase 2 stage 1 — implemented on the current PR branch:** expense categories/drafts and payment-account mappings; owner/manager-only API; configured-store-currency enforcement; request idempotency; complete audit snapshots; migration 103 SQL guards; fresh/upgrade/route tests. The screens are deliberately not part of stage 1.
-3. **Phase 2 stage 2 — next:** post paid expenses to the mapped expense/payment accounts, keep unpaid expenses from reducing cash, and implement journal-level idempotency plus audit-safe correction/reversal behavior. Before implementation, resolve the remaining accounting-policy gates in section 1; also define partial payments/payables and reporting behavior. Add failure-injection, retry and regression tests.
+3. **Phase 2 stage 2 — implemented in schema v104 on this branch:** post only paid expenses using their saved expense/payment account mappings, prevent unpaid drafts from creating a journal, and support idempotent opposite-journal reversals with a mandatory reason/date. SQL guards preserve posted financial history. Unpaid payables, partial expense payments, transfers and expense UI remain future scope. Remaining accounting-policy gates in section 1 still block automated sales/collection/refund posting in Phase 3.
 4. **Supplier purchases/payables:** supplier records and purchase bills/payments linked to the existing stock/supply movements.
 5. **Inventory valuation/COGS:** attach values to current stock and recipe consumption without running another quantity stock engine; explicit costing method and waste/restoration tests.
 6. **Financial reports and close controls:** account ledger, trial balance, reconciled P&L, balance sheet only when supported by complete postings, export and period control.
