@@ -74,13 +74,17 @@ try {
   equal(paid.payment_account_id, 'acct-cash-drawer', 'expense detail snapshots the mapped payment account');
   expenses.setPaymentAccountMapping(db, 'cash', 'acct-bank', 'manager-1');
   equal(expenses.getExpense(db, paid.id).payment_account_id, 'acct-cash-drawer', 'later mapping changes do not rewrite an existing expense payment account');
+  expenses.saveExpenseCategory(db, { name: 'Utilities', expense_account_id: 'acct-payment-fees' }, 'manager-1', category.id);
+  equal(expenses.getExpense(db, unpaid.id).expense_account_id, 'acct-operating-expenses', 'category remapping does not rewrite an existing draft expense account');
+  equal(expenses.getExpense(db, paid.id).expense_account_id, 'acct-operating-expenses', 'category remapping does not rewrite a paid expense account');
   const edited = expenses.updateDraftExpense(db, unpaid.id, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 275000, currency_code: 'IRR',
     description: 'Corrected electricity bill', payment_status: 'unpaid',
   }, 'manager-1');
   equal(edited.amount_minor, 275000, 'draft expense can be edited');
+  equal(edited.expense_account_id, 'acct-operating-expenses', 'editing a draft keeps its original account snapshot when category is unchanged');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(unpaid.id) as any).count, 2, 'expense creation and edit are both audited');
-  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense_category' AND entity_id=?").get(category.id) as any).count, 1, 'expense category creation is audited');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense_category' AND entity_id=?").get(category.id) as any).count, 2, 'expense category creation and remapping are audited');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id='cash'").get() as any).count, 2, 'payment account mapping changes are audited');
   const mappingAudit = db.prepare("SELECT before_json, after_json FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id='cash' ORDER BY id DESC LIMIT 1").get() as any;
   equal(JSON.parse(mappingAudit.before_json).account_id, 'acct-cash-drawer', 'mapping audit preserves the previous account');
