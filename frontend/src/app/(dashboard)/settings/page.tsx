@@ -2870,7 +2870,6 @@ export default function SettingsPage() {
             <SettingsNavItem label={t('storeDetails')} value="store" active={activeTab} onClick={handleSettingsTabChange} />
             <SettingsNavItem label={t('tabPrinters')} value="receipts-printers" active={activeTab} onClick={handleSettingsTabChange} />
             <SettingsNavItem label={t('paymentMethods')} value="payments" active={activeTab} onClick={handleSettingsTabChange} />
-            {isAdmin && <SettingsNavItem label={locale.toLowerCase().startsWith('fa') ? 'حسابداری' : 'Accounting'} value="accounting" active={activeTab} onClick={handleSettingsTabChange} />}
             {isAdmin && (
               <SettingsNavItem label={t('tabAppearance')} value="appearance" active={activeTab} onClick={handleSettingsTabChange} />
             )}
@@ -2941,7 +2940,7 @@ export default function SettingsPage() {
           <PaymentMethodsSettings isAdmin={isAdmin} />
         </TabsContent>
 
-        {isAdmin && <TabsContent value="accounting"><AccountingSettings isAdmin={isAdmin} /></TabsContent>}
+        {isAdmin && <TabsContent value="accounting"><AccountingSettings isAdmin={isAdmin} mode="settings" /></TabsContent>}
 
         {isAdmin && (
         <TabsContent value="appearance">
