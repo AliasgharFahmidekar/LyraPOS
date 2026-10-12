@@ -173,10 +173,10 @@ For the first usable accounting workflow (Phase 2/3):
 5. **Phase 2.5 — implemented on this branch:** a dedicated `/accounting` page and main-sidebar entry expose day-to-day expense posting/reversal and transfer workflows to owners/managers. The Settings page retains setup-only category and payment-account mapping controls. A shared component mode separates operations from setup without duplicating posting logic; Settings mode skips expense/transfer history queries. The page-level guard improves navigation/UX; API authorization remains the security boundary. KDS and unrelated Settings components are preserved. The regression workflow passed on implementation commit `703e76fb120fe2fbbd5ae5b618aaecccaa557abd` (run [#305](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/38218846361)); re-check CI on the current PR head after the documentation commits.
 
 UI copy currently has Persian RTL and English coverage; remaining locale translations should be completed before a multilingual release. Unpaid payables, partial expense payments, and automatic sales/collection/refund posting remain future scope. Remaining accounting-policy gates in section 1 still block automated sales/collection/refund posting in Phase 3.
-4. **Supplier purchases/payables:** supplier records and purchase bills/payments linked to the existing stock/supply movements.
-5. **Inventory valuation/COGS:** attach values to current stock and recipe consumption without running another quantity stock engine; explicit costing method and waste/restoration tests.
-6. **Financial reports and close controls:** account ledger, trial balance, reconciled P&L, balance sheet only when supported by complete postings, export and period control.
-7. **Optional advanced work:** checks, loans/installments, payroll, fixed assets/depreciation, tax-specific functionality and multi-branch reporting as separate scopes.
+6. **Supplier purchases/payables:** supplier records and purchase bills/payments linked to the existing stock/supply movements.
+7. **Inventory valuation/COGS:** attach values to current stock and recipe consumption without running another quantity stock engine; explicit costing method and waste/restoration tests.
+8. **Financial reports and close controls:** account ledger, trial balance, reconciled P&L, balance sheet only when supported by complete postings, export and period control.
+9. **Optional advanced work:** checks, loans/installments, payroll, fixed assets/depreciation, tax-specific functionality and multi-branch reporting as separate scopes.
 
 ### Installer/release gate
 
