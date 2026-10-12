@@ -65,21 +65,24 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
     try { return new Intl.NumberFormat(locale, { style: 'currency', currency }).resolvedOptions().maximumFractionDigits || 0; } catch { return 0; }
   }, [currency, locale]);
   const load = useCallback(async () => {
-    const results = await Promise.all([
-      api.get('/accounting/accounts'), api.get('/accounting/expense-categories?include_inactive=true'),
-      api.get('/accounting/payment-account-mappings'), api.get('/accounting/expenses?limit=100'), api.get('/accounting/transfers?limit=100')
+    const [accountsResponse, categoriesResponse, mappingsResponse, expensesResponse, transfersResponse] = await Promise.all([
+      api.get('/accounting/accounts'),
+      api.get('/accounting/expense-categories?include_inactive=true'),
+      api.get('/accounting/payment-account-mappings'),
+      mode === 'operations' ? api.get('/accounting/expenses?limit=100') : Promise.resolve({ data: { expenses: [] as Expense[] } }),
+      mode === 'operations' ? api.get('/accounting/transfers?limit=100') : Promise.resolve({ data: { transfers: [] as Transfer[] } }),
     ]);
-    const accountRows: Account[] = results[0].data.accounts || [];
-    const categoryRows: Category[] = results[1].data.categories || [];
-    setAccounts(accountRows); if (results[0].data.currency_code) setCurrency(results[0].data.currency_code);
-    setCategories(categoryRows); setMappings(results[2].data.mappings || []);
-    setExpenses(results[3].data.expenses || []); setTransfers(results[4].data.transfers || []);
+    const accountRows: Account[] = accountsResponse.data.accounts || [];
+    const categoryRows: Category[] = categoriesResponse.data.categories || [];
+    setAccounts(accountRows); if (accountsResponse.data.currency_code) setCurrency(accountsResponse.data.currency_code);
+    setCategories(categoryRows); setMappings(mappingsResponse.data.mappings || []);
+    setExpenses(expensesResponse.data.expenses || []); setTransfers(transfersResponse.data.transfers || []);
     const assets = accountRows.filter((a) => a.account_type === 'asset' && a.is_active === 1 && a.is_postable === 1);
     setSourceAccount((v) => assets.some((a) => a.id === v) ? v : (assets[0]?.id || ''));
     setDestinationAccount((v) => assets.some((a) => a.id === v) ? v : (assets[1]?.id || assets[0]?.id || ''));
     setCategoryId((v) => categoryRows.some((c) => c.id === v && c.is_active === 1) ? v : (categoryRows.find((c) => c.is_active === 1)?.id || ''));
     setNewCategoryAccount((v) => accountRows.some((a) => a.id === v && a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1) ? v : (accountRows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1)?.id || ''));
-  }, []);
+  }, [mode]);
   useEffect(() => {
     // Loading server state here is intentional; the state updates occur after the asynchronous request resolves.
     // eslint-disable-next-line react-hooks/set-state-in-effect
