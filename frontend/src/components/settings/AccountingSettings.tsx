@@ -28,10 +28,12 @@ function amountToMinor(value: string, digits: number): number | null {
   const minor = Number(parts[0]) * (10 ** digits) + Number((fraction + '0'.repeat(digits)).slice(0, digits) || '0');
   return Number.isSafeInteger(minor) && minor > 0 ? minor : null;
 }
-export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
+type AccountingMode = 'operations' | 'settings';
+
+export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: boolean; mode?: AccountingMode }) {
   const locale = useLocale();
   const t = locale.toLowerCase().startsWith('fa') ? labels.fa : labels.en;
-  const [tab, setTab] = useState<'expenses' | 'transfers' | 'setup'>('expenses');
+  const [tab, setTab] = useState<'expenses' | 'transfers' | 'setup'>(mode === 'settings' ? 'setup' : 'expenses');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [currency, setCurrency] = useState('IRR');
   const [categories, setCategories] = useState<Category[]>([]);
@@ -151,9 +153,9 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
   return <section className="w-full max-w-5xl space-y-5" dir={locale.toLowerCase().startsWith('fa') ? 'rtl' : 'ltr'}>
     <h2 className="text-xl font-semibold">{t.title}</h2>
     <div className="flex flex-wrap gap-2" role="tablist">
-      {(['expenses', 'transfers', 'setup'] as const).map((key) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={tab === key ? 'rounded-lg border border-brand bg-brand/10 px-4 py-2 text-sm text-brand' : 'rounded-lg border border-border px-4 py-2 text-sm'}>{t[key]}</button>)}
+      {(mode === 'settings' ? (['setup'] as const) : (['expenses', 'transfers'] as const)).map((key) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={tab === key ? 'rounded-lg border border-brand bg-brand/10 px-4 py-2 text-sm text-brand' : 'rounded-lg border border-border px-4 py-2 text-sm'}>{t[key]}</button>)}
     </div>
-    {tab === 'expenses' && <div className="space-y-5">
+    {mode === 'operations' && tab === 'expenses' && <div className="space-y-5">
       <form className={cardClass} onSubmit={(e) => { e.preventDefault(); void saveExpense(); }}>
         <h3 className="font-semibold">{t.createExpense}</h3><p className="text-xs text-muted-foreground">{t.amountHint} · {currency}</p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -169,7 +171,7 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
       </form>
       <div className={cardClass}><h3 className="font-semibold">{t.expenses}</h3>{expenses.length === 0 ? <p className="text-sm text-muted-foreground">{t.noRows}</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.description}</th><th className="p-2 text-start">{t.category}</th><th className="p-2 text-start">{t.amount}</th><th className="p-2 text-start">{t.status}</th><th /></tr></thead><tbody>{expenses.map((e) => <tr key={e.id} className="border-b border-border/60"><td className="p-2">{e.expense_date}</td><td className="p-2">{e.description}</td><td className="p-2">{e.category_name}</td><td className="p-2 whitespace-nowrap">{money(e.amount_minor)}</td><td className="p-2">{t[e.status as 'draft' | 'posted' | 'reversed'] || e.status} · {e.payment_status === 'paid' ? t.paid : t.unpaid}</td><td className="p-2 whitespace-nowrap">{e.status === 'draft' && e.payment_status === 'paid' && <button type="button" disabled={busy} onClick={() => { void api.post('/accounting/expenses/' + e.id + '/post').then(() => load()).catch(() => toast.error(t.saveFailed)); }} className="text-brand underline">{t.post}</button>}{e.status === 'posted' && <button type="button" disabled={busy} onClick={() => void reverseExpense(e)} className="ms-2 text-brand underline">{t.reverse}</button>}</td></tr>)}</tbody></table></div>}</div>
     </div>}
-    {tab === 'transfers' && <div className="space-y-5">
+    {mode === 'operations' && tab === 'transfers' && <div className="space-y-5">
       <form className={cardClass} onSubmit={(e) => { e.preventDefault(); void saveTransfer(); }}><h3 className="font-semibold">{t.transfer}</h3><p className="text-xs text-muted-foreground">{t.amountHint} · {currency}</p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <label className="space-y-1 text-sm"><span>{t.transferFrom}</span><select value={sourceAccount} onChange={(e) => setSourceAccount(e.target.value)} className={selectClass}>{activeAssets.map((a) => <option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>
@@ -181,7 +183,7 @@ export function AccountingSettings({ isAdmin }: { isAdmin: boolean }) {
       </form>
       <div className={cardClass}><h3 className="font-semibold">{t.history}</h3>{transfers.length === 0 ? <p className="text-sm text-muted-foreground">{t.noRows}</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.description}</th><th className="p-2 text-start">{t.transferFrom}</th><th className="p-2 text-start">{t.transferTo}</th><th className="p-2 text-start">{t.amount}</th></tr></thead><tbody>{transfers.map((x) => <tr key={x.id} className="border-b border-border/60"><td className="p-2">{x.entry_date}</td><td className="p-2">{x.description}</td><td className="p-2">{x.source_account_name}</td><td className="p-2">{x.destination_account_name}</td><td className="p-2 whitespace-nowrap">{money(x.amount_minor)}</td></tr>)}</tbody></table></div>}</div>
     </div>}
-    {tab === 'setup' && <div className="space-y-5">
+    {mode === 'settings' && tab === 'setup' && <div className="space-y-5">
       <form className={cardClass} onSubmit={(e) => { e.preventDefault(); void saveCategory(); }}><h3 className="font-semibold">{t.setup}</h3><div className="grid grid-cols-1 gap-3 md:grid-cols-2"><label className="space-y-1 text-sm"><span>{t.categoryName}</span><input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className={inputClass} required /></label><label className="space-y-1 text-sm"><span>{t.expenseAccount}</span><select value={newCategoryAccount} onChange={(e) => setNewCategoryAccount(e.target.value)} className={selectClass}>{activeExpenses.map((a) => <option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label></div><button disabled={busy || !activeExpenses.length} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{t.createCategory}</button><div className="space-y-2">{categories.map((c) => <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-sm"><span>{c.name}</span><span className="text-muted-foreground">{c.expense_account_name} · {c.is_active ? '✓' : '—'}</span></div>)}</div></form>
       <div className={cardClass}><h3 className="font-semibold">{t.mapping}</h3>{mappings.map((m) => <label key={m.payment_method_key} className="grid grid-cols-1 gap-2 border-b border-border/60 py-2 text-sm md:grid-cols-2"><span>{m.payment_method_name}</span><select disabled={busy} value={m.account_id || ''} onChange={(e) => void saveMapping(m.payment_method_key, e.target.value)} className={selectClass}><option value="">—</option>{accounts.filter((a) => (m.payment_method_key === 'loyalty' ? a.account_type === 'liability' : a.account_type === 'asset') && a.is_active === 1 && a.is_postable === 1).map((a) => <option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>)}</div>
     </div>}
