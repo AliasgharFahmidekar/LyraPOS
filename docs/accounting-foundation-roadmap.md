@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** Phase 0 and Phase 1 are implemented. Phase 2 stages 1–3 and Phase 2.5 (dedicated operational accounting navigation with setup separated into Settings) are implemented on this branch. Schema migrations 100–104 provide the ledger, expenses, posting/reversal guards, and transfers. Phase 2.5 adds the `/accounting` operations page and owner/manager sidebar entry while keeping categories and payment-account mappings in Settings. Full translation coverage across all 21 configured locales remains a release follow-up; automated sales/collection/refund posting remains gated by the policy decisions below. See [accounting-implementation-context.md](accounting-implementation-context.md) for the current implementation contract.
+**Status:** Phase 0 and Phase 1 are implemented. Phase 2 stages 1–3 and Phase 2.5 are implemented on this branch. Phase 3 Stage 1 (source lifecycle audit and sales/collection/refund posting matrix) is documented in [accounting-phase-3-posting-contract.md](accounting-phase-3-posting-contract.md); it makes no runtime posting changes. Schema migrations 100–104 provide the ledger, expenses, posting/reversal guards, and transfers. Phase 2.5 adds the `/accounting` operations page and owner/manager sidebar entry while keeping setup under Settings. Phase 3 runtime posting remains gated by the financial-policy and source-identity decisions in the contract. Full translation coverage across all 21 configured locales remains a release follow-up. See [accounting-implementation-context.md](accounting-implementation-context.md) for the implementation contract.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -191,10 +191,19 @@ The first version must not show a "net profit" KPI until COGS and relevant expen
 - Acceptance verified by focused and full CI tests: a paid expense creates exactly one balanced posted journal against its stored expense/payment-account snapshots; retrying a post does not duplicate it; unpaid drafts create no cash movement; reversals create exactly one opposite journal and retain the original; posted expense details cannot be edited/deleted directly. Transfers post one balanced asset-to-asset journal, are idempotent, reject invalid/non-liquid accounts and same-account transfers, and create no revenue/expense lines. Manager-only transfer routes are covered; cashier/server/chef and unauthenticated access are denied.
 
 ### Phase 3 — Sales, collections and refunds posting
-- Post from existing bills, payment lines and committed refunds after confirming source lifecycle semantics.
-- Support unpaid/partial/fully paid bills, mixed payment lines, split checks, custom payment methods and wallet/store-credit behavior where enabled.
-- Ensure cancellations and refunds follow actual payment history; never count a cancelled-but-paid bill as if its cash did not move.
-- Acceptance: all postings are idempotent and balanced; ledger collection totals reconcile with the current payment/refund rules; existing daily sales exports remain stable.
+
+**Stage 1 — source lifecycle audit and posting matrix (complete; documentation only):** [accounting-phase-3-posting-contract.md](accounting-phase-3-posting-contract.md) records observed behavior in the bill, payment, refund, order, loyalty and cash-session paths, identifies identity/mapping gaps, and gives the proposed balanced journal shape and acceptance matrix. No runtime accounting hooks are enabled by this stage.
+
+**Stage 2 — close financial-policy gaps and add stable source event identities (not started):**
+- Define the bill-finalization/revenue-recognition trigger; `/api/bills/generate` creates mutable unpaid bills and is not by itself a safe posting point.
+- Add a stable ID to each newly persisted payment line while preserving compatibility with existing `payment_details` JSON. Normalize built-in, custom and wallet methods to explicit account mappings.
+- Confirm sales/discount/charge/tax split, refund method normalization, loyalty/cashback point valuation, and historical cutover policy before enabling postings.
+
+**Stage 3 — wire postings and prove reconciliation (not started):**
+- Post each finalized bill once, each committed collection line once, and each committed refund once through the existing ledger and SQLite transaction boundaries.
+- Support unpaid/partial/fully paid bills, mixed payment lines, split checks, custom payment methods, refunds in a different method, and wallet/store-credit behavior where enabled.
+- Ensure cancellations and refunds follow actual payment history; never erase a real collection just because an order is cancelled.
+- Acceptance: postings are balanced and idempotent; no parent/split-child or revenue/collection double posting; totals reconcile to persisted bill/payment/refund records; existing daily sales exports and payment/refund behavior remain unchanged.
 
 ### Phase 4 — Purchases and counterparties
 - Add supplier records, purchase documents, receipt quantities, partial payments, payables and purchase returns.
@@ -314,7 +323,7 @@ This sequencing establishes a tested foundation before business events are conne
 
 ## Implementation status and next gates
 
-As of this change, Phase 0 discovery, Phase 1 ledger foundation, Phase 2 stages 1–3, and Phase 2.5 navigation/setup separation are implemented in code:
+As of this change, Phase 0 discovery, Phase 1 ledger foundation, Phase 2 stages 1–3, and Phase 2.5 navigation/setup separation are implemented in code. Phase 3 Stage 1 is complete as a source audit and documentation contract only (see [accounting-phase-3-posting-contract.md](accounting-phase-3-posting-contract.md)); automated sale/collection/refund postings are not yet enabled:
 - SQLite migrations 100–104 add the starter chart, journal header/lines, idempotency/source constraints, audit log and SQL guards; expense/category/payment mappings; paid-expense posting/reversal linkage; and the corresponding lifecycle protections.
 - `main/accounting/ledger.ts`, `main/accounting/expenses.ts`, and `main/accounting/transfers.ts` implement the ledger and operational accounting workflows with transaction safety and idempotency.
 - `tests/accounting-ledger.test.ts`, `tests/accounting-expenses.test.ts`, and `tests/accounting-routes.test.ts` cover ledger invariants, migration safety, expense workflow behavior, retry/conflict behavior, and authorization.
