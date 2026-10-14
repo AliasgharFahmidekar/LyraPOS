@@ -2,46 +2,43 @@
 
 **Status on PR #19:** The implementation policy below is the chosen Phase 3 contract for this PR. It supersedes the earlier proposal/checklist that left these choices open. The implementation is intentionally limited to internal management bookkeeping; it is not a jurisdiction-specific statutory accounting or tax-filing claim. Read [the complete runtime rules and worked scenarios](accounting-phase-3-operating-rules.md).
 
-## 1. Recognition basis and finalization
+## 1. Bill finalization and recognition
 
-**Decision:** Use accrual-style sale recognition from a persisted, immutable bill snapshot.
-- Generating a bill is still a mutable operational action and creates no revenue journal by itself.
-- The explicit `POST /api/bills/:id/finalize` endpoint can finalize an eligible post-cutover bill.
-- If a first payment arrives before explicit finalization, finalize the bill and post the sale within the same SQLite transaction as the accepted collection.
-- A finalized bill has one source identity, `bill / <bill.id> / sale_recognized`. Repeated calls validate the existing snapshot and return the original journal; they never create a second sale.
-- The financial fields/snapshot of a finalized bill are guarded against mutation. Do not edit a posted journal or silently resynchronize the amount; implement a linked accounting adjustment/reversal if corrections are later added.
-- An order with a financially finalized bill cannot transition to `cancelled` until a linked adjustment/reconciliation flow exists; the route rejects cancellation with HTTP 409 instead of stranding posted revenue/receivables.
+**Decision:** Use cash-received accounting for POS revenue.
+- Generating or finalizing a bill does not create a sale journal or Accounts Receivable balance.
+- Bill finalization only freezes an audit snapshot and protects its commercial fields from silent edits.
+- Each accepted actual-money payment line through cash, card or a custom payment method creates a journal for the applied amount.
+- A bill with no real-money payment produces no accounting revenue, even if its loyalty wallet/discount state changes.
+- The POS remains authoritative for bill totals and operational payment validation.
 
-## 2. Sales total, tax, discount, charges and rounding
+## 2. Revenue amount, tax and discounts
 
-**Decision for this first management-accounting release:** Let the persisted POS bill remain authoritative. For bill total (T) and its stored POS-computed tax amount (X):
-- Debit Accounts Receivable by (T).
-- Credit Sales Revenue by (T - X).
-- Credit a generic **Tax Collected (internal liability)** account by (X), when non-zero.
+**Decision:** Account only for money actually received through a real payment method.
+- Debit the mapped active asset account by the payment line's applied amount.
+- Credit Sales Revenue by the same amount.
+- Do not create Accounts Receivable, tax-liability, discount, cashback or loyalty journals from POS bill fields.
+- Applied discounts are not posted separately. Their only indirect effect is that the POS may accept a smaller monetary payment.
+- This is an internal cash-received bookkeeping policy, not a statutory tax ledger or accrual-basis financial statement.
 
-The final POS total already reflects discounts, delivery/packaging/service/table/takeaway charges and payable rounding. Phase 3 does not post those values as separate journal lines; sales revenue therefore represents the final bill total after the saved POS tax is excluded. This is a deliberate simple-chart choice, not a claim that charge-specific and gross/contra-revenue reporting is complete. A future dedicated analysis must change the design with explicit allocation rules and reconciliation tests; never silently reinterpret existing posted journals.
+## 3. Payment methods and loyalty boundary
 
-The tax amount is taken from the saved POS bill/tax snapshot. The ledger does not recalculate tax. The generic internal liability is not a country-specific legal tax account and must not be presented as proof of tax compliance. Invalid amounts and tax exceeding total are refused.
-
-## 3. Payment methods, collection and customer credit
-
-**Decision:** Collection settles receivables; it never recognizes revenue a second time.
+**Decision:** Cash/card/custom methods are the only POS payment events that enter accounting.
 - Cash -> Cash Drawer asset.
 - Card -> Payment Clearing asset.
-- Existing/new custom payment method -> initially Payment Clearing asset; owner/manager can re-map it to another active postable asset in Accounting Settings.
-- Wallet/loyalty redemption -> Customer Advances/Credit liability.
-- Each newly persisted payment line uses its stable `payment_event_id`; the event's applied amount is posted, not cash tender before change.
-- New custom methods default to clearing via migration/SQLite trigger so the existing POS remains usable. An explicit missing/invalid/inactive/wrong-type mapping fails closed; never guess another account.
-- Use the existing POS `LOYALTY_REDEMPTION_RATE` to translate an actually awarded cashback credit into store-currency major units. In the same SQLite transaction as the `loyalty_ledger` credit, debit Sales Discounts/contra-revenue and credit Customer Advances/customer-credit liability. Wallet redemption later debits that accrued liability and credits Accounts Receivable; do not fabricate a cash/bank movement. Store-credit refunds already credit the liability through their refund journal and must not be accrued twice.
+- Active custom payment method -> Payment Clearing asset by default; owner/manager may map it to another active postable asset.
+- Each real-money payment line is identified by its stable `payment_event_id`; the applied amount, not tendered cash before change, is posted as Dr mapped asset / Cr Sales Revenue.
+- Wallet/loyalty payment lines are skipped entirely. No mapping to a liability is needed.
+- Loyalty point awards, redemptions, expiries and balance changes never create or reverse accounting entries.
+- Discounts and cashback never create accounting entries. Do not read `loyalty_ledger` from the accounting posting service.
 
-## 4. Refunds, payout method and tax allocation
+## 4. Monetary refunds
 
-**Decision:** Source the journal from each committed `refunds.id` row, once. The actual payout method determines the credited account and may differ from the original payment.
-- Cash/card/custom payout: debit Sales Returns/contra-revenue for the refund net of its tax allocation, debit the internal tax liability for the allocated tax portion, and credit the actual payout account for the full refund.
-- Wallet/store-credit payout: credit Customer Advances/Credit liability instead of cash/bank.
-- The current refund API stores a refund amount but does not always identify the exact original tax lines for an arbitrary partial amount. Until a line-allocation contract is added, allocate bill tax proportionally across cumulative refunds using integer minor units. This is a documented management-accounting approximation for mixed-rate bills, not a statutory tax reversal.
-- Existing POS refund checks remain authoritative for approval and refundable balance. Refunds do not restock inventory or claw back already-issued cashback.
-- A pre-cutover or unfinalized legacy bill's refund may complete operationally but is audibly marked as skipped in accounting rather than being inserted into a new ledger without a matching sale. A post-cutover refund on a finalized bill rolls back if its mapped payout account or journal cannot be posted.
+**Decision:** Only actual money refunded through cash/card/custom methods affects accounting.
+- Debit Sales Discounts/contra-revenue by the actual monetary refund amount.
+- Credit the actual mapped payout asset by the same amount.
+- Wallet/store-credit refunds are non-monetary and are ignored by accounting.
+- No proportional tax allocation or tax-liability reversal is performed.
+- The committed refund row ID is the idempotency source identity. Existing POS authorization and refundable-balance rules remain authoritative.
 
 ## 5. Historical cutover
 
