@@ -68,6 +68,7 @@ try {
   {
     const db = freshDb();
     const { orderId, billId } = makeBill(db, 'SALE');
+    db.prepare('UPDATE bills SET discount_amount=10, discount_type=\'fixed\', discount_value=10 WHERE id=?').run(billId);
     const first = sales.finalizeBillSale(db, billId, 'test-owner-accounting');
     equal(first.duplicate, false, 'first finalization stores the snapshot');
     equal(first.journalEntryId, null, 'bill finalization creates no journal');
