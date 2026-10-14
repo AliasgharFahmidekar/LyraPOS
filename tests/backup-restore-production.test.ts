@@ -380,6 +380,32 @@ async function run() {
       /system accounting accounts cannot be deleted/i,
       'data-only restore keeps system-account deletion protection',
     );
+    for (const trigger of [
+      'accounting_bill_finalization_fields_immutable',
+      'accounting_finalized_bill_amounts_immutable',
+      'accounting_custom_payment_method_default_mapping',
+      'accounting_custom_payment_method_mapping_cleanup',
+    ]) {
+      assert.equal(
+        (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger) as { count: number }).count,
+        1,
+        'data-only restore reinstates Phase 3 trigger ' + trigger,
+      );
+    }
+    const postRestoreMethod = getDatabase().prepare(
+      'INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES (?, 1, 999, datetime(\'now\'), datetime(\'now\'))',
+    ).run('Restore Custom Accounting Method');
+    assert.equal(
+      (getDatabase().prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { account_id: string }).account_id,
+      'acct-payment-clearing',
+      'restored custom payment-method trigger creates the safe clearing mapping',
+    );
+    getDatabase().prepare('DELETE FROM payment_methods WHERE id=?').run(Number(postRestoreMethod.lastInsertRowid));
+    assert.equal(
+      (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { count: number }).count,
+      0,
+      'restored payment-method cleanup trigger deletes its mapping',
+    );
     assert.equal(
       (getDatabase().prepare('SELECT name FROM products WHERE id = ?').get('restore-product') as { name: string }).name,
       'Restore Product',
