@@ -65,7 +65,7 @@ function mappedPaymentAccount(db: DB, methodKey: string): { id: string; type: st
   const mapping = db.prepare(
     'SELECT a.id, a.account_type, a.is_active, a.is_postable FROM accounting_payment_method_mappings AS m JOIN accounting_accounts AS a ON a.id = m.account_id WHERE m.payment_method_key = ?',
   ).get(methodKey) as { id: string; account_type: string; is_active: number; is_postable: number } | undefined;
-  const expectedType = methodKey === 'loyalty' ? 'liability' : 'asset';
+  const expectedType = 'asset';
   if (!mapping) fail('payment_mapping_required', 'Map payment method "' + methodKey + '" to an accounting account before recording this financial event.', 409);
   if (mapping.is_active !== 1 || mapping.is_postable !== 1 || mapping.account_type !== expectedType) {
     fail('payment_mapping_invalid', 'The accounting mapping for "' + methodKey + '" must target an active postable ' + expectedType + ' account.', 409);
@@ -74,7 +74,7 @@ function mappedPaymentAccount(db: DB, methodKey: string): { id: string; type: st
 }
 
 function paymentMethodKey(db: DB, payment: any): string {
-  if (payment?.method === 'wallet' || payment?.method === 'loyalty') return 'loyalty';
+  if (payment?.method === 'wallet' || payment?.method === 'loyalty') fail('non_monetary_payment_ignored', 'Loyalty wallet value is not an accounting payment method.', 409);
   if (payment?.payment_method_id !== undefined && payment?.payment_method_id !== null) {
     const id = Number(payment.payment_method_id);
     const method = db.prepare('SELECT id, is_active FROM payment_methods WHERE id = ?').get(id) as { id: number; is_active: number } | undefined;
@@ -165,12 +165,12 @@ export function assertOrderCancellationAccountingSafe(db: DB, orderId: string | 
  * Finalizes the current persisted bill snapshot and recognizes the sale exactly once.
  * Discounts, operational charges and bill rounding are netted into sales revenue for
  * this basic management-accounting release. Persisted tax is split into the generic
- * tax-collected liability account; this is not a jurisdiction-specific tax filing.
+ * persisted bill tax snapshot; this is not a jurisdiction-specific tax filing.
  */
 /**
- * Locks the bill snapshot for accounting audit only. Discounts and loyalty-wallet
- * activity are outside the accounting boundary. Revenue is recorded only when
- * actual money is accepted through a real payment method (cash/card/custom).
+ * Locks the bill snapshot for audit/anti-mutation protection only. It never creates
+ * a journal. Revenue is recorded only when actual money is accepted through a real
+ * payment method (cash/card/custom); loyalty and discounts are outside accounting.
  */
 export function finalizeBillSale(db: DB, billId: string | number, actorId: string | null): any {
   return db.transaction(() => {
@@ -218,6 +218,8 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
     }
     return;
   }
+  // Wallet-only batches must not even finalize the accounting snapshot.
+  if (paymentLines.every((payment) => payment?.method === 'wallet' || payment?.method === 'loyalty')) return;
   if (!bill.accounting_finalized_at) finalizeBillSale(db, billId, actorId);
   const currency = configuredCurrency(db);
   const revenueId = postingAccountBySystemKey(db, 'sales_revenue', 'revenue');
@@ -251,7 +253,7 @@ function resolveRefundPaymentKey(db: DB, method: unknown): string {
   const value = method.trim();
   const lower = value.toLowerCase();
   if (['cash', 'card'].includes(lower)) return lower;
-  if (lower === 'wallet' || lower === 'loyalty') return 'loyalty';
+  if (lower === 'wallet' || lower === 'loyalty') fail('non_monetary_refund_ignored', 'Loyalty wallet refunds are outside accounting.', 409);
   const customId = /^custom:([1-9]\d*)$/.exec(lower);
   if (customId) {
     const row = db.prepare('SELECT id, is_active FROM payment_methods WHERE id = ?').get(Number(customId[1])) as any;
