@@ -3049,7 +3049,12 @@ function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
     && getTables(db).includes('payment_methods')
     && getTables(db).includes('accounting_payment_method_mappings')
     && getTables(db).includes('accounting_accounts')
+    && getColumns(db, 'bills').includes('accounting_finalized_at')
+    && getColumns(db, 'bills').includes('accounting_snapshot_json')
+    && getColumns(db, 'bills').includes('accounting_sale_journal_entry_id')
   ) {
+    // Older backups may contain v104 mapping tables but lack the v105 bill columns.
+    // Reinstall Phase 3 triggers only once the v105 schema shape exists.
     db.exec(ACCOUNTING_SALES_TRIGGER_SQL);
   }
   if (getTables(db).includes('accounting_expenses')) {
