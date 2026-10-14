@@ -31,7 +31,7 @@ The tax amount is taken from the saved POS bill/tax snapshot. The ledger does no
 - Wallet/loyalty redemption -> Customer Advances/Credit liability.
 - Each newly persisted payment line uses its stable `payment_event_id`; the event's applied amount is posted, not cash tender before change.
 - New custom methods default to clearing via migration/SQLite trigger so the existing POS remains usable. An explicit missing/invalid/inactive/wrong-type mapping fails closed; never guess another account.
-- Points/cashback are not treated as currency without a later valuation rule. Wallet redemption reduces customer-credit liability; a store-credit refund increases it.
+- Use the existing POS `LOYALTY_REDEMPTION_RATE` to translate an actually awarded cashback credit into store-currency major units. In the same SQLite transaction as the `loyalty_ledger` credit, debit Sales Discounts/contra-revenue and credit Customer Advances/customer-credit liability. Wallet redemption later debits that accrued liability and credits Accounts Receivable; do not fabricate a cash/bank movement. Store-credit refunds already credit the liability through their refund journal and must not be accrued twice.
 
 ## 4. Refunds, payout method and tax allocation
 
