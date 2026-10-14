@@ -14,6 +14,7 @@ import { calculateOrderTotals } from '../services/orders';
 import { adjustProductStock, resolveInventoryDeduction } from '../services/inventory';
 import { applyRecipeSnapshot, buildRecipeSnapshot, parseRecipeSnapshot } from '../services/recipes';
 import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
+import { assertOrderCancellationAccountingSafe } from '../accounting/sales';
 import { cloudSync } from '../services/cloud-sync';
 import { validateOrderNotes, validateItemNotes, validateProductQuantity } from './orders-validation';
 import { requireRole } from '../middleware/security';
@@ -1133,6 +1134,9 @@ router.patch('/:id/status', orderWriteRateLimit, requireRole(...ROLE_ACCESS.orde
           break;
 
         case 'cancelled': {
+          // Do not change a financially finalized order's operational status without
+          // an accounting adjustment workflow: that would strand posted revenue/A/R.
+          assertOrderCancellationAccountingSafe(db, req.params.id);
           // Select only items eligible for restocking (exclude already cancelled, voided, or accounting adjustments)
           const eligibleItems = db.prepare(`
             SELECT * FROM order_items
