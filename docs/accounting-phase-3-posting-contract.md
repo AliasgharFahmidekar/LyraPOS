@@ -79,7 +79,7 @@ The cash-drawer movement and cash-session/closure subsystem also tracks events s
 | Custom payment method receipt | Dr its mapped active asset account / Cr Sales Revenue. Defaults to Payment Clearing. |
 | Loyalty wallet award, redemption, expiry or balance change | Ignored completely; no journal, account mapping or accounting dependency. |
 | Discount/cashback | No separate accounting entry. Only the actual amount accepted by a real payment method matters. |
-| Cash/card/custom monetary refund | Dr Sales Discounts (contra-revenue) / Cr actual mapped payout asset for the monetary amount. |
+| Cash/card/custom monetary refund | Dr Sales Returns (contra-revenue) / Cr actual mapped payout asset for the monetary amount. |
 | Wallet/store-credit refund | Ignored completely. |
 | Pre-cutover bill/payment/refund | No automatic historical journal; monetary events are audited as cutover exceptions where applicable. |
 
