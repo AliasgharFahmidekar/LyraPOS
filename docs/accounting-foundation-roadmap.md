@@ -129,7 +129,7 @@ The exact posting point must follow existing order/bill lifecycle semantics, con
 | --- | --- |
 | Bill becomes financially final | Store an immutable bill snapshot only; no revenue/receivable/tax journal. |
 | Cash/card/custom payment is recorded | Debit the mapped asset and credit Sales Revenue by the actual applied monetary amount. |
-| Monetary refund is committed | Debit Sales Discounts/contra-revenue and credit the actual mapped payout asset by the amount refunded. |
+| Monetary refund is committed | Debit Sales Returns/contra-revenue and credit the actual mapped payout asset by the amount refunded. |
 | Loyalty-wallet or discount changes | No accounting journal or balance change. |
 | Expense is paid | Debit its configured expense account and credit the actual payment account. |
 | Expense/vendor bill is incurred but unpaid | Debit the appropriate expense/asset and credit accounts payable; do not reduce cash until payment occurs. |
@@ -200,7 +200,7 @@ Acceptance criteria:
 - Each accepted cash/card/custom payment line posts Dr mapped active asset / Cr Sales Revenue for the persisted applied amount (not tendered cash before change).
 - Cash maps to Cash Drawer; card maps to Payment Clearing; custom methods default to Payment Clearing and may be remapped to another active postable asset.
 - A payment line's stable event identity prevents duplicate posting on retry.
-- Only a monetary cash/card/custom refund posts Dr Sales Discounts/contra-revenue / Cr the actual mapped payout asset.
+- Only a monetary cash/card/custom refund posts Dr Sales Returns/contra-revenue / Cr the actual mapped payout asset.
 - Loyalty wallet credits, redemptions, expiries, balance changes and wallet/store-credit refunds create no accounting entries and require no account mapping.
 - Discounts and cashback create no separate journal. Their only indirect effect is that the POS may accept a different amount of actual money.
 - No Accounts Receivable, tax liability, tax allocation, or accrual-style sale journal is generated from POS bill fields. This is an internal cash-received bookkeeping model, not statutory tax accounting.
