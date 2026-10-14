@@ -10,6 +10,7 @@
 - If a first payment arrives before explicit finalization, finalize the bill and post the sale within the same SQLite transaction as the accepted collection.
 - A finalized bill has one source identity, `bill / <bill.id> / sale_recognized`. Repeated calls validate the existing snapshot and return the original journal; they never create a second sale.
 - The financial fields/snapshot of a finalized bill are guarded against mutation. Do not edit a posted journal or silently resynchronize the amount; implement a linked accounting adjustment/reversal if corrections are later added.
+- An order with a financially finalized bill cannot transition to `cancelled` until a linked adjustment/reconciliation flow exists; the route rejects cancellation with HTTP 409 instead of stranding posted revenue/receivables.
 
 ## 2. Sales total, tax, discount, charges and rounding
 
