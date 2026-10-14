@@ -6142,8 +6142,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           VALUES ('cash', 'acct-cash-drawer');
         INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
           VALUES ('card', 'acct-payment-clearing');
-        INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
-          VALUES ('loyalty', 'acct-customer-advances');
+        -- Loyalty wallet is POS-only and intentionally has no accounting mapping.
         INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
           SELECT 'custom:' || id, 'acct-payment-clearing' FROM payment_methods WHERE is_active = 1;
 
