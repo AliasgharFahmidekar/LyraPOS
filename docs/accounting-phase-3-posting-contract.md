@@ -1,6 +1,6 @@
 # Phase 3 — Sales, collections and refunds posting contract
 
-**Status:** Stage 1 (source lifecycle audit and posting matrix) complete. Stage 2 is in progress; see [accounting-phase-3-stage-2.md](accounting-phase-3-stage-2.md) for the implemented payment-event identity and policy decisions still required. This document records observed runtime behavior and the proposed accounting contract. It does **not** activate automatic sales, collection, loyalty or refund postings.
+**Status:** Source lifecycle audit is complete. The runtime policy is now implemented on PR #19 in `main/accounting/sales.ts` and migration v105. This file preserves the observed-source audit; use [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md) as the authoritative current contract for formulas, cutover behavior, examples and remaining limitations. Do not follow the historical “proposed” wording below without checking that current contract. Final-head CI is still required before merge.
 
 ## 1. Scope and evidence boundary
 
@@ -69,79 +69,55 @@ The cash-drawer movement and cash-session/closure subsystem also tracks events s
 
 **Conclusion:** don't infer a money refund from an item `void_adjustment`, don't infer revenue from order status alone, and never erase a real collection because the order was later cancelled. If a previously posted sale is cancelled, an explicit reversing/adjustment event is required; a cash payout is posted only when a committed refund/payout event exists.
 
-## 3. Proposed posting matrix
+## 3. Runtime posting matrix implemented on PR #19
 
-The journal line formulas below are the intended double-entry shape; exact revenue/tax split depends on the policy decisions in section 5 and must use persisted server-side currency/tax snapshots rather than UI totals.
+The precise behavior is documented in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md). Summary:
 
-| Source event | Proposed journal | Identity / guard |
+| Source event | Runtime journal | Source identity / important guard |
 |---|---|---|
-| Sale recognized (one per final bill/check) | Debit Accounts Receivable for the finalized bill total; credit mapped sales revenue and applicable tax-liability/other charge accounts; represent discounts and rounding according to the approved bill/tax calculation contract. | `source_type=bill`, `source_id=<bill.id>`, `source_event=sale_recognized`; requires an explicit financial-finalization trigger/snapshot first. |
-| Normal cash/card/custom collection line | Debit the mapped cash/bank/card-clearing/custom asset account for the line's **applied amount**; credit Accounts Receivable by the same amount. | `source_type=bill_payment`, `source_id=<bill.id>:<payment_event_id>`, `source_event=collected`; each newly saved payment line must have a unique immutable event ID. |
-| Wallet/store-credit redemption | Debit the customer-credit/liability account by the currency value redeemed; credit Accounts Receivable by that currency amount. No cash/bank debit. | Same payment-line identity rule; explicit wallet-to-`loyalty` mapping and point valuation/conversion are required. |
-| Cash/card/custom refund | Debit approved sales-return/contra-revenue and applicable tax adjustment accounts; credit the account used to actually pay the refund. The original collection account is not assumed to be the payout account. | `source_type=refund`, `source_id=<refund.id>`, `source_event=refund_committed`; only the committed `refunds` row is the money event. |
-| Store-credit refund | Debit approved sales-return/contra-revenue and applicable tax adjustment accounts; credit customer-credit liability, not cash/bank. | Refund ID; requires a defined points/currency valuation policy. |
-| Cashback/loyalty reward granted | If brought into the financial scope, debit the explicitly chosen promotion/loyalty expense or contra-revenue account and credit customer-credit liability under the approved reward valuation. | Bill/loyalty event needs stable identity and a documented monetary valuation; not automatically equivalent to the sale's collection. |
-| Order cancelled/item voided, with no committed money event | No cash/collection journal solely due to the status/stock operation. If an accounting sale was already posted, issue a separate approved reversal/adjustment according to cancellation policy. | Never post from `void_adjustment` as if it were a refund; never delete/change a posted journal. |
+| Bill sale recognized | Debit Accounts Receivable for the persisted bill total; credit Sales Revenue for total less the saved POS tax; credit the generic internal Tax Collected liability for saved tax. | `bill / <bill.id> / sale_recognized`; immutable bill snapshot; no posting from bill generation. |
+| Cash/card/custom collection | Debit the mapped cash drawer, clearing or custom liquid asset for the persisted applied amount; credit Accounts Receivable. | `bill_payment / <bill.id>:<payment_event_id> / collected`; new lines have a stable event ID. |
+| Wallet/loyalty redemption | Debit customer-credit liability; credit Accounts Receivable. No cash/bank debit. | Same payment-line identity; wallet is normalized to the `loyalty` liability mapping. |
+| Cash/card/custom refund | Debit Sales Returns/contra-revenue for refund net of proportional tax; debit internal tax liability for allocated tax; credit the actual payout account. | `refund / <refund.id> / refund_committed`; the payout method may differ from original collection. |
+| Store-credit refund | Debit contra-revenue and internal tax liability per the refund allocation; credit customer-credit liability instead of cash/bank. | Committed refund ID; current tax allocation is proportional for amount-only partial refunds. |
+| Cashback/points earned | No journal in Phase 3: points are not assumed to be currency. | Requires a separate valuation/recognition policy before accounting treatment is added. |
+| Pre-cutover bill/payment/refund | Do not backfill an unmatched historic journal; log a cutover audit exception. Existing legacy POS operations can continue. | Migration v105 `accounting_cutover_at`; opening balance/reconciliation is future Phase 4 work. |
+| Account transfer | Asset-to-asset debit/credit; no income/expense. | Implemented in Phase 2; included here as a guard against misclassification. |
 
-### Source event naming
+Phase 3 uses the POS's stored final bill total and tax amount. The final bill already reflects discounts, additional customer charges and rounding; the first version deliberately does not create separate accounting lines for each of these fields. The generic tax liability is an internal management-accounting account, not a jurisdiction-specific tax-compliance claim. COGS is not posted; any future result report must say it excludes inventory cost.
 
-The current ledger enforces a unique source triple `(source_type, source_id, source_event)` and idempotent payload matching. Use one stable source triple per business event, not per HTTP retry:
+## 4. Invariants enforced
 
-- `bill / <bill.id> / sale_recognized`
-- `bill_payment / <bill.id>:<payment_event_id> / collected`
-- `refund / <refund.id> / refund_committed`
+1. **One source of truth:** source rows are bills, appended persisted payment lines and committed refund rows; accounting must not copy operational totals from the frontend.
+2. **Recognition before collection:** sale finalization and its first collection are posted inside the payment transaction.
+3. **Atomicity:** for post-cutover events, a mapping/ledger failure rolls back the originating payment/refund operation; never swallow posting failure while reporting financial success.
+4. **Idempotency:** sale is unique per bill; collection uses a stable `payment_event_id`; refund uses the committed refund ID. Replays cannot increase totals twice.
+5. **Balances and currency:** integer minor units using the configured currency fraction digits; every posted entry must balance exactly and use active/postable accounts.
+6. **Applied amounts:** a collection uses the amount applied to the bill, not tendered cash before change.
+7. **Mapping:** cash/card and custom methods resolve to active, postable asset accounts; wallet redemption resolves to a customer-credit liability. Custom methods default to clearing and are editable in Settings. Explicit invalid mappings fail closed.
+8. **Refund payout:** credit the account actually used to pay/store-credit the refund; never assume it is the original collection method.
+9. **Posted history:** finalized bill amounts and sale snapshot are immutable; future corrections require a separate reversal/adjustment.
+10. **Historical safety:** the v105 cutover is not a backfill. Legacy skips are audit events; a future opening-balance workflow must reconcile the gap.
+11. **No fabricated profit:** this phase does not value stock or post COGS; sales less recorded expenses is only a result before COGS, not fully calculated net profit.
+12. **No statutory claim:** tax is sourced from the existing POS snapshot and posted to an internal liability for bookkeeping; no jurisdiction-specific tax treatment is certified here.
 
-If a sale/refund needs correction, create a new reversal/adjustment journal with its own source event/reference; never reuse the original source triple with a changed amount. Persist the business-source reference in the journal's traceable description/metadata where the ledger API supports it.
+## 5. Test and merge gates
 
-## 4. Required invariants for implementation
+Focused tests cover:
+- bill finalization exactly once and financial-field immutability;
+- partial cash collection with A/R settlement and duplicate-event retry;
+- committed partial refund with proportional tax allocation, actual payout account and duplicate replay;
+- pre-cutover bill rejection for finalization, no historic sale/collection journal and a visible audit exception;
+- migration v105 columns, guards, cutover and payment mapping defaults.
 
-1. **One source of truth:** consume committed bill/payment/refund rows; do not create duplicate order or payment models.
-2. **Correct event order:** a finalized sale entry must exist before or atomically with its first collection entry, otherwise Accounts Receivable can temporarily/incorrectly go negative. The chosen finalization trigger must guarantee this.
-3. **Atomicity:** the source mutation and corresponding journal posting should commit in the same SQLite transaction wherever practical. If an unavoidable later/recovery pass is used, it must have a detectable pending/failure state and be retryable without duplicates.
-4. **Idempotency:** event identity stays stable across HTTP retries, application restart and recovery. Request idempotency alone is not the accounting source identity.
-5. **Balance and currency:** integer minor units using the configured store currency/fraction digits; every posted journal balances exactly. Do not assume two decimal places or default a country/currency.
-6. **Amounts:** collections use applied payment amount, not tendered cash before change. Refund totals use each committed refund amount, never the order gross or bill balance alone.
-7. **Accounts:** inactive/non-postable accounts are rejected. Mapping is resolved by stable method key/ID; missing mappings fail closed rather than guessing.
-8. **Tax/discount/charges:** preserve bill tax snapshots/breakdowns and stored amount fields; no frontend-reconstructed totals or unapproved tax assumptions.
-9. **Historical data:** do not silently auto-post every pre-existing bill/refund on upgrade. Choose a cutover/opening-balance/backfill policy and reconcile it before activation.
-10. **Operational regressions:** current daily-sales exports, payment behavior, refunds, shift enforcement, loyalty and inventory cancellation/void rules remain unchanged unless separately approved.
+Run `npm run test:accounting-sales`, `npm run test:accounting-ledger`, `npm run test:accounting-expenses`, `npm run test:accounting-routes` plus existing payment/refund/tax/loyalty/cash/export tests, build, lint and the full workflow. The earlier run #316 only validates the previous payment-event identity slice; it does not certify the current runtime changes. The current PR must not be described as complete or merged until the final-head workflow passes.
 
-## 5. Decision gates before stage 2 can safely wire in posting
+## 6. Still explicitly deferred
 
-These are real gaps exposed by the source audit, not items to silently guess during implementation:
+- Opening balances, owner contributions/drawings and manual other income.
+- A reconciliation UI for skipped pre-cutover/failed source events.
+- Basic income/expense/account balance reports.
+- Dedicated charge/discount/rounding account allocation and more exact tax allocation for arbitrary mixed-tax item refunds.
+- Inventory valuation, recipe/product COGS, suppliers/payables, checks, loans/installments, payroll, fixed assets and statutory tax integrations.
 
-1. **Revenue recognition/finalization:** decide when a bill becomes financially final. The current `/generate` endpoint creates an unpaid bill and can update its totals; `paid_at` only describes full payment. Recommendation: define an explicit immutable bill-finalization event/snapshot and emit the sale journal before or atomically with its first collection. Do not use bill generation or order completion as an undocumented proxy.
-2. **Revenue, discounts, charges and tax:** confirm how subtotal, discount, delivery/packaging/service/table/takeaway charges, round-off and country tax snapshots map to ledger accounts. The current seeded chart has sales revenue and sales discounts, but no seeded tax-payable system account/mapping. Tax posting must remain blocked for stores without an explicitly configured valid tax account/treatment; do not imply statutory compliance.
-3. **Payment account normalization:** define the canonical mapping from built-in `cash`/`card`, wallet redemption, and custom payment IDs to GL accounts. The existing mappings can serve as the source for cash/card/custom methods; `wallet` must be intentionally normalized to the `loyalty` liability mapping.
-4. **Refund-method normalization:** choose the allowed refund methods and a stable representation for custom methods. The current refund endpoint persists a method string without resolving it to an accounting account key.
-5. **Loyalty/cashback valuation:** choose how loyalty points, wallet redemption and cashback rewards translate into currency-denominated liability/expense entries; existing loyalty amounts are point units, not store-currency minor units.
-6. **Historical cutover:** confirm whether automatic posting starts from an effective date with opening balances, or whether a controlled idempotent backfill is required. No silent historic posting.
-
-Until the decisions are recorded, the implementation must fail closed for an unsupported tax or payment/refund mapping; it must not fabricate accounts or silently skip a financial event.
-
-## 6. Stage 2 implementation order
-
-1. Add the smallest migration-safe representation needed for a bill finalization/snapshot and a stable ID on each newly written payment line. Keep legacy `payment_details` JSON readable; document legacy event handling and do not create historic journals automatically.
-2. Implement a pure, tested sale-journal builder from a finalized persisted bill snapshot, including exact minor-unit allocation across split checks and approved tax/charge mappings.
-3. Wire sale finalization and collection posting through the existing transaction boundary, with collection event IDs persisted and account mapping resolved by stable key.
-4. Add refund journal posting from the committed refund row, including the actual payout method, store-credit distinction and exact retry behavior.
-5. Add recovery/reconciliation assertions and preserve all existing payment/refund route behavior.
-
-## 7. Acceptance test matrix
-
-Focused tests must cover at least:
-
-- New bill created unpaid does not accidentally produce cash/revenue solely because it exists; editing/re-sync before finalization does not rewrite a posted sale.
-- Sale posting is emitted exactly once for a finalized bill; retry and app restart do not duplicate it.
-- Full, partial and later-settled bills; a payment request containing multiple lines; cash tender/change uses applied amount.
-- A custom payment method resolves through `custom:<payment_method_id>`; missing or inactive mappings fail clearly.
-- Wallet-funded payment reduces the approved customer-credit liability and does not increase cash/bank.
-- Split checks: sum of finalized child journals equals the approved source bill allocation; no parent/child double posting; paid split bills block later re-splitting as they do today.
-- Fully paid order completion, unpaid/partial bill, cancelled-but-paid bill and repeated request with/without optional provider transaction ID.
-- Full and partial refunds, item-level refund, refund method different from collection method, store-credit refund, cumulative refund ceiling, repeated idempotency key and conflicting key reuse.
-- Previously issued cashback/loyalty credit follows the approved loyalty policy; no accidental cashback double-counting or unauthorized inventory restoration.
-- Tax/discount/charge allocations balance to the finalized bill total exactly; unsupported tax configuration fails closed.
-- Posted sale/refund journals remain immutable; corrections use new linked reversal/adjustment entries.
-- Existing `test:integration-payments`, `test:integration-lifecycle`, `test:integration-reconciliation`, `test:integration-loyalty`, `test:integration-loyalty-redemption`, `test:refunds`, `test:refund-completed-orders`, `test:daily-sales-export`, `test:cash-sessions`, `test:cash-closures` and accounting-ledger/route suites run unchanged.
-
-**Stage 1 exit:** source paths, actual persisted event semantics, posting matrix, idempotency identities, and preconditions for implementation are recorded. Runtime posting is intentionally not part of Stage 1.
+See [accounting-foundation-roadmap.md](accounting-foundation-roadmap.md) for the revised next phases.
