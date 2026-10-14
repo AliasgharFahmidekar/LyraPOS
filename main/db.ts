@@ -6032,6 +6032,76 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
     },
   },
+
+  {
+    version: 105,
+    name: 'accounting_sales_collections_and_refunds',
+    up: () => {
+      const billColumns = getColumns(db, 'bills');
+      if (!billColumns.includes('accounting_finalized_at')) {
+        db.exec('ALTER TABLE bills ADD COLUMN accounting_finalized_at TEXT');
+      }
+      if (!billColumns.includes('accounting_snapshot_json')) {
+        db.exec('ALTER TABLE bills ADD COLUMN accounting_snapshot_json TEXT');
+      }
+      if (!billColumns.includes('accounting_sale_journal_entry_id')) {
+        db.exec('ALTER TABLE bills ADD COLUMN accounting_sale_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT');
+      }
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS accounting_bills_sale_journal_unique
+          ON bills(accounting_sale_journal_entry_id)
+          WHERE accounting_sale_journal_entry_id IS NOT NULL;
+
+        INSERT OR IGNORE INTO accounting_accounts
+          (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable, description)
+        VALUES
+          ('acct-sales-tax-payable', 'sales_tax_payable', '2040', 'Tax collected (internal liability)', 'liability', 'credit', 'acct-liabilities', 1, 1, 1,
+           'Generic management-accounting liability for tax amounts already calculated by the POS. Not a jurisdiction-specific tax account or compliance claim.');
+
+        -- Safe starter mappings for built-in payment types only. Existing owner-defined
+        -- mappings win, and custom methods must be mapped explicitly by a manager.
+        INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          VALUES ('cash', 'acct-cash-drawer');
+        INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          VALUES ('card', 'acct-payment-clearing');
+        INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          VALUES ('loyalty', 'acct-customer-advances');
+
+        CREATE TRIGGER IF NOT EXISTS accounting_bill_finalization_fields_immutable
+        BEFORE UPDATE OF accounting_finalized_at, accounting_snapshot_json, accounting_sale_journal_entry_id ON bills
+        WHEN OLD.accounting_finalized_at IS NOT NULL AND (
+          NEW.accounting_finalized_at IS NOT OLD.accounting_finalized_at
+          OR NEW.accounting_snapshot_json IS NOT OLD.accounting_snapshot_json
+          OR NEW.accounting_sale_journal_entry_id IS NOT OLD.accounting_sale_journal_entry_id
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_FINALIZED_BILL_IMMUTABLE');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_finalized_bill_amounts_immutable
+        BEFORE UPDATE OF bill_number, order_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
+          discount_amount, discount_type, discount_value, discount_reason, delivery_charge,
+          packaging_charge, service_charge, table_charge, takeaway_charge, round_off, total,
+          split_group_id, split_label ON bills
+        WHEN OLD.accounting_finalized_at IS NOT NULL AND (
+          NEW.bill_number IS NOT OLD.bill_number OR NEW.order_id IS NOT OLD.order_id
+          OR NEW.subtotal IS NOT OLD.subtotal OR NEW.tax_amount IS NOT OLD.tax_amount
+          OR NEW.tax_breakdown IS NOT OLD.tax_breakdown OR NEW.tax_snapshot IS NOT OLD.tax_snapshot
+          OR NEW.discount_amount IS NOT OLD.discount_amount OR NEW.discount_type IS NOT OLD.discount_type
+          OR NEW.discount_value IS NOT OLD.discount_value OR NEW.discount_reason IS NOT OLD.discount_reason
+          OR NEW.delivery_charge IS NOT OLD.delivery_charge OR NEW.packaging_charge IS NOT OLD.packaging_charge
+          OR NEW.service_charge IS NOT OLD.service_charge OR NEW.table_charge IS NOT OLD.table_charge
+          OR NEW.takeaway_charge IS NOT OLD.takeaway_charge OR NEW.round_off IS NOT OLD.round_off
+          OR NEW.total IS NOT OLD.total OR NEW.split_group_id IS NOT OLD.split_group_id
+          OR NEW.split_label IS NOT OLD.split_label
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_FINALIZED_BILL_AMOUNT_IMMUTABLE');
+        END;
+      `);
+    },
+  },
+
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
