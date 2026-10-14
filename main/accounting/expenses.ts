@@ -112,7 +112,7 @@ export function saveExpenseCategory(db: DB, input: any, actorId: string | null, 
 }
 function paymentKey(db: DB, value: unknown, requireActive = false): string {
   const key = textValue(value, 'payment_method_key', 80);
-  if (key === 'cash' || key === 'card' || key === 'loyalty') return key;
+  if (key === 'cash' || key === 'card') return key;
   const match = /^custom:([1-9]\d*)$/.exec(key);
   if (!match) fail('invalid_payment_method_key', 'Choose a supported existing payment method.');
   const method = db.prepare('SELECT id, is_active FROM payment_methods WHERE id = ?').get(Number(match[1])) as { id: number; is_active: number } | undefined;
@@ -121,14 +121,12 @@ function paymentKey(db: DB, value: unknown, requireActive = false): string {
   return key;
 }
 function mappedAccount(db: DB, key: string, accountId: unknown): string {
-  const types = key === 'loyalty' ? ['liability'] : ['asset'];
-  return postingAccount(db, accountId, types).id;
+  return postingAccount(db, accountId, ['asset']).id;
 }
 export function listPaymentAccountMappings(db: DB): any[] {
   const methods = [
     { payment_method_key: 'cash', payment_method_name: 'Cash' },
     { payment_method_key: 'card', payment_method_name: 'Card' },
-    { payment_method_key: 'loyalty', payment_method_name: 'Loyalty wallet' },
     ...(db.prepare('SELECT id, name, is_active FROM payment_methods ORDER BY sort_order, id').all() as any[])
       .map((m) => ({ payment_method_key: 'custom:' + m.id, payment_method_name: m.name, payment_method_id: m.id, payment_method_active: Boolean(m.is_active) })),
   ];
@@ -151,7 +149,6 @@ function paymentInput(db: DB, input: any) {
   if (status !== 'paid' && status !== 'unpaid') fail('invalid_payment_status', 'Payment status must be paid or unpaid.');
   if (status === 'unpaid') return { paymentStatus: status, paymentMethodKey: null, paymentAccountId: null, paymentDate: null };
   const key = paymentKey(db, input?.payment_method_key, true);
-  if (key === 'loyalty') fail('invalid_expense_payment_method', 'A loyalty wallet is not a valid expense payment source.');
   const mapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as { account_id: string } | undefined;
   if (!mapping) fail('payment_mapping_required', 'Map this payment method to an accounting account before using it for a paid expense.', 409);
   const paymentAccount = postingAccount(db, mapping.account_id, ['asset']);
