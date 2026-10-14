@@ -70,6 +70,9 @@ function freshInstallChecks(): void {
   equal(cashMapping.account_id, 'acct-cash-drawer', 'migration v105 safely seeds the cash mapping');
   const cardMapping = db.prepare("SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key='card'").get() as any;
   equal(cardMapping.account_id, 'acct-payment-clearing', 'migration v105 safely seeds the card-clearing mapping');
+  const customMethod = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Accounting test custom method',1,10,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
+  const customMapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key = ?').get('custom:' + Number(customMethod.lastInsertRowid)) as any;
+  equal(customMapping.account_id, 'acct-payment-clearing', 'new custom payment methods receive a conservative clearing-account mapping');
 
   const expenseColumns = (db.pragma('table_info(accounting_expenses)') as Array<{ name: string }>).map((column) => column.name);
   check(expenseColumns.includes('reversal_journal_entry_id'), 'fresh install includes expense reversal journal link');
