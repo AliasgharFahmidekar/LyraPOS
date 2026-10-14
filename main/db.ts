@@ -2702,6 +2702,10 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_expense_posted_fields_immutable',
   'accounting_expense_state_transition_guard',
   'accounting_expense_posted_delete_guard',
+  'accounting_bill_finalization_fields_immutable',
+  'accounting_finalized_bill_amounts_immutable',
+  'accounting_custom_payment_method_default_mapping',
+  'accounting_custom_payment_method_mapping_cleanup',
 ] as const;
 
 /**
@@ -2973,6 +2977,57 @@ const ACCOUNTING_ACCOUNT_DEFINITION_GUARD_SQL = `
         END;
       `;
 
+const ACCOUNTING_SALES_TRIGGER_SQL = `
+  CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_default_mapping
+  AFTER INSERT ON payment_methods
+  WHEN NOT EXISTS (
+    SELECT 1 FROM accounting_payment_method_mappings
+    WHERE payment_method_key = 'custom:' || NEW.id
+  )
+  BEGIN
+    INSERT INTO accounting_payment_method_mappings (payment_method_key, account_id)
+    VALUES ('custom:' || NEW.id, 'acct-payment-clearing');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_mapping_cleanup
+  AFTER DELETE ON payment_methods
+  BEGIN
+    DELETE FROM accounting_payment_method_mappings WHERE payment_method_key = 'custom:' || OLD.id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_bill_finalization_fields_immutable
+  BEFORE UPDATE OF accounting_finalized_at, accounting_snapshot_json, accounting_sale_journal_entry_id ON bills
+  WHEN OLD.accounting_finalized_at IS NOT NULL AND (
+    NEW.accounting_finalized_at IS NOT OLD.accounting_finalized_at
+    OR NEW.accounting_snapshot_json IS NOT OLD.accounting_snapshot_json
+    OR NEW.accounting_sale_journal_entry_id IS NOT OLD.accounting_sale_journal_entry_id
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'ACCOUNTING_FINALIZED_BILL_IMMUTABLE');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_finalized_bill_amounts_immutable
+  BEFORE UPDATE OF bill_number, order_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
+    discount_amount, discount_type, discount_value, discount_reason, delivery_charge,
+    packaging_charge, service_charge, table_charge, takeaway_charge, round_off, total,
+    split_group_id, split_label ON bills
+  WHEN OLD.accounting_finalized_at IS NOT NULL AND (
+    NEW.bill_number IS NOT OLD.bill_number OR NEW.order_id IS NOT OLD.order_id
+    OR NEW.subtotal IS NOT OLD.subtotal OR NEW.tax_amount IS NOT OLD.tax_amount
+    OR NEW.tax_breakdown IS NOT OLD.tax_breakdown OR NEW.tax_snapshot IS NOT OLD.tax_snapshot
+    OR NEW.discount_amount IS NOT OLD.discount_amount OR NEW.discount_type IS NOT OLD.discount_type
+    OR NEW.discount_value IS NOT OLD.discount_value OR NEW.discount_reason IS NOT OLD.discount_reason
+    OR NEW.delivery_charge IS NOT OLD.delivery_charge OR NEW.packaging_charge IS NOT OLD.packaging_charge
+    OR NEW.service_charge IS NOT OLD.service_charge OR NEW.table_charge IS NOT OLD.table_charge
+    OR NEW.takeaway_charge IS NOT OLD.takeaway_charge OR NEW.round_off IS NOT OLD.round_off
+    OR NEW.total IS NOT OLD.total OR NEW.split_group_id IS NOT OLD.split_group_id
+    OR NEW.split_label IS NOT OLD.split_label
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'ACCOUNTING_FINALIZED_BILL_AMOUNT_IMMUTABLE');
+  END;
+`;
+
 function recreateAccountingAccountDefinitionGuard(db: Database.Database): void {
   // v100 shipped the original trigger. Replace it explicitly so both upgraded
   // databases and privileged restore paths use the hardened identity guard.
@@ -2989,6 +3044,14 @@ function dropAccountingLedgerRestoreTriggers(db: Database.Database): void {
 function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (!getTables(db).includes('accounting_accounts')) return;
   db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
+  if (
+    getTables(db).includes('bills')
+    && getTables(db).includes('payment_methods')
+    && getTables(db).includes('accounting_payment_method_mappings')
+    && getTables(db).includes('accounting_accounts')
+  ) {
+    db.exec(ACCOUNTING_SALES_TRIGGER_SQL);
+  }
   if (getTables(db).includes('accounting_expenses')) {
     db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
     db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
