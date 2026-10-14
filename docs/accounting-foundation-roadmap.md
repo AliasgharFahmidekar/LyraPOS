@@ -105,11 +105,11 @@ Expense edits, cancellation and deletion must follow posting state: unposted dra
 
 Keep the existing payment-method catalogue. Add accounting configuration that maps each configured method to a ledger destination/clearing account and, where necessary, defines settlement behavior.
 
-Examples that require explicit mappings:
-- Cash collected → cash drawer.
-- Card payment → bank or card-clearing account (not necessarily the bank balance immediately).
-- Store-credit/wallet redemption → the appropriate liability/customer-credit account, if the current feature is enabled.
-- Custom payment method → a manager-configured account; never guess from a translated display name.
+Only real-money methods are mapped:
+- Cash received → cash drawer.
+- Card payment → card-clearing account (not necessarily the bank balance immediately).
+- Custom payment method → a manager-configured asset account; never guess from a translated display name.
+- Loyalty wallet is not an accounting payment method. Its credits/redemptions are excluded, not mapped to a liability or asset.
 
 Payment-method name, cash location and GL account are separate concepts. The implementation must also respect actual payment-line amounts/timestamps and partial/split payments rather than treating the entire bill as one payment.
 
@@ -127,9 +127,10 @@ The exact posting point must follow existing order/bill lifecycle semantics, con
 
 | Business event | Expected ledger effect (conceptual) |
 | --- | --- |
-| Bill becomes financially final | Recognize the sale and any applicable tax liability, with the corresponding receivable/settlement structure. |
-| Payment or partial payment is recorded | Increase the mapped cash/bank/clearing asset and reduce the customer receivable by the amount actually collected. |
-| Refund is approved/committed | Record the refund/return and relevant tax reversal where applicable; credit the actual payout account or the applicable customer-credit liability. |
+| Bill becomes financially final | Store an immutable bill snapshot only; no revenue/receivable/tax journal. |
+| Cash/card/custom payment is recorded | Debit the mapped asset and credit Sales Revenue by the actual applied monetary amount. |
+| Monetary refund is committed | Debit Sales Discounts/contra-revenue and credit the actual mapped payout asset by the amount refunded. |
+| Loyalty-wallet or discount changes | No accounting journal or balance change. |
 | Expense is paid | Debit its configured expense account and credit the actual payment account. |
 | Expense/vendor bill is incurred but unpaid | Debit the appropriate expense/asset and credit accounts payable; do not reduce cash until payment occurs. |
 | Purchase is received | Increase inventory valuation and record the corresponding payable/cash and applicable tax treatment. |
@@ -139,7 +140,7 @@ The exact posting point must follow existing order/bill lifecycle semantics, con
 | Ingredients are consumed/wasted | Reduce ingredient inventory value and record the approved COGS/waste treatment, tied to existing stock movements. |
 | Opening balances are entered | Create a balanced, clearly labelled opening-balance journal with a traceable setup record. |
 
-These are accounting outcomes to implement and test, not claims about existing postings. Tax account selection and the recognition point must be documented, not inferred from UI labels.
+For POS events, the selected cash-received-only treatment above is the active implementation contract. Expense, payable, purchase, transfer, owner-capital and opening-balance entries remain separate flows. This POS integration does not calculate tax liability or statutory tax.
 
 ## 5. Report plan
 
@@ -329,10 +330,10 @@ This sequencing establishes a tested foundation before business events are conne
 
 ## Implementation status and next gates
 
-As of this PR branch, Phase 0 discovery, Phase 1 ledger, Phase 2 expenses/transfers and Phase 2.5 operations/setup UI are implemented. Phase 3 now has runtime sale, collection and refund posting plus migration v105 and focused regression coverage. Read [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md) for the actual rules and worked scenarios. The new posting code is not considered release-ready until the final-head workflow passes.
+As of this PR branch, Phase 0 discovery, Phase 1 ledger, Phase 2 expenses/transfers and Phase 2.5 operations/setup UI are implemented. Phase 3 now implements cash-received-only money receipt/refund posting plus migration v105 and focused regression coverage. Read [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md) for the actual rules and worked scenarios. The new posting code is not considered release-ready until the final-head workflow passes.
 
-- Migrations 100–104 provide the ledger, expense lifecycle, audit records, reversals and transfers. Migration 105 adds immutable bill accounting snapshots, a generic internal tax liability, default payment account mappings and a no-backfill cutover timestamp.
-- `main/accounting/ledger.ts`, `main/accounting/expenses.ts`, `main/accounting/transfers.ts` and `main/accounting/sales.ts` now cover ledger operations, expenses/transfers and Phase 3 sale/collection/refund sources.
+- Migrations 100–104 provide the ledger, expense lifecycle, audit records, reversals and transfers. Migration 105 adds immutable bill accounting snapshots, legacy account seeds, default payment account mappings and a no-backfill cutover timestamp. The POS receipt/refund posting policy does not use the tax-liability or loyalty mapping.
+- `main/accounting/ledger.ts`, `main/accounting/expenses.ts`, `main/accounting/transfers.ts` and `main/accounting/sales.ts` now cover ledger operations, expenses/transfers and Phase 3 actual-money receipt/refund sources.
 - Focused tests include `tests/accounting-ledger.test.ts`, `tests/accounting-expenses.test.ts`, `tests/accounting-routes.test.ts` and the new `tests/accounting-sales.test.ts`.
 - Opening balances, owner contributions/drawings, manual other income, complete account reconciliation and reports remain in the next roadmap phases. Inventory valuation/COGS is deliberately excluded from the requested basic accounting scope.
 
