@@ -47,7 +47,7 @@ The tax amount is taken from the saved POS bill/tax snapshot. The ledger does no
 
 **Decision:** No automatic historical backfill.
 - Migration v105 records `accounting_cutover_at` once, preserving an existing value.
-- Only bills created at or after this cutover participate in automatic posting.
+- Only bills created strictly after this cutover participate in automatic posting. A bill stamped at or before the cutover timestamp—including the same timestamp second—is legacy and is not auto-posted.
 - Existing bills/payment lines are not rewritten and historic revenue/collections/refunds are not fabricated.
 - A payment on a pre-cutover bill may still succeed under established POS operational behavior but is recorded in the accounting audit log as `skipped_pre_cutover_payment`; explicit finalization of that bill is rejected. Unfinalized legacy refunds get a matching `skipped_pre_cutover_refund` audit exception.
 - Future Phase 4 must add owner-guided opening-balance/reconciliation tools before the displayed ledger balance is relied on as the business's full real-world cash/receivable position.
