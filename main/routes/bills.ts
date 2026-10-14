@@ -1407,6 +1407,9 @@ export function syncUnpaidBillsForOrder(
   }
   const unpaidBills = bills.filter((bill) => bill.payment_status !== 'paid' || Number(bill.paid_amount || 0) === 0);
   if (unpaidBills.length === 0) return;
+  if (unpaidBills.some((bill) => bill.accounting_finalized_at)) {
+    throw Object.assign(new Error('This order has a financially finalized bill; reconcile an accounting adjustment before changing its commercial lines.'), { statusCode: 409 });
+  }
 
   const tenantCurrency = getTenantCurrency();
   const pack = getActiveCountryPack(country);
@@ -2180,6 +2183,9 @@ router.post('/:id/applyDiscount', requireRole(...ROLE_ACCESS.ownerManager), (req
     }
     if (bill.payment_status === 'paid') {
       return res.status(400).json({ error: 'Cannot apply discount to a paid bill' });
+    }
+    if (bill.accounting_finalized_at) {
+      return res.status(409).json({ error: 'This bill is financially finalized. Use an accounting adjustment instead of changing its total.' });
     }
     if (bill.split_group_id) {
       return res.status(409).json({ error: 'Apply discounts before splitting a bill' });
