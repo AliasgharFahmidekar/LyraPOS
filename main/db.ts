@@ -6135,6 +6135,13 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           ('acct-sales-tax-payable', 'sales_tax_payable', '2040', 'Tax collected (internal liability)', 'liability', 'credit', 'acct-liabilities', 1, 1, 1,
            'Generic management-accounting liability for tax amounts already calculated by the POS. Not a jurisdiction-specific tax account or compliance claim.');
 
+        -- Monetary refunds need their own contra-revenue account. Discounts themselves are not posted.
+        INSERT OR IGNORE INTO accounting_accounts
+          (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable, description)
+        VALUES
+          ('acct-sales-returns', 'sales_returns', '4030', 'Sales returns and refunds', 'revenue', 'debit', 'acct-income', 1, 1, 1,
+           'Contra-revenue for actual monetary refunds. POS discounts and loyalty cashback are not journaled.');
+
         -- Existing owner-defined mappings win. Cash and card get conservative defaults.
         -- Custom payment methods default to clearing on creation so POS collection behavior
         -- remains usable; owners can map each method to a more specific liquid asset in Settings.
