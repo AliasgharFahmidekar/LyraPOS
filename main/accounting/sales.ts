@@ -89,12 +89,14 @@ function paymentMethodKey(db: DB, payment: any): string {
 
 function isBeforeAccountingCutover(db: DB, sourceCreatedAt: unknown): boolean {
   const setting = db.prepare("SELECT value FROM settings WHERE key = 'accounting_cutover_at'").get() as { value: string | null } | undefined;
-  const cutoff = setting?.value ? Date.parse(setting.value) : Number.NaN;
-  const created = typeof sourceCreatedAt === 'string' ? Date.parse(sourceCreatedAt) : Number.NaN;
+  const cutoff = setting?.value ? parseDbTimestamp(setting.value).getTime() : Number.NaN;
+  const created = typeof sourceCreatedAt === 'string' ? parseDbTimestamp(sourceCreatedAt).getTime() : Number.NaN;
   // If the cutover has not been recorded, fail closed for automatic posting.
   if (!Number.isFinite(cutoff)) fail('accounting_cutover_missing', 'The accounting cutover is not configured; automatic posting is disabled.', 409);
   if (!Number.isFinite(created)) fail('accounting_source_date_invalid', 'The source bill has an invalid creation timestamp.', 409);
-  return created < cutoff;
+  // SQLite timestamps have one-second precision. Treat a source stamped exactly
+  // at cutover as legacy to avoid accidentally recognizing historical revenue.
+  return created <= cutoff;
 }
 
 function auditPreCutoverEvent(db: DB, entityId: string, action: string, actorId: string | null, details: unknown): void {
