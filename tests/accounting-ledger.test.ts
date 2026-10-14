@@ -341,7 +341,7 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 104, 'existing database upgrades from v99 through schema version 104');
+  equal(getCurrentSchemaVersion(), 105, 'existing database upgrades from v99 through schema version 105');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
@@ -376,7 +376,7 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 104, 'v100 database upgrades through schema version 104');
+  equal(getCurrentSchemaVersion(), 105, 'v100 database upgrades through schema version 105');
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
     /system or posted accounting account definitions are immutable/i,
@@ -423,7 +423,7 @@ function upgradeFromVersion102Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 104, 'v102 database upgrades to schema version 104');
+  equal(getCurrentSchemaVersion(), 105, 'v102 database upgrades to schema version 105');
   const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key,reversal_journal_entry_id,reversal_reason FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
   equal(preserved.id, 'expense-v102-preserve', 'upgrade preserves existing expense records');
   equal(preserved.amount_minor, 2500, 'upgrade preserves existing expense amount');
@@ -462,7 +462,7 @@ function upgradeFromVersion101Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 104, 'v101 database upgrades through schema version 104');
+  equal(getCurrentSchemaVersion(), 105, 'v101 database upgrades through schema version 105');
   check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
   check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
   check(tableExists(db, 'accounting_expenses'), 'expense migration creates expenses');
