@@ -150,7 +150,7 @@ try {
     ok(refundJournal, 'refund source identity is the persisted refund row ID');
     balanced(db, refundJournal.id);
     const refundLines = linesForJournal(db, refundJournal.id);
-    equal(refundLines.find((line: any) => line.system_key === 'sales_discounts')?.debit_minor, 25, 'full monetary refund debits contra-revenue');
+    equal(refundLines.find((line: any) => line.system_key === 'sales_returns')?.debit_minor, 25, 'full monetary refund debits contra-revenue');
     equal(refundLines.find((line: any) => line.system_key === 'cash_drawer')?.credit_minor, 25, 'refund credits actual payout account');
     const again = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
     equal(again.posted, true, 'refund retry resolves through original source journal');
