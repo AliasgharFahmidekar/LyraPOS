@@ -87,6 +87,24 @@ function paymentMethodKey(db: DB, payment: any): string {
   fail('payment_mapping_required', 'This payment line does not resolve to an approved built-in or custom accounting payment key.', 409);
 }
 
+function isBeforeAccountingCutover(db: DB, sourceCreatedAt: unknown): boolean {
+  const setting = db.prepare("SELECT value FROM settings WHERE key = 'accounting_cutover_at'").get() as { value: string | null } | undefined;
+  const cutoff = setting?.value ? Date.parse(setting.value) : Number.NaN;
+  const created = typeof sourceCreatedAt === 'string' ? Date.parse(sourceCreatedAt) : Number.NaN;
+  // If the cutover has not been recorded, fail closed for automatic posting.
+  if (!Number.isFinite(cutoff)) fail('accounting_cutover_missing', 'The accounting cutover is not configured; automatic posting is disabled.', 409);
+  if (!Number.isFinite(created)) fail('accounting_source_date_invalid', 'The source bill has an invalid creation timestamp.', 409);
+  return created < cutoff;
+}
+
+function auditPreCutoverEvent(db: DB, entityId: string, action: string, actorId: string | null, details: unknown): void {
+  const exists = db.prepare('SELECT 1 FROM accounting_audit_log WHERE entity_type = ? AND entity_id = ? AND action = ? LIMIT 1')
+    .get('accounting_source_event', entityId, action);
+  if (exists) return;
+  db.prepare('INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?,?,?,?,?,?)')
+    .run('accounting_source_event', entityId, action, actorId, null, JSON.stringify(details));
+}
+
 function snapshotFields(bill: any, currencyCode: string): Record<string, unknown> {
   return {
     bill_id: String(bill.id),
@@ -130,6 +148,9 @@ export function finalizeBillSale(db: DB, billId: string | number, actorId: strin
   return db.transaction(() => {
     const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
     if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
+    if (isBeforeAccountingCutover(db, bill.created_at)) {
+      fail('pre_cutover_bill', 'This bill predates accounting cutover and will not be backfilled automatically. Reconcile its opening balance separately.', 409);
+    }
     const currency = configuredCurrency(db);
     if (bill.accounting_finalized_at) {
       const snapshot = (() => { try { return JSON.parse(bill.accounting_snapshot_json || '{}'); } catch { return {}; } })();
@@ -189,6 +210,19 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
   if (!paymentLines.length) return;
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
   if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
+  if (isBeforeAccountingCutover(db, bill.created_at)) {
+    for (const payment of paymentLines) {
+      const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
+      if (eventId) auditPreCutoverEvent(db, 'payment:' + eventId, 'skipped_pre_cutover_payment', actorId, {
+        bill_id: String(bill.id),
+        payment_event_id: eventId,
+        amount: payment.amount,
+        method: payment.method,
+        reason: 'Bill predates accounting cutover; historical collection posting is intentionally not backfilled.',
+      });
+    }
+    return;
+  }
   if (!bill.accounting_finalized_at) finalizeBillSale(db, billId, actorId);
   const finalizedBill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
   if (!finalizedBill?.accounting_sale_journal_entry_id && toMinorUnits(finalizedBill?.total, configuredCurrency(db), 'Bill total') > 0) {
