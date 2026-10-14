@@ -294,6 +294,14 @@ export function postCashbackReward(db: DB, billId: string | number, currencyAmou
   return db.transaction(() => {
     const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
     if (!bill) fail('bill_not_found', 'Cashback source bill was not found.', 404);
+    if (isBeforeAccountingCutover(db, bill.created_at)) {
+      auditPreCutoverEvent(db, 'cashback:' + String(bill.id), 'skipped_pre_cutover_cashback', actorId, {
+        bill_id: String(bill.id),
+        currency_amount: currencyAmount,
+        reason: 'Source bill predates accounting cutover; historic cashback liability is not backfilled.',
+      });
+      return { posted: false, reason: 'pre_cutover_bill' };
+    }
     if (bill.payment_status !== 'paid' || !bill.paid_at) {
       fail('cashback_bill_not_paid', 'Cashback can only be accrued after the POS has fully paid the bill.', 409);
     }
@@ -350,13 +358,16 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     if (!refund) fail('refund_not_found', 'Committed refund row was not found.', 404);
     const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(refund.bill_id) as any;
     if (!bill) fail('refund_bill_missing', 'The refund references a missing bill.', 409);
-    if (!bill.accounting_finalized_at || !bill.accounting_sale_journal_entry_id) {
-      db.prepare('INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?,?,?,?,?,?)')
-        .run('accounting_source_event', 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, null, JSON.stringify({
-          refund_id: String(refund.id), bill_id: String(bill.id),
-          reason: 'The source bill has no accounting finalization/journal; historic posting is intentionally not backfilled.',
-        }));
+    if (isBeforeAccountingCutover(db, bill.created_at)) {
+      auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
+        refund_id: String(refund.id),
+        bill_id: String(bill.id),
+        reason: 'Source bill predates accounting cutover; historic refund journal is not backfilled.',
+      });
       return { posted: false, reason: 'pre_cutover_unfinalized_bill' };
+    }
+    if (!bill.accounting_finalized_at || !bill.accounting_sale_journal_entry_id) {
+      fail('refund_sale_not_finalized', 'A post-cutover refund requires its original sale journal; the refund was rolled back for reconciliation.', 409);
     }
     const currency = configuredCurrency(db);
     const totalMinor = toMinorUnits(bill.total, currency, 'Bill total');
@@ -365,7 +376,15 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) fail('refund_amount_invalid', 'The committed refund has an invalid amount.', 409);
     if (totalMinor <= 0 || taxMinor > totalMinor) fail('refund_tax_allocation_invalid', 'The source bill does not support tax allocation for refund posting.', 409);
 
-    const priorRefunded = Number((db.prepare('SELECT COALESCE(SUM(amount_cents),0) AS total FROM refunds WHERE bill_id = ? AND id <> ?').get(bill.id, refund.id) as any)?.total || 0);
+    // Tax share for a refund must remain deterministic if an earlier refund is
+    // replayed after later refunds have been created. Allocate by stable chronological
+    // order (created_at, then ID), not by summing every other refund row.
+    const priorRefunded = Number((db.prepare(`
+      SELECT COALESCE(SUM(amount_cents),0) AS total
+      FROM refunds
+      WHERE bill_id = ?
+        AND (created_at < ? OR (created_at = ? AND id < ?))
+    `).get(bill.id, refund.created_at, refund.created_at, refund.id) as any)?.total || 0);
     const before = Math.max(0, Math.min(totalMinor, priorRefunded));
     const after = Math.max(0, Math.min(totalMinor, priorRefunded + amountMinor));
     const taxBefore = Number((BigInt(before) * BigInt(taxMinor) + BigInt(Math.floor(totalMinor / 2))) / BigInt(totalMinor));
