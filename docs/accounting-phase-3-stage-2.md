@@ -1,6 +1,6 @@
 # Phase 3 — Stage 2: policy closure and posting-readiness work
 
-**Status:** In progress. The first implementation slice adds immutable identities to newly accepted payment lines and regression coverage. Automatic sales, collection, loyalty and refund journal posting remains disabled. Stage 2 is not complete until the remaining financial-policy decisions below are approved and the full regression workflow passes on the resulting head.
+**Status:** In progress; the payment-event identity slice is CI-verified. The current policy proposal is documented in [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md). Automatic sales, collection, loyalty and refund journal posting remains disabled until the owner approves the financial-policy checklist and the implementation/tests for the resulting policies pass.
 
 ## 1. Changes implemented in this slice
 
@@ -27,6 +27,8 @@ These are safety invariants rather than jurisdiction-specific accounting advice:
 9. Tax, payment or refund entries must fail closed if the required account mapping or approved treatment is missing. Do not create placeholder accounts or silently omit a financial line.
 
 ## 3. Product decisions still required before runtime journals can be enabled
+
+Concrete recommended defaults and the approval checklist are now recorded in [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md). These are proposals only, not silently treated as approved product decisions.
 
 The current repository does not contain an approved business decision for the following. They must not be guessed in code:
 
@@ -71,3 +73,10 @@ The ledger currently accepts a validated calendar date, but the source events ha
 - [ ] Approve effective cutover/opening-balance policy.
 - [ ] Approve accounting-date/closed-period behavior.
 - [ ] Implement finalization snapshot, sale/collection/refund posting and full regression coverage.
+
+## 6. Verification of the current Stage 2 slice
+
+- [x] GitHub Actions regression run [#316](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/38548162343) passed for commit `27fccc7f3fda7caf51c28c9e8e431bd56bf94d72`, including dependency installation, canonical i18n/print-label verification, the original regression suite, TypeScript build and backend/frontend lint.
+- [x] Payment-event identity assertions are included in the original payment integration suite.
+- [ ] Owner approval of the proposed recognition, tax/charge, discount/rounding, wallet, cutover and accounting-date defaults.
+- [ ] Runtime sale/collection/refund posting and full new acceptance matrix.
