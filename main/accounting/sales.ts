@@ -144,18 +144,27 @@ function writeAndPostJournal(db: DB, input: Parameters<typeof createDraftJournal
 }
 
 /**
- * Order cancellation must not silently leave a posted sale/receivable behind.
+ * Order cancellation must not silently leave a monetary receipt journal without an adjustment.
  * Until a linked accounting adjustment/reversal workflow exists, reject the
  * operational status transition if any bill on the order was financially finalized.
  */
 export function assertOrderCancellationAccountingSafe(db: DB, orderId: string | number): void {
   const bill = db.prepare(
-    'SELECT id, bill_number FROM bills WHERE order_id = ? AND accounting_finalized_at IS NOT NULL LIMIT 1',
+    `SELECT b.id, b.bill_number
+     FROM bills b
+     WHERE b.order_id = ?
+       AND EXISTS (
+         SELECT 1 FROM accounting_journal_entries e
+         WHERE e.source_type = 'bill_payment'
+           AND e.source_event = 'money_received'
+           AND e.source_id LIKE CAST(b.id AS TEXT) || ':%'
+       )
+     LIMIT 1`,
   ).get(orderId) as { id: number; bill_number: string } | undefined;
   if (bill) {
     fail(
       'order_has_finalized_accounting_bill',
-      'This order has a financially finalized bill (' + bill.bill_number + '). Complete the refund/reconciliation or approved accounting-adjustment workflow before cancelling the order.',
+      'This order has an accounting-recorded monetary receipt for bill (' + bill.bill_number + '). Complete the refund/reconciliation or approved accounting-adjustment workflow before cancelling the order.',
       409,
     );
   }
