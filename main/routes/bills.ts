@@ -29,7 +29,7 @@ import {
 import { applyPayableRounding } from '../services/tax-engine';
 import { calculateOrderTotals } from '../services/orders';
 import { sendEvent } from '../services/telemetry';
-import { finalizeBillSale, postCashbackReward, postCollectionPaymentLines } from '../accounting/sales';
+import { finalizeBillSale, postCollectionPaymentLines } from '../accounting/sales';
 import {
   getCurrencyFractionDigits,
   getCurrencyMinorUnitFactor,
@@ -2066,10 +2066,7 @@ function applyPaymentBatch(
       const finalCashback = Math.floor(cashback * (1 - Math.min(1, walletCents / Math.max(1, totalCents))));
       if (finalCashback > 0) {
         db.prepare(`INSERT INTO loyalty_ledger (customer_id, bill_id, type, amount, description, created_at, updated_at) VALUES (?, ?, 'credit', ?, ?, ?, ?)`).run(effectiveCustomerId, bill.id, finalCashback, `Cashback on bill ${bill.bill_number}`, changedAt, changedAt);
-        // Accrue the same redeemable value as a liability in the accounting ledger.
-        // The cashback row and its journal share this transaction: a posting failure
-        // rolls back the reward rather than creating unbacked wallet points.
-        postCashbackReward(db, bill.id, finalCashback / LOYALTY_REDEMPTION_RATE, idempotencyUserId || null);
+        // Loyalty cashback is POS-only. It intentionally creates no accounting journal.
         loyaltyPointsEarned = finalCashback;
       }
     }
