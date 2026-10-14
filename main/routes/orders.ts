@@ -975,6 +975,9 @@ router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales)
 
       // BUG #4 FIX: Sync bill if it exists (add-items didn't update the bill)
       const existingBill = db.prepare("SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'").get(req.params.id) as any;
+      if (existingBill?.accounting_finalized_at) {
+        throw Object.assign(new Error('This order has a financially finalized bill. Item or order changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      }
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(total, pack, currency);
@@ -1281,6 +1284,9 @@ router.patch('/:id/convert-to-takeaway', orderWriteRateLimit, requireRole(...ROL
       const openBills = db.prepare(
         "SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'",
       ).all(req.params.id) as any[];
+      if (openBills.some((bill) => bill.accounting_finalized_at)) {
+        throw Object.assign(new Error('This order has a financially finalized bill. Charge changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      }
       if (openBills.length > 0) {
         const pack = getActiveCountryPack(getSettingValue('country') || '');
         const { total: roundedBillTotal, adjustment: billRoundOff } = applyPayableRounding(newOrderTotal, pack, currency);
@@ -1488,6 +1494,9 @@ router.patch('/:id/discount', orderWriteRateLimit, requireRole(...ROLE_ACCESS.ow
       // Sync discount to bill if it exists and is unpaid
       const existingBill = db.prepare('SELECT * FROM bills WHERE order_id = ? AND payment_status != ?')
         .get(req.params.id, 'paid') as any;
+      if (existingBill?.accounting_finalized_at) {
+        throw Object.assign(new Error('This order has a financially finalized bill. Discount changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      }
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(newTotal, pack, currency);
@@ -1711,6 +1720,9 @@ router.patch('/:id/items/:itemId/discount', orderWriteRateLimit, requireRole(...
 
       // BUG #15 FIX: Sync item-level discount to bill
       const existingBill = db.prepare("SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'").get(req.params.id) as any;
+      if (existingBill?.accounting_finalized_at) {
+        throw Object.assign(new Error('This order has a financially finalized bill. Item or order changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      }
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(orderTotal, pack, currency);
