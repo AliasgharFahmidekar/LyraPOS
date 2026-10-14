@@ -1,6 +1,6 @@
 # Phase 3 — Sales, collections and refunds posting contract
 
-**Status:** Stage 1 (source lifecycle audit and posting matrix) complete. This document records observed runtime behavior and the proposed accounting contract for the next stage. It does **not** activate automatic sales, collection, loyalty or refund postings.
+**Status:** Stage 1 (source lifecycle audit and posting matrix) complete. Stage 2 is in progress; see [accounting-phase-3-stage-2.md](accounting-phase-3-stage-2.md) for the implemented payment-event identity and policy decisions still required. This document records observed runtime behavior and the proposed accounting contract. It does **not** activate automatic sales, collection, loyalty or refund postings.
 
 ## 1. Scope and evidence boundary
 
