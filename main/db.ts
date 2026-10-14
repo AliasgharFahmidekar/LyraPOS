@@ -6139,7 +6139,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         INSERT OR IGNORE INTO accounting_accounts
           (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable, description)
         VALUES
-          ('acct-sales-returns', 'sales_returns', '4030', 'Sales returns and refunds', 'revenue', 'debit', 'acct-income', 1, 1, 1,
+          ('acct-sales-returns', 'sales_returns', '4040', 'Sales returns and refunds', 'revenue', 'debit', 'acct-income', 1, 1, 1,
            'Contra-revenue for actual monetary refunds. POS discounts and loyalty cashback are not journaled.');
 
         -- Existing owner-defined mappings win. Cash and card get conservative defaults.
