@@ -131,11 +131,14 @@ function snapshotFields(bill: any, currencyCode: string): Record<string, unknown
   };
 }
 
-function writeAndPostJournal(db: DB, input: Parameters<typeof createDraftJournalEntry>[1]): { id: string; entryNumber: string } {
+function writeAndPostJournal(db: DB, input: Parameters<typeof createDraftJournalEntry>[1]): { id: string; entryNumber: string; duplicate: boolean } {
+  // The ledger validates payload hash against an existing source/idempotency key.
+  // A retry with the same source and same amounts returns the original journal;
+  // a reused identity with changed amounts is a conflict, never silently accepted.
   const created = createDraftJournalEntry(db, input);
   const posted = postJournalEntry(db, created.id, input.createdBy);
   if (posted.status !== 'posted') fail('accounting_post_failed', 'The accounting journal was not posted.', 409);
-  return { id: posted.id, entryNumber: posted.entryNumber };
+  return { id: posted.id, entryNumber: posted.entryNumber, duplicate: Boolean(created.duplicate || posted.duplicate) };
 }
 
 /**
@@ -277,13 +280,6 @@ export function postCashbackReward(db: DB, billId: string | number, currencyAmou
     const currency = configuredCurrency(db);
     const amountMinor = toMinorUnits(currencyAmount, currency, 'Cashback reward');
     if (amountMinor <= 0) return { posted: false, reason: 'zero_cashback' };
-    const existing = db.prepare(
-      "SELECT id, status FROM accounting_journal_entries WHERE source_type='loyalty_reward' AND source_id=? AND source_event='cashback_credited'",
-    ).get(String(bill.id)) as { id: string; status: string } | undefined;
-    if (existing) {
-      if (existing.status !== 'posted') fail('cashback_journal_not_posted', 'The existing cashback journal is not posted.', 409);
-      return { posted: true, duplicate: true, journalEntryId: existing.id };
-    }
     const contraRevenue = postingAccountBySystemKey(db, 'sales_discounts', 'revenue');
     const customerCredit = postingAccountBySystemKey(db, 'customer_advances', 'liability');
     const journal = writeAndPostJournal(db, {
@@ -300,7 +296,7 @@ export function postCashbackReward(db: DB, billId: string | number, currencyAmou
       sourceEvent: 'cashback_credited',
       idempotencyKey: 'cashback:' + String(bill.id),
     });
-    return { posted: true, duplicate: false, journalEntryId: journal.id };
+    return { posted: true, duplicate: journal.duplicate, journalEntryId: journal.id };
   })();
 }
 
