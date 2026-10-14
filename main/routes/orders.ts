@@ -1136,7 +1136,8 @@ router.patch('/:id/status', orderWriteRateLimit, requireRole(...ROLE_ACCESS.orde
         case 'cancelled': {
           // Do not change a financially finalized order's operational status without
           // an accounting adjustment workflow: that would strand posted revenue/A/R.
-          assertOrderCancellationAccountingSafe(db, req.params.id);
+          const cancellationOrderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+          assertOrderCancellationAccountingSafe(db, cancellationOrderId);
           // Select only items eligible for restocking (exclude already cancelled, voided, or accounting adjustments)
           const eligibleItems = db.prepare(`
             SELECT * FROM order_items
