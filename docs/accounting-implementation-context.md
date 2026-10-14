@@ -35,7 +35,7 @@ Phase 3 choices are resolved for this PR in [accounting-phase-3-policy-proposal.
 2. Bill finalization records an immutable snapshot only; it does not post revenue, receivables or tax.
 3. Each accepted cash/card/custom payment line posts the actual applied money as debit to its mapped asset and credit to Sales Revenue; actual monetary refunds debit contra-revenue and credit the payout asset. Loyalty and discounts are completely excluded.
 4. Store-specific integer minor units and source timestamps plus regional timezone/business-day rules govern amounts and dates.
-5. Migration v105 marks automatic cutover; no historical bill/payment/refund is silently backfilled.
+5. Migration v105 marks automatic cutover; no historical monetary receipt/refund is silently backfilled.
 6. Owner capital/drawings, opening balances, manual other income, full source reconciliation and reports remain next-phase work. COGS and inventory valuation are explicitly out of the requested basic scope.
 
 Do not infer statutory compliance or claim full net profit when cost of goods has not been recorded.
@@ -116,7 +116,7 @@ The service also validates inputs; SQL guards provide defense in depth. Use the 
 ## 3.1 Phase 2 stage 1 foundation currently implemented (schema v103)
 
 - `accounting_expense_categories` maps manager-defined categories to active, postable expense accounts. Categories are deactivated rather than deleted once used.
-- `accounting_payment_method_mappings` maps the existing built-in (`cash`, `card`, `loyalty`) and custom (`custom:<id>`) payment-method keys to existing GL accounts; it does not create a second payment-method catalogue.
+- `accounting_payment_method_mappings` is used only for real-money methods (`cash`, `card`, custom `custom:<id>`). Any legacy `loyalty` row is ignored and not shown in the accounting mapping UI; loyalty-wallet activity never posts.
 - `accounting_expenses` stores auditable draft expenses using integer `amount_minor`, the configured store currency, expense date, category, payee/reference, and paid/unpaid state. Service validation and migration-103 SQL triggers reject unsafe/fractional amounts, impossible calendar dates and currency mismatches. A paid expense requires an existing payment-method mapping and payment date. Category, expense and mapping mutations append records to `accounting_audit_log` in the same transaction; expense before/after snapshots include all business fields.
 - Manager-only endpoints are mounted at `/api/accounting`: `GET /accounts`, `GET/POST/PUT /expense-categories`, `GET/PUT /payment-account-mappings`, and `GET/POST/PUT /expenses` (including `GET /expenses/:id`). `POST /expenses` accepts the standard `Idempotency-Key` header; the same key and normalized request returns the original expense, while reusing the key with a different payload returns HTTP 409. Key/hash pairs are stored immutably and indexed uniquely.
 - This increment does not yet post expense journals, implement transfers, or add UI. Those remain Phase 2 stages 2 and 3. Request idempotency prevents duplicate expense drafts; journal-posting idempotency and audit-safe correction entries are still required in stage 2. Posted/reversed expenses are not editable through the draft API.
