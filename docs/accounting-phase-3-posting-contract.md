@@ -41,13 +41,13 @@ The lines are appended to `bills.payment_details` JSON. `paid_amount`, `balance`
 
 Request idempotency is supported when an idempotency key is provided, and optional payment transaction IDs are guarded by `payment_transaction_refs`. However, **each persisted payment line has no mandatory, stable event ID of its own**. Request-level idempotency and optional provider transaction IDs are not sufficient identities for every cash/custom/wallet collection line.
 
-**Conclusion:** in the posting stage, assign a generated immutable `payment_event_id` to each newly accepted line (backward-compatible with old JSON lines). Use the applied `amount`, not the tendered amount, as the collection amount. This nets cash change correctly. Use the canonical custom key `custom:<payment_method_id>`, not a translated/display method name.
+**Conclusion:** assign a generated immutable `payment_event_id` to each newly accepted line. Accounting posts only cash/card/custom lines, using the applied `amount`, not tendered cash before change. Wallet/loyalty lines are explicitly skipped and never mapped to an accounting account.
 
 ### 2.4 Wallet redemption and cashback are POS-only loyalty events
 
 A payment line with method `wallet` reduces the bill balance and writes a debit to `loyalty_ledger`; it does not represent cash received at the till. When a bill becomes fully paid, `applyPaymentBatch` may separately write a cashback/loyalty credit if loyalty is enabled and the bill does not already have such a credit. Existing product decisions allow store-credit refunds through a `credit` row in `loyalty_ledger`.
 
-The accounting payment mapping catalogue currently has keys `cash`, `card`, `loyalty`, and `custom:<id>`. The `loyalty` mapping is liability-typed; the bill-payment API calls redemption `wallet`. These must be normalized deliberately rather than matched by display name. Loyalty-ledger amounts are points, while payment/refund rows are store-currency minor units.
+The POS still uses `wallet` as a payment-line key for its own loyalty subsystem. Accounting excludes that line entirely. The accounting mapping UI/API exposes only cash, card and custom payment methods; any legacy loyalty mapping row is ignored. Loyalty-ledger amounts are points, while payment/refund rows are store-currency minor units.
 
 **Decision gate:** define the value/accounting treatment of points and cashback before posting the point balance as a currency-denominated liability. Do not assume one point equals one currency unit. A wallet-funded collection should reduce the customer-credit/liability account and clear the receivable; it must not increase cash/bank.
 
@@ -93,7 +93,7 @@ The sale finalization fields are an immutable bill snapshot only; the sale-journ
 4. **Idempotency:** sale is unique per bill; collection uses a stable `payment_event_id`; refund uses the committed refund ID. Replays cannot increase totals twice.
 5. **Balances and currency:** integer minor units using the configured currency fraction digits; every posted entry must balance exactly and use active/postable accounts.
 6. **Applied amounts:** a collection uses the amount applied to the bill, not tendered cash before change.
-7. **Mapping:** cash/card and custom methods resolve to active, postable asset accounts; wallet redemption resolves to a customer-credit liability. Custom methods default to clearing and are editable in Settings. Explicit invalid mappings fail closed.
+7. **Mapping:** cash/card and custom methods resolve to active, postable asset accounts. Custom methods default to clearing and are editable in Settings. Wallet/loyalty is not an accounting mapping and is ignored.
 8. **Refund payout:** credit the account actually used to pay/store-credit the refund; never assume it is the original collection method.
 9. **Posted history:** finalized bill amounts and sale snapshot are immutable; future corrections require a separate reversal/adjustment.
 10. **Historical safety:** the v105 cutover is not a backfill. Legacy skips are audit events; a future opening-balance workflow must reconcile the gap.
@@ -116,7 +116,7 @@ Run `npm run test:accounting-sales`, `npm run test:accounting-ledger`, `npm run 
 - Opening balances, owner contributions/drawings and manual other income.
 - A reconciliation UI for skipped pre-cutover/failed source events.
 - Basic income/expense/account balance reports.
-- Dedicated charge/discount/rounding account allocation and more exact tax allocation for arbitrary mixed-tax item refunds.
+- Charge/discount/rounding analysis, tax-accounting and statutory tax handling are out of scope for this cash-received integration.
 - Inventory valuation, recipe/product COGS, suppliers/payables, checks, loans/installments, payroll, fixed assets and statutory tax integrations.
 
 See [accounting-foundation-roadmap.md](accounting-foundation-roadmap.md) for the revised next phases.
