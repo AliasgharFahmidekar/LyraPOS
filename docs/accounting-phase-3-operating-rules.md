@@ -74,7 +74,7 @@ Migration v105 stores `accounting_cutover_at` once, at the migration time. It do
 - existing historical bills are not auto-finalized or backfilled; bills timestamped at or before the cutover marker are excluded;
 - if a legacy bill predates cutover, its operational collection remains usable, but no sale/collection journal is fabricated; each skipped new collection line is written to the accounting audit log as `skipped_pre_cutover_payment`;
 - explicit finalization of a pre-cutover bill is rejected. This is intentional, not a missing retry;
-- pre-cutover refunds on bills with no accounting sale journal are similarly audited as skipped;
+- pre-cutover monetary refunds are audited as skipped;
 - records on/after cutover use the new transactionally coupled posting rules.
 
 This avoids manufacturing historical income on upgrade. It also means the accounting balances may not yet equal the store's real cash/bank/open receivable position at launch. Before relying on balances or reports, the next phase must provide a controlled opening-balance/reconciliation workflow. Do not “solve” that gap by treating the first day's cash float or an owner's new money as sales income.
@@ -84,8 +84,8 @@ This avoids manufacturing historical income on upgrade. It also means the accoun
 - The store's configured currency and fraction digits are authoritative. Never assume two decimal places; store journal values as safe integer minor units.
 - Accounting date is derived from the source timestamp in the configured regional timezone and configured business-day start; don't use the computer's timezone or a new wall-clock date when the source timestamp exists.
 - Every posted journal has at least two valid lines, uses active/postable accounts, has no negative line values, and satisfies exact debit = credit.
-- A sale's snapshot records the bill number/order, currency, subtotal, tax amount and snapshots, discount fields, charges, round-off, payable total and split-check identity. Once posted, that commercial snapshot cannot be rewritten.
-- Collection identity is tied to `payment_event_id`; refund identity is the persisted refund row ID; sale identity is the persisted bill ID. A repeated identical source event resolves to the original journal. The same source identity with different amounts is a conflict and must never rewrite the posted row.
+- A sale's snapshot records the bill number/order, currency, subtotal, tax amount and snapshots, discount fields, charges, round-off, payable total and split-check identity. Once finalized, that commercial snapshot cannot be rewritten; it is not a posted revenue journal.
+- Collection identity is tied to `payment_event_id`; monetary refund identity is the persisted refund row ID; sale identity is the persisted bill ID. A repeated identical source event resolves to the original journal. The same source identity with different amounts is a conflict and must never rewrite the posted row.
 - Audit exceptions for the cutover are intentional and must remain visible. A future reconciliation screen should surface them; the log is not permission to ignore them.
 - Payment/accounting posting occurs within the existing source transaction. Never “catch and log” a ledger error while committing a post-cutover payment/refund as though accounting succeeded.
 - Backups/restore and all old schema migrations must remain compatible. Migration v105 is forward-only; do not edit existing migrations 100–104.
