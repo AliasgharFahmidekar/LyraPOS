@@ -274,6 +274,9 @@ export function postCashbackReward(db: DB, billId: string | number, currencyAmou
   return db.transaction(() => {
     const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
     if (!bill) fail('bill_not_found', 'Cashback source bill was not found.', 404);
+    if (bill.payment_status !== 'paid' || !bill.paid_at) {
+      fail('cashback_bill_not_paid', 'Cashback can only be accrued after the POS has fully paid the bill.', 409);
+    }
     if (!bill.accounting_finalized_at || !bill.accounting_sale_journal_entry_id) {
       fail('cashback_sale_not_finalized', 'Cashback cannot be posted before its sale journal exists.', 409);
     }
