@@ -69,7 +69,7 @@ Use the **applied payment amount** saved in the line, not cash tendered before c
 - A configured custom payment method defaults to `acct-payment-clearing` when it is created. Existing active custom methods are given the same safe initial mapping by migration v105. Owners/managers can change the mapping in Accounting Settings to a different active, postable asset account, e.g. a directly identified bank account.
 - Existing mappings win during migration. The default to clearing is deliberate: a custom tender is not assumed to be a bank deposit until reconciled, and introducing a payment method must not unexpectedly break the POS. It is visible/editable in setup.
 - An explicit missing, inactive, non-postable or wrong-type mapping fails closed for a post-cutover event. Never guess that a payment was cash or silently discard a committed collection.
-- Loyalty points/cashback are not money by default. This phase does not recognize earned points as revenue, expense or a currency liability. Wallet redemption is recorded against the existing customer-credit liability. A store-credit **refund** creates/increases that liability rather than cash.
+- The POS currently uses the fixed `LOYALTY_REDEMPTION_RATE` to value points in store-currency major units. When a cashback credit is actually awarded into `loyalty_ledger`, Phase 3 posts **Debit Sales Discounts/contra-revenue; Credit Customer Advances/customer-credit liability** for the same redeemable monetary value, in the same SQLite transaction. This ensures a later wallet redemption debits a liability that was accrued rather than creating a negative/unfunded customer-credit balance. Do not invent a different points valuation. A store-credit **refund** creates/increases the same liability through the refund journal, so it must not also be posted a second time as cashback.
 
 ## 4. Refund policy
 
@@ -125,11 +125,11 @@ Bill total 70, tax 0:
 - Cash collection: Dr Cash Drawer 70; Cr Accounts Receivable 70.
 - Revenue is 70, not 140.
 
-### Scenario C — wallet-funded payment
-For a bill with 25 paid through store wallet:
-- sale is recognized from the full persisted bill as in Scenario A/B;
-- collection: Dr Customer Advances/Credit Liability 25; Cr Accounts Receivable 25.
-- Cash/bank does not increase from a wallet redemption. The liability is consumed as the customer spends it.
+### Scenario C — cashback accrual followed by wallet-funded payment
+A customer earns 25 redeemable points from a prior fully paid sale, under the current POS redemption rate of one point per one major currency unit:
+- when the POS awards the cashback: Dr Sales Discounts/contra-revenue 25; Cr Customer Advances/Credit Liability 25;
+- when those points are spent against a later finalized bill: Dr Customer Advances/Credit Liability 25; Cr Accounts Receivable 25.
+- Cash/bank does not increase from a wallet redemption. Across the earning and spending entries, the liability moves up when the reward is granted and down when it is spent.
 
 ### Scenario D — partial cash refund
 Original bill: total 100, tax 10. Refund: 25 back in cash.
@@ -180,7 +180,7 @@ A payment request is retried with the same idempotency/source identity:
 | Full or partial cash payment | Collection debits cash and credits A/R by applied amount |
 | Card/custom payment | Debit configured asset/clearing account, not income; credit A/R |
 | Multiple payment lines | Distinct event IDs; each line posts once; sale posts once |
-| Wallet redemption | Reduce customer-credit liability; no cash/bank debit |
+| Wallet redemption / earned cashback | Cashback award: debit contra-revenue and credit customer-credit liability. Redemption: debit that accrued liability and credit receivables, with no cash/bank debit. |
 | Missing/inactive/wrong-type mapping after cutover | Posting fails and source transaction rolls back |
 | Full/partial cash or card refund | One refund journal from committed refund ID; actual payout account credited |
 | Store-credit refund | Customer-credit liability credited instead of cash |
