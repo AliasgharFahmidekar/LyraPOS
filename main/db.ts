@@ -6067,14 +6067,34 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           ('acct-sales-tax-payable', 'sales_tax_payable', '2040', 'Tax collected (internal liability)', 'liability', 'credit', 'acct-liabilities', 1, 1, 1,
            'Generic management-accounting liability for tax amounts already calculated by the POS. Not a jurisdiction-specific tax account or compliance claim.');
 
-        -- Safe starter mappings for built-in payment types only. Existing owner-defined
-        -- mappings win, and custom methods must be mapped explicitly by a manager.
+        -- Existing owner-defined mappings win. Cash and card get conservative defaults.
+        -- Custom payment methods default to clearing on creation so POS collection behavior
+        -- remains usable; owners can map each method to a more specific liquid asset in Settings.
         INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
           VALUES ('cash', 'acct-cash-drawer');
         INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
           VALUES ('card', 'acct-payment-clearing');
         INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
           VALUES ('loyalty', 'acct-customer-advances');
+        INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          SELECT 'custom:' || id, 'acct-payment-clearing' FROM payment_methods WHERE is_active = 1;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_default_mapping
+        AFTER INSERT ON payment_methods
+        WHEN NOT EXISTS (
+          SELECT 1 FROM accounting_payment_method_mappings
+          WHERE payment_method_key = 'custom:' || NEW.id
+        )
+        BEGIN
+          INSERT INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          VALUES ('custom:' || NEW.id, 'acct-payment-clearing');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_mapping_cleanup
+        AFTER DELETE ON payment_methods
+        BEGIN
+          DELETE FROM accounting_payment_method_mappings WHERE payment_method_key = 'custom:' || OLD.id;
+        END;
 
         CREATE TRIGGER IF NOT EXISTS accounting_bill_finalization_fields_immutable
         BEFORE UPDATE OF accounting_finalized_at, accounting_snapshot_json, accounting_sale_journal_entry_id ON bills
