@@ -31,7 +31,7 @@ It does not implement cost-of-goods-sold (COGS), inventory valuation, supplier p
 2. `POST /api/bills/:id/finalize` explicitly finalizes an eligible post-cutover bill and writes the sale journal.
 3. If a payment is accepted first, the first accepted payment line triggers sale finalization and collection posting inside the same SQLite transaction. If a required mapping, snapshot check or ledger invariant fails, the new payment is rolled back with the accounting write.
 4. A retry of a finalized bill verifies its immutable snapshot and returns the original sale journal. It must not create a second sale journal.
-5. After finalization, changes to the bill's commercial amounts/snapshot are rejected. Existing bill/order paths are guarded where they can change those amounts. A future correction workflow must write an adjusting/reversal journal and retain the original source.
+5. After finalization, changes to the bill's commercial amounts/snapshot are rejected. Existing bill/order paths are guarded where they can change those amounts. The order-status cancellation route also refuses to cancel an order that has any financially finalized bill (HTTP 409), because doing so without a linked adjustment would strand recognized revenue/receivables. This is a deliberate safety gate, not an automatic financial reversal. A future correction workflow must write a linked adjusting/reversal journal and retain the original source.
 
 ### 2.2 Sale journal shape for this first management-accounting release
 For a persisted bill with total (T) and POS-computed tax amount (X), converted once into integer currency minor units:
@@ -188,6 +188,7 @@ A payment request is retried with the same idempotency/source identity:
 | Pre-cutover bill payment/refund | No historic journals; explicit audit exception remains |
 | Tax amount > bill total / invalid minor amount | Refuse finalization; don't fabricate an unbalanced journal |
 | Attempt to edit posted bill total/snapshot | Database guard rejects it |
+| Attempt to cancel an order with a finalized bill | HTTP 409; no order/item/stock status mutation and no journal deletion; use the future linked adjustment/reconciliation workflow |
 | Owner contribution/opening funds/transfer | Not sales income; future workflows use equity/liability and asset-to-asset accounts |
 | Expenses and stock costs | Paid expenses are Phase 2; COGS remains out of scope and must not be invented |
 
