@@ -54,9 +54,9 @@
 - Use store currency and currency-specific fraction digits; persist integer minor units. Do not assume two decimal places.
 - Derive accounting date from persisted source timestamp plus the configured regional timezone and business-day start.
 - Every posted journal has at least two lines, active/postable accounts, non-negative integer amounts, exact debit = credit and source/idempotency identity.
-- Sale source: `bill / <bill.id> / sale_recognized`.
+- Bill snapshot identity: persisted `bill.id`; bill finalization creates no journal.
 - Collection source: `bill_payment / <bill.id>:<payment_event_id> / collected`.
-- Refund source: `refund / <refund.id> / refund_committed`.
+- Monetary refund source: `refund / <refund.id> / money_refunded`.
 - Sale + first collection are atomic with the payment operation; refund + refund journal are atomic with the refund operation. Never catch a posting failure and commit an unjournaled post-cutover financial event.
 - Posted journals are immutable. Same source and same payload replay the existing journal; same source with a different payload is a conflict.
 - All new database changes are forward-only. No edit to already merged historical migrations 100–104.
