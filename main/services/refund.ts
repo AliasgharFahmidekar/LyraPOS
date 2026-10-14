@@ -7,6 +7,7 @@ import { invertTaxBreakdown, invertTaxSnapshot } from './tax';
 import { getOpenSession, NO_CASH_SESSION_ID, requireOpenSessionForCashTender } from './shift-session-gate';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
 import { getCurrencyMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
+import { postCommittedRefund } from '../accounting/sales';
 
 type Database = ReturnType<typeof getDatabase>;
 
@@ -244,6 +245,11 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
       reason: req.reason ?? null,
     },
   });
+
+  // Accounting consumes the committed refund row inside this same transaction.
+  // For pre-cutover legacy bills, the posting service records an explicit audit exception
+  // instead of backfilling an unmatched refund into the new ledger.
+  postCommittedRefund(db, insertResult.lastInsertRowid, req.createdByUserId);
 
   const refund = db.prepare('SELECT * FROM refunds WHERE id = ?').get(insertResult.lastInsertRowid);
   const freshBill = db.prepare('SELECT * FROM bills WHERE id = ?').get(req.billId);
