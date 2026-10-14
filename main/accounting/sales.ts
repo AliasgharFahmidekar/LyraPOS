@@ -142,6 +142,24 @@ function writeAndPostJournal(db: DB, input: Parameters<typeof createDraftJournal
 }
 
 /**
+ * Order cancellation must not silently leave a posted sale/receivable behind.
+ * Until a linked accounting adjustment/reversal workflow exists, reject the
+ * operational status transition if any bill on the order was financially finalized.
+ */
+export function assertOrderCancellationAccountingSafe(db: DB, orderId: string | number): void {
+  const bill = db.prepare(
+    'SELECT id, bill_number FROM bills WHERE order_id = ? AND accounting_finalized_at IS NOT NULL LIMIT 1',
+  ).get(orderId) as { id: number; bill_number: string } | undefined;
+  if (bill) {
+    fail(
+      'order_has_finalized_accounting_bill',
+      'This order has a financially finalized bill (' + bill.bill_number + '). Complete the refund/reconciliation or approved accounting-adjustment workflow before cancelling the order.',
+      409,
+    );
+  }
+}
+
+/**
  * Finalizes the current persisted bill snapshot and recognizes the sale exactly once.
  * Discounts, operational charges and bill rounding are netted into sales revenue for
  * this basic management-accounting release. Persisted tax is split into the generic
