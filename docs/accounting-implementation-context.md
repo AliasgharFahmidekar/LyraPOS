@@ -1,13 +1,13 @@
 # LyraPOS accounting implementation context for AI contributors
 
-**Status:** Phase 0, Phase 1, Phase 2 stages 1–3, and Phase 2.5 are implemented on this branch. Phase 3 Stage 1 source lifecycle audit is complete; Stage 2 is in progress (see [accounting-phase-3-stage-2.md](accounting-phase-3-stage-2.md)). Newly accepted payment lines now receive stable `payment_event_id` identities with regression assertions. Automatic sale/collection/refund journals remain disabled until required accounting policies are approved and finalization/snapshot behavior is implemented. Schema v104 adds paid-expense journal posting/reversal linkage and SQL lifecycle guards. Cash/bank transfers use the existing immutable journal ledger without a duplicate operational balance table. Phase 2.5 separates daily operations into `/accounting` and keeps category/payment-account configuration under Settings; KDS and unrelated Settings remain in place. Verify CI against the latest branch head before merge. Full translation coverage across all 21 locales remains a release follow-up. Unpaid bills still do not create accounts-payable journals in Phase 2. Read this document before changing accounting code.
+**Status on PR #19:** Phases 0–2.5 are implemented. Phase 3 source audit, policy closure and runtime sale/collection/refund posting are now implemented on this branch with schema migration v105 and focused tests; do not call the PR release-ready until the final-head workflow passes. The authoritative Phase 3 formulas, edge cases and worked examples are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md). Sales Revenue is the finalized POS bill total less its persisted tax amount; payment collections settle Accounts Receivable and never create revenue again. Migration v105 records a cutover timestamp to prevent historical auto-backfill. Opening balances, owner contributions/drawings, manual other income and management reports are next phases. COGS/inventory valuation is deliberately out of the present scope; future result reports must be labelled “before COGS / excluding inventory cost.”
 
 ## Read first
 
 Before implementation, read:
 - `/AGENTS.md` and `docs/business-decisions.md` for project-wide invariants and established product choices.
 - `docs/accounting-foundation-roadmap.md` for the accounting model and phased scope.
-- `docs/accounting-phase-3-posting-contract.md` before wiring sales, payment, loyalty or refund events into the ledger.
+- `docs/accounting-phase-3-operating-rules.md` for the active posting contract and worked examples; `docs/accounting-phase-3-posting-contract.md` for the underlying source audit.
 - `main/db.ts` for the current migration registry and SQLite lifecycle.
 - `main/accounting/ledger.ts` and `tests/accounting-ledger.test.ts` for the ledger API and behavior.
 - The route/service/tests of any existing operational source being connected.
@@ -28,30 +28,29 @@ Do not mutate operational records just to make a journal view work. Do not add d
 
 Existing sales/collection reports must retain their established meaning. Cash collected is not automatically revenue recognized, and revenue is not the same as net profit.
 
-### Business decisions still required before Phase 3 posting
+### Resolved Phase 3 decisions and remaining scope
 
-The code must not guess:
-1. Accounting basis and the exact event that recognizes a sale (for example, bill finalized versus payment captured).
-2. Whether collection creates a separate accounts-receivable/cash event, and how unpaid, partial and split payments behave.
-3. Refund posting timing and how refunds, voids, cancellations, chargebacks and discounts are classified.
-4. Tax liability/account mapping for the selected jurisdiction and whether tax-inclusive prices affect revenue lines.
-5. Opening balances, owner contributions/drawings and who can approve them.
-6. Currency minor-unit conversion and rounding at all posting boundaries.
-7. Business accounting date, store timezone, close-period policy and whether posted periods can be reopened.
+Phase 3 choices are resolved for this PR in [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md) and fully specified in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md):
+1. A bill is recognized at an explicit immutable finalization or atomically with its first accepted payment; bill generation alone never posts revenue.
+2. Sale recognition debits receivables by the persisted bill total and credits sales revenue net of persisted POS tax plus a generic internal tax liability. This is not a country-specific tax-compliance implementation.
+3. Each accepted payment line settles receivables from its stable `payment_event_id`; refund entries use the committed refund row and actual payout method.
+4. Store-specific integer minor units and source timestamps plus regional timezone/business-day rules govern amounts and dates.
+5. Migration v105 marks automatic cutover; no historical bill/payment/refund is silently backfilled.
+6. Owner capital/drawings, opening balances, manual other income, full source reconciliation and reports remain next-phase work. COGS and inventory valuation are explicitly out of the requested basic scope.
 
-Resolve these through documented product decisions before implementing automated accounting entries from bills/payments/refunds. Do not infer statutory compliance.
+Do not infer statutory compliance or claim full net profit when cost of goods has not been recorded.
 
 ## 2. Current architecture and migration rules
 
 - Database: `main/db.ts`, using the active `better-sqlite3` connection.
-- Migration registry: `MIGRATIONS` in `main/db.ts`; migration 100 introduced the ledger, migration 101 hardens system-account identity, migration 102 adds expense categories/drafts/payment-account mappings, migration 103 adds expense request idempotency and data-integrity guards, and migration 104 adds reversal linkage plus posted-expense lifecycle guards. Historical migrations remain immutable.
+- Migration registry: `MIGRATIONS` in `main/db.ts`; migrations 100–104 provide the ledger, expense lifecycle, audit and transfer foundation; migration 105 adds the sale-finalization fields/SQL guards, internal tax liability, payment-method defaults and `accounting_cutover_at`. Historical/merged migrations remain immutable.
 - Ledger domain service: `main/accounting/ledger.ts`. It receives the caller's database connection; do not open a second connection.
 - Automated coverage: `tests/accounting-ledger.test.ts` (`npm run test:accounting-ledger`), `tests/accounting-expenses.test.ts` (`npm run test:accounting-expenses`), and manager-route authorization/idempotency coverage in `tests/accounting-routes.test.ts` (`npm run test:accounting-routes`).
 - Test harness: `tests/run-electron-node-test.cjs`.
 - Default suite: root `package.json` includes the focused ledger suite.
 - Existing frontend: `frontend/src/`, Next.js/React, shared components/styles, localization, and RTL support.
 
-Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, upgrades from v99, v100, v101 and a v102 database containing an existing expense, preserving operational and accounting data. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard; migration 103 adds idempotency columns/indexes/triggers and migration 104 adds reversal columns/indexes/triggers without rewriting old expense records.
+Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, existing supported upgrade paths through v105, and populated pre-cutover databases, preserving operational records and ensuring old bills are not silently journaled. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard; migration 103 adds idempotency columns/indexes/triggers and migration 104 adds reversal columns/indexes/triggers without rewriting old expense records.
 
 ## 3. Schema delivered by migration 100
 
@@ -80,6 +79,7 @@ Seed chart (English names are starter labels, not jurisdiction-specific tax advi
 | 4010 | sales_revenue | Sales revenue |
 | 4020 | sales_discounts | Sales discounts / contra-income |
 | 4030 | other_income | Other income |
+| 2040 | sales_tax_payable | Tax collected (internal liability; not jurisdiction-specific tax compliance) |
 | 5000 | expenses | Expenses (group) |
 | 5010 | cost_of_goods_sold | Cost of goods sold |
 | 5020 | operating_expenses | Operating expenses |
