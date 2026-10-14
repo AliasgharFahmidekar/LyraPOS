@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** Phase 0 and Phase 1 are implemented. Phase 2 stages 1–3 and Phase 2.5 are implemented on this branch. Phase 3 Stage 1 source audit is complete; Stage 2 is in progress and tracked in [accounting-phase-3-stage-2.md](accounting-phase-3-stage-2.md). Newly accepted payment lines receive stable `payment_event_id` identities with integration assertions; regression run [#316](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/38548162343) passed for that implementation slice. Recommended policy defaults and an approval checklist are documented in [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md). Automatic sales/collection/refund posting remains disabled until the owner approves those financial policies and runtime posting passes the corresponding regression tests. Schema migrations 100–104 provide the ledger, expenses, posting/reversal guards, and transfers. Phase 2.5 adds the `/accounting` operations page and owner/manager sidebar entry while keeping setup under Settings. Full translation coverage across all 21 configured locales remains a release follow-up. See [accounting-implementation-context.md](accounting-implementation-context.md) for the implementation contract.
+**Status:** Phase 0 discovery and Phase 1 ledger foundation are implemented. Phase 2 (expenses, transfer journals and the operations/setup UI) is implemented through schema v104. Phase 3 policy closure and runtime sales/collection/refund posting have been implemented on the current PR branch; migration v105 adds the immutable bill finalization snapshot, payment-account defaults and historical cutover marker. New tests cover sale finalization, partial collection, refund journal, idempotency and pre-cutover protection. This branch is not merge/release-ready until the focused tests and the full GitHub Actions regression workflow are green on the final head. The authoritative current rules and worked scenarios are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md); [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md) records the resolved policy rather than an unanswered proposal.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -192,38 +192,47 @@ The first version must not show a "net profit" KPI until COGS and relevant expen
 
 ### Phase 3 — Sales, collections and refunds posting
 
-**Stage 1 — source lifecycle audit and posting matrix (complete; documentation only):** [accounting-phase-3-posting-contract.md](accounting-phase-3-posting-contract.md) records observed behavior in the bill, payment, refund, order, loyalty and cash-session paths, identifies identity/mapping gaps, and gives the proposed balanced journal shape and acceptance matrix. No runtime accounting hooks are enabled by this stage.
+**Stage 1 — source lifecycle audit and posting matrix (complete):** [accounting-phase-3-posting-contract.md](accounting-phase-3-posting-contract.md) records the real bill/payment/refund lifecycle, persisted source identities, transaction boundaries and edge cases.
 
-**Stage 2 — close financial-policy gaps and add stable source event identities (in progress):**
-- [x] Add a stable ID to each newly persisted payment line while preserving compatibility with existing `payment_details` JSON.
-- [x] Add integration assertions for unique payment-line identities; regression run #316 passed.
-- [x] Document recommended conservative defaults and an owner approval checklist in [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md).
-- [ ] Approve the bill-finalization/revenue-recognition trigger; `/api/bills/generate` creates mutable unpaid bills and is not by itself a safe posting point.
-- [ ] Approve sales/discount/charge/tax treatment, refund-method normalization, loyalty/cashback point valuation, historical cutover and accounting-date behavior before enabling postings.
+**Stage 2 — policy closure and stable source identities (implemented on this branch):**
+- [x] Newly persisted payment lines carry stable `payment_event_id` UUIDs; older `payment_details` JSON remains readable and untouched.
+- [x] Define the exact sale-finalization trigger, net-revenue/tax treatment, payment mappings, wallet behavior, refund allocation, accounting date and historical cutover in [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md).
+- [x] Migration v105 adds bill finalization/snapshot/journal link fields, the internal tax liability account, safe payment mappings and `accounting_cutover_at`.
+- [x] Existing custom payment methods get an initial clearing-account mapping; future custom methods receive the same conservative default and can be re-mapped in Settings.
 
-**Stage 3 — wire postings and prove reconciliation (blocked on Stage 2 policy approval; not started):**
-- Post each finalized bill once, each committed collection line once, and each committed refund once through the existing ledger and SQLite transaction boundaries.
-- Support unpaid/partial/fully paid bills, mixed payment lines, split checks, custom payment methods, refunds in a different method, and wallet/store-credit behavior where enabled.
-- Ensure cancellations and refunds follow actual payment history; never erase a real collection just because an order is cancelled.
-- Acceptance: postings are balanced and idempotent; no parent/split-child or revenue/collection double posting; totals reconcile to persisted bill/payment/refund records; existing daily sales exports and payment/refund behavior remain unchanged.
+**Stage 3 — runtime posting and reconciliation assertions (implemented on this branch; final CI pending):**
+- [x] Finalize eligible bills from a server-owned snapshot; bill generation alone does not post revenue.
+- [x] First accepted collection can finalize the bill and write its collection journal in the same SQLite transaction.
+- [x] Post each newly accepted collection once using its `payment_event_id`, the applied amount and the configured receiving account.
+- [x] Post committed refunds once against their actual payout method; wallet refunds affect customer-credit liability, not cash.
+- [x] Prevent mutation of finalized bill amounts; refuse auto-backfill of pre-cutover bills and record legacy skips in the accounting audit log.
+- [x] Add focused sale/collection/refund/idempotency/cutover tests.
+- [ ] Run and fix focused accounting tests, relevant existing payment/refund/tax/loyalty/cash regressions, build/lint and the full CI suite on the final branch head.
 
-### Phase 4 — Purchases and counterparties
-- Add supplier records, purchase documents, receipt quantities, partial payments, payables and purchase returns.
-- Integrate receipt with existing product/supply stock services using their current stock-movement APIs.
-- Acceptance: purchase quantity changes occur exactly once; supplier balances equal purchase liabilities minus recorded payments/returns; cash changes only when payment happens.
+The detailed journal formulas, limitations, worked scenarios and acceptance table are defined in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md). “Implemented on branch” must not be confused with “CI verified” or “merged.”
 
-### Phase 5 — Valuation and COGS
-- Implement the approved costing method for product stock and recipe-backed supplies.
-- Tie cost postings to immutable order/recipe snapshots and committed stock movements; define wastage and stock-count variance treatment.
-- Acceptance: sample transactions reconcile quantities and values; price changes do not rewrite posted historical profit; cancellation/restoration cannot duplicate COGS or stock.
+### Phase 4 — Manual income, capital and opening balances (next priority)
+- Add a manager-friendly manual other-income flow mapped to an income account, distinct from automatic POS sales.
+- Add owner contribution and owner drawing flows with equity accounts; these can never post to income/expense by default.
+- Add validated opening balances for cash, bank, receivables, liabilities and equity. Require a source classification and balancing opening-equity/appropriate-counter-account; do not treat starting cash as a sale.
+- Add account-level transaction history and controlled reconciliation of pre-cutover audit exceptions before balances are described as complete.
+- Acceptance: every operation creates one balanced journal; opening cash and owner capital do not change income or profit; account balances reconcile to opening balances plus posted movements.
 
-### Phase 6 — Reports and close controls
-- Add P&L, account ledger, trial balance and balance sheet only when the corresponding ledger coverage is complete.
-- Add period controls, reversal workflows and exports.
-- Acceptance: trial balance always balances; P&L components reconcile to posted journal accounts; period/date filters respect tenant timezone/business-day policy and currency precision.
+### Phase 5 — Basic management reports (without COGS)
+- Report POS Sales Revenue net of stored tax, manual other income, recorded/posted expenses, refunds, cash/bank balances and ledger movements by date/business day.
+- Exclude owner contributions, opening balances and transfers from income; refunds reduce net revenue/payout balances; identify pre-cutover exceptions.
+- Label the result “result before COGS / excluding inventory cost”, not “net profit”. Inventory cost is not currently calculated.
+- Acceptance: report totals reconcile to posted ledger accounts and persisted post-cutover source events; date/currency precision follows the store's regional settings.
 
-### Phase 7 — Optional advanced features
-- Checks, instalments/loans, payroll, fixed assets, depreciation, tax authority integrations and multi-branch consolidation are separate scoped increments, not blockers for the basic accounting foundation.
+### Phase 6 — Reconciliation, backup and close controls
+- Add a reconciliation view for source bills/payment lines/refunds versus journal sources, including skipped pre-cutover events and failed/retryable events.
+- Add audit export, verified backup/restore for accounting data, and controlled period lock/adjustment workflows.
+- Acceptance: every post-cutover source event is posted exactly once or appears as a visible exception; trial balance matches journal lines; period/date filters respect tenant timezone and business-day policy.
+
+### Optional later scope — Purchases/payables and inventory valuation/COGS
+- Supplier purchases, payable balances, stock valuation, recipe-backed COGS, wastage and stock-count variance are deferred until explicitly selected by the owner.
+- If added, reuse existing stock/recipe ledgers and immutable snapshots; do not create a second stock engine or rewrite posted historical results.
+- Checks, instalments/loans, payroll, fixed assets, depreciation, tax-authority integrations and multi-branch consolidation are separate future increments, not blockers for the requested lightweight bookkeeping system.
 
 ## 7. Future test matrix
 
@@ -325,10 +334,11 @@ This sequencing establishes a tested foundation before business events are conne
 
 ## Implementation status and next gates
 
-As of this change, Phase 0 discovery, Phase 1 ledger foundation, Phase 2 stages 1–3, and Phase 2.5 navigation/setup separation are implemented in code. Phase 3 Stage 1 is complete as a source audit and documentation contract only (see [accounting-phase-3-posting-contract.md](accounting-phase-3-posting-contract.md)); automated sale/collection/refund postings are not yet enabled:
-- SQLite migrations 100–104 add the starter chart, journal header/lines, idempotency/source constraints, audit log and SQL guards; expense/category/payment mappings; paid-expense posting/reversal linkage; and the corresponding lifecycle protections.
-- `main/accounting/ledger.ts`, `main/accounting/expenses.ts`, and `main/accounting/transfers.ts` implement the ledger and operational accounting workflows with transaction safety and idempotency.
-- `tests/accounting-ledger.test.ts`, `tests/accounting-expenses.test.ts`, and `tests/accounting-routes.test.ts` cover ledger invariants, migration safety, expense workflow behavior, retry/conflict behavior, and authorization.
-- Phase 2.5 splits operational flows into `/accounting`, retains setup-only category/payment-account mapping in Settings, and preserves existing KDS and unrelated Settings features.
+As of this PR branch, Phase 0 discovery, Phase 1 ledger, Phase 2 expenses/transfers and Phase 2.5 operations/setup UI are implemented. Phase 3 now has runtime sale, collection and refund posting plus migration v105 and focused regression coverage. Read [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md) for the actual rules and worked scenarios. The new posting code is not considered release-ready until the final-head workflow passes.
 
-**Verified CI:** Phase 2.5 baseline commit `703e76fb120fe2fbbd5ae5b618aaecccaa557abd` passed run [#305](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/38218846361). Phase 3 Stage 2 payment-event identity commit `27fccc7f3fda7caf51c28c9e8e431bd56bf94d72` passed regression run [#316](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/38548162343), including localization/print-label verification, the original regression suite, application TypeScript build, and backend/frontend lint. Any later code change still requires its own green run. Full locale coverage across all 21 configured locales and automatic sales/collection/refund posting, purchases/payables, inventory valuation/COGS, and accounting reports remain future scope. A Windows installer is not considered validated until it is built and tested through the documented release gate.
+- Migrations 100–104 provide the ledger, expense lifecycle, audit records, reversals and transfers. Migration 105 adds immutable bill accounting snapshots, a generic internal tax liability, default payment account mappings and a no-backfill cutover timestamp.
+- `main/accounting/ledger.ts`, `main/accounting/expenses.ts`, `main/accounting/transfers.ts` and `main/accounting/sales.ts` now cover ledger operations, expenses/transfers and Phase 3 sale/collection/refund sources.
+- Focused tests include `tests/accounting-ledger.test.ts`, `tests/accounting-expenses.test.ts`, `tests/accounting-routes.test.ts` and the new `tests/accounting-sales.test.ts`.
+- Opening balances, owner contributions/drawings, manual other income, complete account reconciliation and reports remain in the next roadmap phases. Inventory valuation/COGS is deliberately excluded from the requested basic accounting scope.
+
+**CI evidence:** The older run [#316](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/38548162343) validated the earlier payment-event identity slice only. It does not validate this PR's subsequent runtime changes. The latest branch head must have its own green full regression/build/lint result; do not infer success from an older run. Full coverage across all 21 configured locales and an actual Windows installer validation remain separate release gates.
