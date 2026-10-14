@@ -246,6 +246,23 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
   }
 }
 
+function resolveRefundPaymentKey(db: DB, method: unknown): string {
+  if (typeof method !== 'string' || !method.trim()) fail('refund_method_required', 'Refund method is required.', 409);
+  const value = method.trim();
+  const lower = value.toLowerCase();
+  if (['cash', 'card'].includes(lower)) return lower;
+  if (lower === 'wallet' || lower === 'loyalty') return 'loyalty';
+  const customId = /^custom:([1-9]\d*)$/.exec(lower);
+  if (customId) {
+    const row = db.prepare('SELECT id, is_active FROM payment_methods WHERE id = ?').get(Number(customId[1])) as any;
+    if (!row || row.is_active !== 1) fail('refund_method_unavailable', 'The selected custom refund method is missing or inactive.', 409);
+    return 'custom:' + row.id;
+  }
+  const matches = db.prepare('SELECT id FROM payment_methods WHERE lower(name) = lower(?) AND is_active = 1 ORDER BY id').all(value) as Array<{ id: number }>;
+  if (matches.length !== 1) fail('refund_method_unmapped', 'The refund method must match exactly one active payment method or use cash, card, or custom:<id>.', 409);
+  return 'custom:' + matches[0].id;
+}
+
 /**
  * Only actual monetary refunds through cash/card/custom methods affect accounting.
  * Wallet/store-credit refunds and loyalty activity are deliberately ignored.
