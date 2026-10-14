@@ -56,11 +56,21 @@ function freshInstallChecks(): void {
   initDatabase();
   const db = getDatabase();
 
-  equal(getCurrentSchemaVersion(), 104, 'fresh install reaches schema version 104');
+  equal(getCurrentSchemaVersion(), 105, 'fresh install reaches schema version 105');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
     'accounting_journal_lines', 'accounting_audit_log',
   ]) check(tableExists(db, table), 'fresh install creates ' + table);
+  const billColumns = (db.pragma('table_info(bills)') as Array<{ name: string }>).map((column) => column.name);
+  check(billColumns.includes('accounting_finalized_at'), 'migration v105 adds bill accounting finalization field');
+  check(billColumns.includes('accounting_snapshot_json'), 'migration v105 adds immutable bill accounting snapshot');
+  check(billColumns.includes('accounting_sale_journal_entry_id'), 'migration v105 links sale journal from bill');
+  check(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='accounting_finalized_bill_amounts_immutable'").get(), 'migration v105 protects finalized bill amounts');
+  const cashMapping = db.prepare("SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key='cash'").get() as any;
+  equal(cashMapping.account_id, 'acct-cash-drawer', 'migration v105 safely seeds the cash mapping');
+  const cardMapping = db.prepare("SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key='card'").get() as any;
+  equal(cardMapping.account_id, 'acct-payment-clearing', 'migration v105 safely seeds the card-clearing mapping');
+
   const expenseColumns = (db.pragma('table_info(accounting_expenses)') as Array<{ name: string }>).map((column) => column.name);
   check(expenseColumns.includes('reversal_journal_entry_id'), 'fresh install includes expense reversal journal link');
   check(expenseColumns.includes('reversal_reason'), 'fresh install includes expense reversal reason');
@@ -69,7 +79,7 @@ function freshInstallChecks(): void {
   }
 
   const accounts = db.prepare('SELECT id, account_code, is_postable FROM accounting_accounts ORDER BY account_code').all() as any[];
-  equal(accounts.length, 20, 'migration seeds the starter chart of accounts');
+  equal(accounts.length, 21, 'migration seeds the starter chart of accounts including the internal tax liability');
   equal(new Set(accounts.map((account) => account.account_code)).size, accounts.length, 'starter account codes are unique');
   check(accounts.some((account) => account.id === 'acct-cash-drawer' && account.is_postable === 1), 'cash drawer is a postable account');
   check(accounts.some((account) => account.id === 'acct-assets' && account.is_postable === 0), 'group account is not postable');
