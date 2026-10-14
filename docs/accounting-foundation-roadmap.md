@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** Phase 0 discovery and Phase 1 ledger foundation are implemented. Phase 2 (expenses, transfer journals and the operations/setup UI) is implemented through schema v104. Phase 3 policy closure and runtime sales/collection/refund posting have been implemented on the current PR branch; migration v105 adds the immutable bill finalization snapshot, payment-account defaults and historical cutover marker. New tests cover sale finalization, partial collection, refund journal, idempotency and pre-cutover protection. This branch is not merge/release-ready until the focused tests and the full GitHub Actions regression workflow are green on the final head. The authoritative current rules and worked scenarios are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md); [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md) records the resolved policy rather than an unanswered proposal.
+**Status:** Phase 0 discovery and Phase 1 ledger foundation are implemented. Phase 2 (expenses, transfer journals and the operations/setup UI) is implemented through schema v104. Phase 3 cash-received posting is being implemented on the current PR branch; migration v105 adds an immutable bill snapshot, payment-account defaults and a historical cutover marker. Accounting records only actual money received/refunded through cash, card or custom payment methods. Loyalty-wallet activity and discounts are excluded. New tests cover sale finalization, partial collection, refund journal, idempotency and pre-cutover protection. This branch is not merge/release-ready until the focused tests and the full GitHub Actions regression workflow are green on the final head. The authoritative current rules and worked scenarios are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md); [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md) records the resolved policy rather than an unanswered proposal.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -13,7 +13,7 @@ The accounting subsystem should ultimately support:
 - An auditable chart of accounts and double-entry journal.
 - Expenses and non-sales income.
 - Cash/bank/clearing-account balances and transfers.
-- Automatic accounting entries for finalized bills, collections, refunds and other financial events.
+- Automatic accounting entries for actual money received/refunded through configured cash, card and custom payment methods; bill finalization alone is not revenue.
 - Supplier purchases and payable balances.
 - Inventory valuation and cost of goods sold (COGS).
 - Management reports and, in a later phase, trial balance, balance sheet and a more complete income statement.
@@ -190,26 +190,21 @@ The first version must not show a "net profit" KPI until COGS and relevant expen
 - Add cash/bank transfers and expense journal posting.
 - Acceptance verified by focused and full CI tests: a paid expense creates exactly one balanced posted journal against its stored expense/payment-account snapshots; retrying a post does not duplicate it; unpaid drafts create no cash movement; reversals create exactly one opposite journal and retain the original; posted expense details cannot be edited/deleted directly. Transfers post one balanced asset-to-asset journal, are idempotent, reject invalid/non-liquid accounts and same-account transfers, and create no revenue/expense lines. Manager-only transfer routes are covered; cashier/server/chef and unauthenticated access are denied.
 
-### Phase 3 — Sales, collections and refunds posting
+### Phase 3 — Real-money receipts and refunds
 
-**Stage 1 — source lifecycle audit and posting matrix (complete):** [accounting-phase-3-posting-contract.md](accounting-phase-3-posting-contract.md) records the real bill/payment/refund lifecycle, persisted source identities, transaction boundaries and edge cases.
+**Policy: cash-received-only POS accounting.** Only actual money accepted or paid out through the configured cash, card and custom payment methods affects the ledger.
 
-**Stage 2 — policy closure and stable source identities (implemented on this branch):**
-- [x] Newly persisted payment lines carry stable `payment_event_id` UUIDs; older `payment_details` JSON remains readable and untouched.
-- [x] Define the exact sale-finalization trigger, net-revenue/tax treatment, payment mappings, wallet behavior, refund allocation, accounting date and historical cutover in [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md).
-- [x] Migration v105 adds bill finalization/snapshot/journal link fields, the internal tax liability account, safe payment mappings and `accounting_cutover_at`.
-- [x] Existing custom payment methods get an initial clearing-account mapping; future custom methods receive the same conservative default and can be re-mapped in Settings.
-
-**Stage 3 — runtime posting and reconciliation assertions (implemented on this branch; final CI pending):**
-- [x] Finalize eligible bills from a server-owned snapshot; bill generation alone does not post revenue.
-- [x] First accepted collection can finalize the bill and write its collection journal in the same SQLite transaction.
-- [x] Post each newly accepted collection once using its `payment_event_id`, the applied amount and the configured receiving account.
-- [x] Post committed refunds once against their actual payout method; wallet refunds affect customer-credit liability, not cash.
-- [x] Prevent mutation of finalized bill amounts; refuse auto-backfill of pre-cutover bills and record legacy skips in the accounting audit log.
-- [x] Add focused sale/collection/refund/idempotency/cutover tests.
-- [ ] Run and fix focused accounting tests, relevant existing payment/refund/tax/loyalty/cash regressions, build/lint and the full CI suite on the final branch head.
-
-The detailed journal formulas, limitations, worked scenarios and acceptance table are defined in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md). “Implemented on branch” must not be confused with “CI verified” or “merged.”
+Acceptance criteria:
+- Generating/finalizing a bill creates an immutable audit snapshot only; it does not create revenue, receivables or tax journals.
+- Each accepted cash/card/custom payment line posts Dr mapped active asset / Cr Sales Revenue for the persisted applied amount (not tendered cash before change).
+- Cash maps to Cash Drawer; card maps to Payment Clearing; custom methods default to Payment Clearing and may be remapped to another active postable asset.
+- A payment line's stable event identity prevents duplicate posting on retry.
+- Only a monetary cash/card/custom refund posts Dr Sales Discounts/contra-revenue / Cr the actual mapped payout asset.
+- Loyalty wallet credits, redemptions, expiries, balance changes and wallet/store-credit refunds create no accounting entries and require no account mapping.
+- Discounts and cashback create no separate journal. Their only indirect effect is that the POS may accept a different amount of actual money.
+- No Accounts Receivable, tax liability, tax allocation, or accrual-style sale journal is generated from POS bill fields. This is an internal cash-received bookkeeping model, not statutory tax accounting.
+- Historical records at/before cutover are not backfilled. Migration/restore and all regression tests must pass.
+- The default suite must cover cash, card, custom method, wallet-only payment, mixed wallet plus real payment, discounts, refunds, idempotency and pre-cutover exceptions.
 
 ### Phase 4 — Manual income, capital and opening balances (next priority)
 - Add a manager-friendly manual other-income flow mapped to an income account, distinct from automatic POS sales.
