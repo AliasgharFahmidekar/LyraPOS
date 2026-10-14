@@ -293,7 +293,7 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     const amountMinor = Number(refund.amount_cents);
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) fail('refund_amount_invalid', 'The committed refund has an invalid amount.', 409);
     const payout = mappedPaymentAccount(db, resolveRefundPaymentKey(db, refund.method));
-    const contraRevenue = postingAccountBySystemKey(db, 'sales_discounts', 'revenue');
+    const contraRevenue = postingAccountBySystemKey(db, 'sales_returns', 'revenue');
     writeAndPostJournal(db, {
       entryDate: accountingDate(db, String(refund.created_at || now())),
       description: 'Monetary refund for bill ' + bill.bill_number + ' (#' + String(refund.id) + ')',
