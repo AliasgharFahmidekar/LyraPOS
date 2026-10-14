@@ -2006,6 +2006,9 @@ function applyPaymentBatch(
   const paymentStatus = newBalanceCents === 0 ? 'paid' : 'partial';
   const newPayments = prepared.map((line) => ({
     ...line.payment,
+    // Immutable source identity for accounting/reconciliation. Legacy JSON lines
+    // remain readable and are deliberately not backfilled into historical journals.
+    payment_event_id: randomUUID(),
     cash_session_id: activeSessionId,
     amount: line.amountCents / minorFactor,
     requested_amount: (line.tenderedCents || line.amountCents) / minorFactor,
