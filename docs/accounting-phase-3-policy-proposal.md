@@ -34,7 +34,7 @@
 ## 4. Monetary refunds
 
 **Decision:** Only actual money refunded through cash/card/custom methods affects accounting.
-- Debit Sales Discounts/contra-revenue by the actual monetary refund amount.
+- Debit Sales Returns/contra-revenue by the actual monetary refund amount.
 - Credit the actual mapped payout asset by the same amount.
 - Wallet/store-credit refunds are non-monetary and are ignored by accounting.
 - No proportional tax allocation or tax-liability reversal is performed.
