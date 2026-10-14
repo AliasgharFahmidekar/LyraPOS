@@ -347,7 +347,7 @@ function upgradeFromPreviousSchemaChecks(): void {
     'existing-value',
     'upgrade preserves existing user settings',
   );
-  equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_accounts').get() as any).count, 20, 'upgrade seeds accounts');
+  equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_accounts').get() as any).count, 21, 'upgrade seeds accounts including the monetary sales-returns contra-revenue account');
   equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'upgraded database passes integrity_check');
 
   closeDatabase();
@@ -394,8 +394,8 @@ function upgradeFromVersion100Checks(): void {
   );
   equal(
     (db.prepare('SELECT COUNT(*) AS count FROM accounting_accounts').get() as any).count,
-    20,
-    'v100 to v101 upgrade preserves all seeded accounting accounts',
+    21,
+    'v100 upgrade through v105 preserves all seeded accounts including sales returns',
   );
 
   closeDatabase();
