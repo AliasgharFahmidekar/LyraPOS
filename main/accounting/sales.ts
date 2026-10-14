@@ -167,12 +167,17 @@ export function assertOrderCancellationAccountingSafe(db: DB, orderId: string | 
  * this basic management-accounting release. Persisted tax is split into the generic
  * tax-collected liability account; this is not a jurisdiction-specific tax filing.
  */
+/**
+ * Locks the bill snapshot for accounting audit only. Discounts and loyalty-wallet
+ * activity are outside the accounting boundary. Revenue is recorded only when
+ * actual money is accepted through a real payment method (cash/card/custom).
+ */
 export function finalizeBillSale(db: DB, billId: string | number, actorId: string | null): any {
   return db.transaction(() => {
     const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
     if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
     if (isBeforeAccountingCutover(db, bill.created_at)) {
-      fail('pre_cutover_bill', 'This bill predates accounting cutover and will not be backfilled automatically. Reconcile its opening balance separately.', 409);
+      fail('pre_cutover_bill', 'This bill predates accounting cutover and will not be backfilled automatically.', 409);
     }
     const currency = configuredCurrency(db);
     if (bill.accounting_finalized_at) {
@@ -180,55 +185,25 @@ export function finalizeBillSale(db: DB, billId: string | number, actorId: strin
       const expected = snapshot.fields;
       const current = snapshotFields(bill, currency);
       if (!expected || JSON.stringify(expected) !== JSON.stringify(current)) {
-        fail('finalized_bill_snapshot_mismatch', 'The persisted bill no longer matches its immutable accounting snapshot. Reconcile it before continuing.', 409);
+        fail('finalized_bill_snapshot_mismatch', 'The persisted bill no longer matches its immutable accounting snapshot.', 409);
       }
-      if (bill.accounting_sale_journal_entry_id) {
-        const journal = db.prepare("SELECT status FROM accounting_journal_entries WHERE id = ?").get(bill.accounting_sale_journal_entry_id) as { status: string } | undefined;
-        if (!journal || journal.status !== 'posted') fail('sale_journal_missing', 'The finalized bill is missing its posted sales journal.', 409);
-      }
-      return { billId: String(bill.id), journalEntryId: bill.accounting_sale_journal_entry_id ?? null, duplicate: true };
+      return { billId: String(bill.id), journalEntryId: null, duplicate: true };
     }
-
-    const totalMinor = toMinorUnits(bill.total, currency, 'Bill total');
-    const taxMinor = toMinorUnits(bill.tax_amount ?? 0, currency, 'Bill tax');
-    if (taxMinor > totalMinor) fail('unsupported_tax_snapshot', 'The bill tax amount exceeds the persisted bill total; accounting finalization was blocked.', 409);
-    const revenueMinor = totalMinor - taxMinor;
     const fields = snapshotFields(bill, currency);
     const finalizedAt = now();
-    let journal: { id: string; entryNumber: string } | null = null;
-    if (totalMinor > 0) {
-      const receivableId = postingAccountBySystemKey(db, 'accounts_receivable', 'asset');
-      const lines: Array<{ accountId: string; debitMinor: number; creditMinor: number; description: string }> = [
-        { accountId: receivableId, debitMinor: totalMinor, creditMinor: 0, description: 'Receivable for finalized bill ' + bill.bill_number },
-      ];
-      if (revenueMinor > 0) {
-        lines.push({ accountId: postingAccountBySystemKey(db, 'sales_revenue', 'revenue'), debitMinor: 0, creditMinor: revenueMinor, description: 'Net sales revenue' });
-      }
-      if (taxMinor > 0) {
-        lines.push({ accountId: postingAccountBySystemKey(db, 'sales_tax_payable', 'liability'), debitMinor: 0, creditMinor: taxMinor, description: 'Tax amount from persisted bill tax snapshot' });
-      }
-      journal = writeAndPostJournal(db, {
-        entryDate: accountingDate(db, finalizedAt),
-        description: 'Sale finalized — bill ' + bill.bill_number,
-        currencyCode: currency,
-        lines,
-        createdBy: actorId,
-        sourceType: 'bill',
-        sourceId: String(bill.id),
-        sourceEvent: 'sale_recognized',
-        idempotencyKey: 'sale:' + String(bill.id),
-      });
-    }
-    const snapshotJson = JSON.stringify({ version: 1, fields, finalizedAt, journalEntryId: journal?.id ?? null });
-    db.prepare('UPDATE bills SET accounting_finalized_at = ?, accounting_snapshot_json = ?, accounting_sale_journal_entry_id = ?, updated_at = ? WHERE id = ? AND accounting_finalized_at IS NULL')
-      .run(finalizedAt, snapshotJson, journal?.id ?? null, finalizedAt, bill.id);
-    const saved = db.prepare('SELECT accounting_finalized_at, accounting_sale_journal_entry_id FROM bills WHERE id = ?').get(bill.id) as any;
+    const snapshotJson = JSON.stringify({ version: 2, fields, finalizedAt, journalEntryId: null, policy: 'cash-received-only' });
+    db.prepare('UPDATE bills SET accounting_finalized_at = ?, accounting_snapshot_json = ?, accounting_sale_journal_entry_id = NULL, updated_at = ? WHERE id = ? AND accounting_finalized_at IS NULL')
+      .run(finalizedAt, snapshotJson, finalizedAt, bill.id);
+    const saved = db.prepare('SELECT accounting_finalized_at FROM bills WHERE id = ?').get(bill.id) as any;
     if (!saved?.accounting_finalized_at) fail('sale_finalization_race', 'Bill finalization did not persist.', 409);
-    return { billId: String(bill.id), journalEntryId: saved.accounting_sale_journal_entry_id ?? null, duplicate: false };
+    return { billId: String(bill.id), journalEntryId: null, duplicate: false };
   })();
 }
 
-/** Posts only the newly accepted payment lines; prior JSON lines are never backfilled. */
+/** Posts only real money received through cash/card/custom payment methods.
+ * Loyalty-wallet lines are intentionally ignored: neither wallet credits nor
+ * redemptions create accounting entries. Discounts are not posted separately.
+ */
 export function postCollectionPaymentLines(db: DB, billId: string | number, paymentLines: any[], actorId: string | null): void {
   if (!paymentLines.length) return;
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
@@ -236,121 +211,44 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
   if (isBeforeAccountingCutover(db, bill.created_at)) {
     for (const payment of paymentLines) {
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
-      if (eventId) auditPreCutoverEvent(db, 'payment:' + eventId, 'skipped_pre_cutover_payment', actorId, {
-        bill_id: String(bill.id),
-        payment_event_id: eventId,
-        amount: payment.amount,
-        method: payment.method,
-        reason: 'Bill predates accounting cutover; historical collection posting is intentionally not backfilled.',
+      if (eventId && payment?.method !== 'wallet' && payment?.method !== 'loyalty') auditPreCutoverEvent(db, 'payment:' + eventId, 'skipped_pre_cutover_payment', actorId, {
+        bill_id: String(bill.id), payment_event_id: eventId, amount: payment.amount, method: payment.method,
+        reason: 'Bill predates accounting cutover; historical money receipts are intentionally not backfilled.',
       });
     }
     return;
   }
   if (!bill.accounting_finalized_at) finalizeBillSale(db, billId, actorId);
-  const finalizedBill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
-  if (!finalizedBill?.accounting_sale_journal_entry_id && toMinorUnits(finalizedBill?.total, configuredCurrency(db), 'Bill total') > 0) {
-    fail('sale_journal_missing', 'The sale must be finalized before its collection can be posted.', 409);
-  }
   const currency = configuredCurrency(db);
-  const receivableId = postingAccountBySystemKey(db, 'accounts_receivable', 'asset');
+  const revenueId = postingAccountBySystemKey(db, 'sales_revenue', 'revenue');
   for (const payment of paymentLines) {
+    if (payment?.method === 'wallet' || payment?.method === 'loyalty') continue;
     const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
-    if (!eventId) fail('payment_event_identity_missing', 'A new payment line has no stable payment_event_id; collection posting was blocked.', 409);
+    if (!eventId) fail('payment_event_identity_missing', 'A new payment line has no stable payment_event_id; receipt posting was blocked.', 409);
     const amountMinor = toMinorUnits(payment.amount, currency, 'Applied payment amount');
     if (amountMinor <= 0) continue;
     const key = paymentMethodKey(db, payment);
     const account = mappedPaymentAccount(db, key);
-    const wallet = key === 'loyalty';
     writeAndPostJournal(db, {
       entryDate: accountingDate(db, String(payment.timestamp || now())),
-      description: 'Collection for bill ' + finalizedBill.bill_number + ' (' + key + ')',
+      description: 'Money received for bill ' + bill.bill_number + ' (' + key + ')',
       currencyCode: currency,
-      lines: wallet
-        ? [
-            { accountId: account.id, debitMinor: amountMinor, creditMinor: 0, description: 'Wallet/customer-credit liability redeemed' },
-            { accountId: receivableId, debitMinor: 0, creditMinor: amountMinor, description: 'Settle customer receivable' },
-          ]
-        : [
-            { accountId: account.id, debitMinor: amountMinor, creditMinor: 0, description: 'Payment received into mapped account' },
-            { accountId: receivableId, debitMinor: 0, creditMinor: amountMinor, description: 'Settle customer receivable' },
-          ],
+      lines: [
+        { accountId: account.id, debitMinor: amountMinor, creditMinor: 0, description: 'Actual money received through payment method' },
+        { accountId: revenueId, debitMinor: 0, creditMinor: amountMinor, description: 'Revenue recognized from actual money received' },
+      ],
       createdBy: actorId,
       sourceType: 'bill_payment',
-      sourceId: String(finalizedBill.id) + ':' + eventId,
-      sourceEvent: 'collected',
+      sourceId: String(bill.id) + ':' + eventId,
+      sourceEvent: 'money_received',
       idempotencyKey: 'payment:' + eventId,
     });
   }
 }
 
 /**
- * Recognizes the monetary value of cashback points when the POS awards them.
- * This must be called in the same transaction as the loyalty_ledger credit,
- * so future wallet redemption reduces a liability that was actually accrued.
- * The caller passes points converted to store-currency major units using the
- * POS's existing LOYALTY_REDEMPTION_RATE; no rate is invented here.
- */
-export function postCashbackReward(db: DB, billId: string | number, currencyAmount: number, actorId: string | null): any {
-  return db.transaction(() => {
-    const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
-    if (!bill) fail('bill_not_found', 'Cashback source bill was not found.', 404);
-    if (isBeforeAccountingCutover(db, bill.created_at)) {
-      auditPreCutoverEvent(db, 'cashback:' + String(bill.id), 'skipped_pre_cutover_cashback', actorId, {
-        bill_id: String(bill.id),
-        currency_amount: currencyAmount,
-        reason: 'Source bill predates accounting cutover; historic cashback liability is not backfilled.',
-      });
-      return { posted: false, reason: 'pre_cutover_bill' };
-    }
-    if (bill.payment_status !== 'paid' || !bill.paid_at) {
-      fail('cashback_bill_not_paid', 'Cashback can only be accrued after the POS has fully paid the bill.', 409);
-    }
-    if (!bill.accounting_finalized_at || !bill.accounting_sale_journal_entry_id) {
-      fail('cashback_sale_not_finalized', 'Cashback cannot be posted before its sale journal exists.', 409);
-    }
-    const currency = configuredCurrency(db);
-    const amountMinor = toMinorUnits(currencyAmount, currency, 'Cashback reward');
-    if (amountMinor <= 0) return { posted: false, reason: 'zero_cashback' };
-    const contraRevenue = postingAccountBySystemKey(db, 'sales_discounts', 'revenue');
-    const customerCredit = postingAccountBySystemKey(db, 'customer_advances', 'liability');
-    const journal = writeAndPostJournal(db, {
-      entryDate: accountingDate(db, String(bill.paid_at || now())),
-      description: 'Cashback awarded for bill ' + bill.bill_number,
-      currencyCode: currency,
-      lines: [
-        { accountId: contraRevenue, debitMinor: amountMinor, creditMinor: 0, description: 'Cashback/loyalty reward contra-revenue' },
-        { accountId: customerCredit, debitMinor: 0, creditMinor: amountMinor, description: 'Accrue redeemable customer-credit liability' },
-      ],
-      createdBy: actorId,
-      sourceType: 'loyalty_reward',
-      sourceId: String(bill.id),
-      sourceEvent: 'cashback_credited',
-      idempotencyKey: 'cashback:' + String(bill.id),
-    });
-    return { posted: true, duplicate: journal.duplicate, journalEntryId: journal.id };
-  })();
-}
-
-function resolveRefundPaymentKey(db: DB, method: unknown): string {
-  if (typeof method !== 'string' || !method.trim()) fail('refund_method_required', 'Refund method is required.', 409);
-  const value = method.trim();
-  const lower = value.toLowerCase();
-  if (['cash', 'card', 'wallet', 'loyalty'].includes(lower)) return lower === 'wallet' || lower === 'loyalty' ? 'loyalty' : lower;
-  const customId = /^custom:([1-9]\d*)$/.exec(lower);
-  if (customId) {
-    const row = db.prepare('SELECT id, is_active FROM payment_methods WHERE id = ?').get(Number(customId[1])) as any;
-    if (!row || row.is_active !== 1) fail('refund_method_unavailable', 'The selected custom refund method is missing or inactive.', 409);
-    return 'custom:' + row.id;
-  }
-  const matches = db.prepare('SELECT id FROM payment_methods WHERE lower(name) = lower(?) AND is_active = 1 ORDER BY id').all(value) as Array<{ id: number }>;
-  if (matches.length !== 1) fail('refund_method_unmapped', 'The refund method must match exactly one active payment method or use cash, card, wallet, or custom:<id>.', 409);
-  return 'custom:' + matches[0].id;
-}
-
-/**
- * Posts the committed refund as one source event. Legacy refunds on bills without
- * an accounting finalization remain operational and are recorded in the accounting
- * audit log as pre-cutover/unmatched rather than being silently backfilled.
+ * Only actual monetary refunds through cash/card/custom methods affect accounting.
+ * Wallet/store-credit refunds and loyalty activity are deliberately ignored.
  */
 export function postCommittedRefund(db: DB, refundId: string | number, actorId: string | null): any {
   return db.transaction(() => {
@@ -358,64 +256,33 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     if (!refund) fail('refund_not_found', 'Committed refund row was not found.', 404);
     const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(refund.bill_id) as any;
     if (!bill) fail('refund_bill_missing', 'The refund references a missing bill.', 409);
+    if (String(refund.method || '').toLowerCase() === 'wallet' || String(refund.method || '').toLowerCase() === 'loyalty') {
+      return { posted: false, reason: 'non_monetary_wallet_refund_ignored' };
+    }
     if (isBeforeAccountingCutover(db, bill.created_at)) {
       auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
-        refund_id: String(refund.id),
-        bill_id: String(bill.id),
-        reason: 'Source bill predates accounting cutover; historic refund journal is not backfilled.',
+        refund_id: String(refund.id), bill_id: String(bill.id),
+        reason: 'Source bill predates accounting cutover; historic monetary refunds are not backfilled.',
       });
-      return { posted: false, reason: 'pre_cutover_unfinalized_bill' };
-    }
-    if (!bill.accounting_finalized_at || !bill.accounting_sale_journal_entry_id) {
-      fail('refund_sale_not_finalized', 'A post-cutover refund requires its original sale journal; the refund was rolled back for reconciliation.', 409);
+      return { posted: false, reason: 'pre_cutover_bill' };
     }
     const currency = configuredCurrency(db);
-    const totalMinor = toMinorUnits(bill.total, currency, 'Bill total');
-    const taxMinor = toMinorUnits(bill.tax_amount ?? 0, currency, 'Bill tax');
     const amountMinor = Number(refund.amount_cents);
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) fail('refund_amount_invalid', 'The committed refund has an invalid amount.', 409);
-    if (totalMinor <= 0 || taxMinor > totalMinor) fail('refund_tax_allocation_invalid', 'The source bill does not support tax allocation for refund posting.', 409);
-
-    // Tax share for a refund must remain deterministic if an earlier refund is
-    // replayed after later refunds have been created. Allocate by stable chronological
-    // order (created_at, then ID), not by summing every other refund row.
-    const priorRefunded = Number((db.prepare(`
-      SELECT COALESCE(SUM(amount_cents),0) AS total
-      FROM refunds
-      WHERE bill_id = ?
-        AND (created_at < ? OR (created_at = ? AND id < ?))
-    `).get(bill.id, refund.created_at, refund.created_at, refund.id) as any)?.total || 0);
-    const before = Math.max(0, Math.min(totalMinor, priorRefunded));
-    const after = Math.max(0, Math.min(totalMinor, priorRefunded + amountMinor));
-    const taxBefore = Number((BigInt(before) * BigInt(taxMinor) + BigInt(Math.floor(totalMinor / 2))) / BigInt(totalMinor));
-    const taxAfter = Number((BigInt(after) * BigInt(taxMinor) + BigInt(Math.floor(totalMinor / 2))) / BigInt(totalMinor));
-    const refundTaxMinor = Math.max(0, taxAfter - taxBefore);
-    if (refundTaxMinor > amountMinor) fail('refund_tax_allocation_invalid', 'The calculated tax reversal exceeds the refund amount.', 409);
-    const salesReturnMinor = amountMinor - refundTaxMinor;
     const payout = mappedPaymentAccount(db, resolveRefundPaymentKey(db, refund.method));
-    const currencyCode = currency;
-    const lines: Array<{ accountId: string; debitMinor: number; creditMinor: number; description: string }> = [];
-    if (salesReturnMinor > 0) {
-      lines.push({ accountId: postingAccountBySystemKey(db, 'sales_discounts', 'revenue'), debitMinor: salesReturnMinor, creditMinor: 0, description: 'Sales returns/contra-revenue' });
-    }
-    if (refundTaxMinor > 0) {
-      lines.push({ accountId: postingAccountBySystemKey(db, 'sales_tax_payable', 'liability'), debitMinor: refundTaxMinor, creditMinor: 0, description: 'Reverse proportional tax liability for refund' });
-    }
-    lines.push({
-      accountId: payout.id,
-      debitMinor: 0,
-      creditMinor: amountMinor,
-      description: payout.type === 'liability' ? 'Issue customer wallet/store credit' : 'Refund paid from actual payout account',
-    });
+    const contraRevenue = postingAccountBySystemKey(db, 'sales_discounts', 'revenue');
     writeAndPostJournal(db, {
       entryDate: accountingDate(db, String(refund.created_at || now())),
-      description: 'Refund for bill ' + bill.bill_number + ' (#' + String(refund.id) + ')',
-      currencyCode,
-      lines,
+      description: 'Monetary refund for bill ' + bill.bill_number + ' (#' + String(refund.id) + ')',
+      currencyCode: currency,
+      lines: [
+        { accountId: contraRevenue, debitMinor: amountMinor, creditMinor: 0, description: 'Reverse revenue for money refunded' },
+        { accountId: payout.id, debitMinor: 0, creditMinor: amountMinor, description: 'Actual money paid out through refund method' },
+      ],
       createdBy: actorId,
       sourceType: 'refund',
       sourceId: String(refund.id),
-      sourceEvent: 'refund_committed',
+      sourceEvent: 'money_refunded',
       idempotencyKey: 'refund:' + String(refund.id),
     });
     return { posted: true, refundId: String(refund.id) };
