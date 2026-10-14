@@ -67,7 +67,7 @@ try {
   // Scenario 1: Sale recognition is separate from collection and is idempotent.
   {
     const db = freshDb();
-    const { billId } = makeBill(db, 'SALE');
+    const { orderId, billId } = makeBill(db, 'SALE');
     const first = sales.finalizeBillSale(db, billId, 'test-owner-accounting');
     equal(first.duplicate, false, 'first finalization creates the sale journal');
     balanced(db, first.journalEntryId);
@@ -79,10 +79,32 @@ try {
     equal(again.duplicate, true, 'repeated finalization returns the original sale journal');
     equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill' AND source_id=? AND source_event='sale_recognized'").get(String(billId)).n, 1, 'sale is never posted twice');
     throws(() => db.prepare('UPDATE bills SET total=101 WHERE id=?').run(billId), /ACCOUNTING_FINALIZED_BILL_AMOUNT_IMMUTABLE/i, 'finalized commercial amount cannot be silently edited');
+    throws(() => sales.assertOrderCancellationAccountingSafe(db, orderId), /financially finalized bill/i, 'order cancellation cannot strand a finalized sale journal');
     closeDatabase();
   }
 
-  // Scenario 2: A partial collection creates only an A/R settlement; replay does not duplicate it.
+  // Scenario 2: Split-check children post once each, and their totals reconcile without a parent duplicate.
+  {
+    const db = freshDb();
+    const { orderId, billId: firstChildId } = makeBill(db, 'SPLIT-A', 60, 0);
+    const groupId = 'split-accounting-group-001';
+    db.prepare('UPDATE bills SET split_group_id=?, split_label=? WHERE id=?').run(groupId, 'A', firstChildId);
+    const stamp = now();
+    const second = db.prepare(
+      'INSERT INTO bills (bill_number,order_id,subtotal,tax_amount,tax_breakdown,tax_snapshot,discount_amount,delivery_charge,packaging_charge,service_charge,table_charge,takeaway_charge,round_off,total,paid_amount,balance,payment_status,created_at,updated_at,split_group_id,split_label) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    ).run('ACCT-BILL-SPLIT-B', orderId, 40, 0, '[]', '{}', 0, 0, 0, 0, 0, 0, 0, 40, 0, 40, 'unpaid', stamp, stamp, groupId, 'B');
+    const secondChildId = Number(second.lastInsertRowid);
+    const firstSale = sales.finalizeBillSale(db, firstChildId, 'test-owner-accounting');
+    const secondSale = sales.finalizeBillSale(db, secondChildId, 'test-owner-accounting');
+    balanced(db, firstSale.journalEntryId);
+    balanced(db, secondSale.journalEntryId);
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill' AND source_event='sale_recognized' AND source_id IN (?,?)").get(String(firstChildId), String(secondChildId)).n, 2, 'each split child has one sale journal');
+    equal(db.prepare("SELECT SUM(line.credit_minor) AS total FROM accounting_journal_lines line JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id JOIN accounting_accounts account ON account.id=line.account_id WHERE entry.source_type='bill' AND entry.source_event='sale_recognized' AND entry.source_id IN (?,?) AND account.system_key='sales_revenue'").get(String(firstChildId), String(secondChildId)).total, 100, 'split child sale revenue adds to the combined amount');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill' AND source_event='sale_recognized' AND source_id=?").get(String(orderId)).n, 0, 'order/parent ID itself is not separately posted as a sale');
+    closeDatabase();
+  }
+
+  // Scenario 3: A partial collection creates only an A/R settlement; replay does not duplicate it.
   {
     const db = freshDb();
     const { billId } = makeBill(db, 'COLLECTION');
@@ -103,7 +125,7 @@ try {
     closeDatabase();
   }
 
-  // Scenario 3: Cashback accrual funds the customer-credit liability before wallet redemption.
+  // Scenario 4: Cashback accrual funds the customer-credit liability before wallet redemption.
   {
     const db = freshDb();
     const { billId: cashbackBillId } = makeBill(db, 'CASHBACK', 100, 0);
@@ -135,7 +157,7 @@ try {
     closeDatabase();
   }
 
-  // Scenario 4: Refunds use the committed refund row and the actual payout method.
+  // Scenario 5: Refunds use the committed refund row and the actual payout method.
   {
     const db = freshDb();
     const { billId } = makeBill(db, 'REFUND');
@@ -160,7 +182,7 @@ try {
     closeDatabase();
   }
 
-  // Scenario 4: pre-cutover bills keep POS behavior but are not silently backfilled.
+  // Scenario 6: pre-cutover bills keep POS behavior but are not silently backfilled.
   {
     const db = freshDb();
     const legacyStamp = '2024-01-01T10:00:00.000Z';
