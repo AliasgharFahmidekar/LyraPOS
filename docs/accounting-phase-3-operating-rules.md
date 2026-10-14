@@ -9,16 +9,16 @@
 LyraPOS is adding a local-first, internal management ledger to the existing POS. Bills, payments and refund rows remain the operational source of truth; accounting writes journals from those persisted records. It must not create a second source of sale totals, or alter stock quantities.
 
 This phase includes:
-- one-time recognition of a financially finalized bill;
-- accounting for each newly accepted payment line;
-- accounting for committed refunds;
+- immutable bill snapshot/finalization without a journal;
+- accounting for each newly accepted cash/card/custom money receipt;
+- accounting for committed monetary refunds through real payment methods;
 - source identities, cutover protection, transaction atomicity, audit trail and regression tests.
 
 It does not implement cost-of-goods-sold (COGS), inventory valuation, supplier purchases/payables, payroll, loans/check lifecycle or a complete statutory/general-purpose accounting package. It also does not claim that a generic internal tax-liability account fulfills any country's filing or remittance requirements.
 
 **Terminology must stay precise:**
 - A **bill** is the POS's persisted amount due, including the POS's applied discounts, charges, tax calculation and payable rounding.
-- **Sale recognition** records the sale once. It is not the same event as receiving cash/card/wallet value.
+- **Revenue recognition** occurs only when cash/card/custom money is actually received.
 - A **collection** settles an amount of the customer's receivable. It does not create sales revenue a second time.
 - A **refund** is the committed row in `refunds`; use its amount and actual payout method, not the bill gross or the method originally used to collect.
 - A **posted journal** is immutable. Correct a mistake with a linked reversal/adjustment, not a silent edit/delete.
