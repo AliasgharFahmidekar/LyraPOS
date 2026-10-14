@@ -173,7 +173,7 @@ try {
     const payment = { payment_event_id: 'legacy-payment-001', method: 'cash', amount: 20, timestamp: '2024-01-01T10:05:00.000Z' };
     db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
     equal(journalForSource(db, 'bill', String(billId), 'sale_recognized'), undefined, 'legacy bill is not backfilled as a sale');
-    equal(journalForSource(db, 'bill_payment', String(billId) + ':' + payment.payment_event_id, 'collected'), undefined, 'legacy collection is not backfilled');
+    equal(journalForSource(db, 'bill_payment', String(billId) + ':' + payment.payment_event_id, 'money_received'), undefined, 'legacy collection is not backfilled');
     ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_pre_cutover_payment'").get('payment:' + payment.payment_event_id), 'legacy skip is documented in audit history');
     throws(() => sales.finalizeBillSale(db, billId, 'test-owner-accounting'), /predates accounting cutover/i, 'manual finalization cannot silently backfill a legacy bill');
     db.prepare("UPDATE bills SET payment_status='paid', paid_at=?, paid_amount=100, balance=0 WHERE id=?").run(now(), billId);
