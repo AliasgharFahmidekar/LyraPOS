@@ -88,8 +88,8 @@ For a pre-cutover/unfinalized legacy bill, a refund may still complete under the
 
 ## 5. Cutover and historical records
 
-Migration v105 stores `accounting_cutover_at` once, at the migration time. It does not overwrite an existing value. Automatic accounting posting only applies to bills created at or after that cutover:
-- existing historical bills are not auto-finalized or backfilled;
+Migration v105 stores `accounting_cutover_at` once, at the migration time. It does not overwrite an existing value. Automatic accounting posting only applies to bills created strictly after that cutover; a bill timestamp equal to the cutover second is treated as legacy because SQLite timestamps have one-second precision:
+- existing historical bills are not auto-finalized or backfilled; bills timestamped at or before the cutover marker are excluded;
 - if a legacy bill predates cutover, its operational collection remains usable, but no sale/collection journal is fabricated; each skipped new collection line is written to the accounting audit log as `skipped_pre_cutover_payment`;
 - explicit finalization of a pre-cutover bill is rejected. This is intentional, not a missing retry;
 - pre-cutover refunds on bills with no accounting sale journal are similarly audited as skipped;
@@ -133,9 +133,9 @@ A customer earns 25 redeemable points from a prior fully paid sale, under the cu
 
 ### Scenario D — partial cash refund
 Original bill: total 100, tax 10. Refund: 25 back in cash.
-- Proportional tax reversal: 10 × 25/100 = 2.5, rounded to 3 minor-units-as-illustrated here under integer half-up rounding;
-- refund journal: Dr Sales Returns 22; Dr Tax Collected 3; Cr Cash Drawer 25.
-- In real currency, calculations use the configured currency's minor-unit factor and the cumulative rule in code; the example's 3 is the nearest whole unit.
+- Proportional tax reversal: 10 × 25/100 = 2.5. For this example we assume a currency with zero fraction digits, so half-up rounding yields 3 whole units; in a two-decimal currency the same proportion would remain 2.50.
+- refund journal in the zero-fraction example: Dr Sales Returns 22; Dr Tax Collected 3; Cr Cash Drawer 25.
+- Production calculations use the configured currency's actual minor-unit factor and cumulative rounding; this simplified example is not a substitute for country-specific tax handling.
 - If the customer is refunded to wallet instead, credit customer-credit liability rather than the cash drawer.
 
 ### Scenario E — cost of goods is deliberately excluded
