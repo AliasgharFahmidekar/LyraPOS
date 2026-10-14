@@ -175,8 +175,20 @@ try {
     equal(refundLines.find((line: any) => line.system_key === 'sales_discounts')?.debit_minor, 22, 'partial refund debits net sales returns after proportional tax allocation');
     equal(refundLines.find((line: any) => line.system_key === 'sales_tax_payable')?.debit_minor, 3, 'partial refund reverses proportional internal tax liability');
     equal(refundLines.find((line: any) => line.system_key === 'cash_drawer')?.credit_minor, 25, 'refund credits the actual mapped payout account');
+
+    const laterStamp = '2026-10-14 12:00:01';
+    const laterRefund = db.prepare(
+      'INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(billId, 25, 'cash', 'second test partial refund', 'test-owner-accounting', 'test-owner-accounting', laterStamp);
+    const laterPosted = sales.postCommittedRefund(db, Number(laterRefund.lastInsertRowid), 'test-owner-accounting');
+    equal(laterPosted.posted, true, 'a second partial refund posts');
+    const laterJournal = journalForSource(db, 'refund', String(laterRefund.lastInsertRowid), 'refund_committed');
+    const laterLines = linesForJournal(db, laterJournal.id);
+    equal(laterLines.find((line: any) => line.system_key === 'sales_tax_payable')?.debit_minor, 2, 'cumulative rounding allocates the second refund only the incremental tax share');
+
+    // Replaying the first refund after a later refund must keep its original payload/tax share.
     const again = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
-    equal(again.posted, true, 'refund retry resolves through the original source journal');
+    equal(again.posted, true, 'refund retry resolves through the original source journal even after later refunds');
     equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='refund' AND source_id=? AND source_event='refund_committed'").get(String(refund.lastInsertRowid)).n, 1, 'refund retry never duplicates refund journal');
     balanced(db, sale.id);
     closeDatabase();
@@ -194,6 +206,10 @@ try {
     equal(journalForSource(db, 'bill_payment', String(billId) + ':' + payment.payment_event_id, 'collected'), undefined, 'legacy collection is not backfilled');
     ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_pre_cutover_payment'").get('payment:' + payment.payment_event_id), 'legacy skip is documented in audit history');
     throws(() => sales.finalizeBillSale(db, billId, 'test-owner-accounting'), /predates accounting cutover/i, 'manual finalization cannot silently backfill a legacy bill');
+    db.prepare("UPDATE bills SET payment_status='paid', paid_at=?, paid_amount=100, balance=0 WHERE id=?").run(now(), billId);
+    const legacyCashback = sales.postCashbackReward(db, billId, 5, 'test-owner-accounting');
+    equal(legacyCashback.posted, false, 'legacy cashback is skipped instead of breaking the operational payment');
+    ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_pre_cutover_cashback'").get('cashback:' + String(billId)), 'legacy cashback skip is audited');
     closeDatabase();
   }
 
