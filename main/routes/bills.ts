@@ -29,6 +29,7 @@ import {
 import { applyPayableRounding } from '../services/tax-engine';
 import { calculateOrderTotals } from '../services/orders';
 import { sendEvent } from '../services/telemetry';
+import { finalizeBillSale, postCollectionPaymentLines } from '../accounting/sales';
 import {
   getCurrencyFractionDigits,
   getCurrencyMinorUnitFactor,
@@ -514,6 +515,8 @@ router.post('/generate', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: 
       const existingBill = db.prepare('SELECT * FROM bills WHERE order_id = ?').get(order_id) as any;
       if (existingBill) {
         if (existingBill.split_group_id) return { bill: parseRowJson(existingBill), isNew: false };
+        // Once an accounting snapshot exists, the bill is immutable financially.
+        if (existingBill.accounting_finalized_at) return { bill: parseRowJson(existingBill), isNew: false };
         // Re-sync unpaid bill totals from order in case discount/adjustments changed.
         const orderSubtotal      = order.subtotal        || 0;
         const orderTaxAmount     = order.tax_amount      || 0;
@@ -1531,6 +1534,9 @@ router.post('/:id/split-check', requireRole(...ROLE_ACCESS.ownerManagerCashier),
       if (!txnSource) throw Object.assign(new Error('Bill not found'), { statusCode: 404 });
       const txnOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(txnSource.order_id) as any;
       if (txnOrder?.type !== 'dine_in') throw Object.assign(new Error('Only dine-in checks can be split'), { statusCode: 400 });
+      if (txnSource.accounting_finalized_at) {
+        throw Object.assign(new Error('A financially finalized bill cannot be split'), { statusCode: 409 });
+      }
       if (txnSource.payment_status !== 'unpaid' || Number(txnSource.paid_amount || 0) !== 0 || txnSource.payment_details) {
         throw Object.assign(new Error('A check can only be split before any payment is recorded'), { statusCode: 409 });
       }
@@ -2034,6 +2040,9 @@ function applyPaymentBatch(
   }
   if (!bill.customer_id && effectiveCustomerId) db.prepare('UPDATE bills SET customer_id = ?, updated_at = ? WHERE id = ?').run(effectiveCustomerId, changedAt, billId);
   db.prepare(`UPDATE bills SET paid_amount = ?, balance = ?, payment_status = ?, payment_details = ?, paid_at = CASE WHEN ? = 'paid' THEN ? ELSE paid_at END, updated_at = ? WHERE id = ?`).run(newPaidCents / minorFactor, newBalanceCents / minorFactor, paymentStatus, JSON.stringify(allPayments), paymentStatus, paymentStatus === 'paid' ? changedAt : null, changedAt, billId);
+  // Sale finalization and every new collection journal share the outer POS SQLite transaction.
+  // If accounting rejects a mapping or detects an inconsistent snapshot, the payment is rolled back too.
+  postCollectionPaymentLines(db, billId, newPayments, idempotencyUserId || null);
   let loyaltyPointsEarned = 0;
   if (paymentStatus === 'paid') {
     const unpaidSibling = db.prepare(`SELECT 1 FROM bills WHERE order_id = ? AND id != ? AND payment_status NOT IN ('paid', 'refunded', 'partially_refunded') LIMIT 1`).get(bill.order_id, bill.id);
@@ -2065,6 +2074,18 @@ function applyPaymentBatch(
   }
   return result;
 }
+
+router.post('/:id/finalize', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const result = withTxn(() => finalizeBillSale(db, String(req.params.id), String((req as any).user?.userId || '')));
+    res.json({ finalization: result });
+  } catch (error: any) {
+    const statusCode = error.statusCode || 500;
+    console.error('[API] Bill accounting finalization failed:', error);
+    res.status(statusCode).json({ error: statusCode >= 500 ? 'Bill accounting finalization failed' : error.message, code: error.code });
+  }
+});
 
 router.post('/:id/payment', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
   try {
