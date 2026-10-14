@@ -176,6 +176,7 @@ export function assertOrderCancellationAccountingSafe(db: DB, orderId: string | 
  * payment method (cash/card/custom); loyalty and discounts are outside accounting.
  */
 export function finalizeBillSale(db: DB, billId: string | number, actorId: string | null): any {
+  void actorId; // Finalization is an audit snapshot, not a journal posting.
   return db.transaction(() => {
     const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
     if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
