@@ -77,7 +77,6 @@ try {
     equal(db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get().n, 0, 'bill amount, tax and discount alone create no journal');
     throws(() => db.prepare('UPDATE bills SET total=101 WHERE id=?').run(billId), /ACCOUNTING_FINALIZED_BILL_AMOUNT_IMMUTABLE/i, 'finalized amount cannot be silently edited');
     sales.assertOrderCancellationAccountingSafe(db, orderId);
-    equal(true, true, 'snapshot-only bill does not block cancellation');
     closeDatabase();
   }
 
