@@ -6047,6 +6047,15 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       if (!billColumns.includes('accounting_sale_journal_entry_id')) {
         db.exec('ALTER TABLE bills ADD COLUMN accounting_sale_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT');
       }
+      // The migration timestamp is the default accounting cutover. Existing bills/payments
+      // are not automatically journaled during upgrade; operators can reconcile/open balances
+      // separately before using accounting. This setting is deliberately not retroactive.
+      const cutoverAt = now();
+      db.prepare(`
+        INSERT OR IGNORE INTO settings (key, value, updated_at)
+        VALUES ('accounting_cutover_at', ?, ?)
+      `).run(cutoverAt, cutoverAt);
+
       db.exec(`
         CREATE UNIQUE INDEX IF NOT EXISTS accounting_bills_sale_journal_unique
           ON bills(accounting_sale_journal_entry_id)
