@@ -103,7 +103,36 @@ try {
     closeDatabase();
   }
 
-  // Scenario 3: Refunds use the committed refund row and the actual payout method.
+  // Scenario 3: Cashback accrual funds the customer-credit liability before wallet redemption.
+  {
+    const db = freshDb();
+    const { billId } = makeBill(db, 'CASHBACK', 100, 0);
+    const sale = sales.finalizeBillSale(db, billId, 'test-owner-accounting');
+    const first = sales.postCashbackReward(db, billId, 10, 'test-owner-accounting');
+    equal(first.posted, true, 'awarded cashback creates an accounting journal');
+    const cashback = journalForSource(db, 'loyalty_reward', String(billId), 'cashback_credited');
+    ok(cashback, 'cashback journal has a stable bill-based source identity');
+    balanced(db, cashback.id);
+    const cashbackLines = linesForJournal(db, cashback.id);
+    equal(cashbackLines.find((line: any) => line.system_key === 'sales_discounts')?.debit_minor, 10, 'cashback debit is contra-revenue');
+    equal(cashbackLines.find((line: any) => line.system_key === 'customer_advances')?.credit_minor, 10, 'cashback accrues customer-credit liability');
+    const again = sales.postCashbackReward(db, billId, 10, 'test-owner-accounting');
+    equal(again.duplicate, true, 'cashback retry resolves to the original journal');
+    db.transaction(() => sales.postCollectionPaymentLines(db, billId, [
+      { payment_event_id: 'wallet-redemption-001', method: 'wallet', amount: 10, timestamp: '2026-10-14 08:01:00' },
+    ], 'test-owner-accounting'))();
+    const collection = journalForSource(db, 'bill_payment', String(billId) + ':wallet-redemption-001', 'collected');
+    ok(collection, 'wallet redemption has its own collection source event');
+    balanced(db, collection.id);
+    const walletLines = linesForJournal(db, collection.id);
+    equal(walletLines.find((line: any) => line.system_key === 'customer_advances')?.debit_minor, 10, 'wallet redemption consumes previously accrued liability');
+    equal(walletLines.find((line: any) => line.system_key === 'cash_drawer')?.debit_minor, undefined, 'wallet redemption does not debit cash');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='loyalty_reward' AND source_id=? AND source_event='cashback_credited'").get(String(billId)).n, 1, 'cashback reward is not journaled twice');
+    balanced(db, sale.id);
+    closeDatabase();
+  }
+
+  // Scenario 4: Refunds use the committed refund row and the actual payout method.
   {
     const db = freshDb();
     const { billId } = makeBill(db, 'REFUND');
