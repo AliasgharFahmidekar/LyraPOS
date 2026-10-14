@@ -1,6 +1,6 @@
 # LyraPOS accounting implementation context for AI contributors
 
-**Status on PR #19:** Phases 0–2.5 are implemented. Phase 3 source audit, policy closure and runtime sale/collection/refund posting are now implemented on this branch with schema migration v105 and focused tests; do not call the PR release-ready until the final-head workflow passes. The authoritative Phase 3 formulas, edge cases and worked examples are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md). Sales Revenue is the finalized POS bill total less its persisted tax amount; payment collections settle Accounts Receivable and never create revenue again. Migration v105 records a cutover timestamp to prevent historical auto-backfill. Opening balances, owner contributions/drawings, manual other income and management reports are next phases. COGS/inventory valuation is deliberately out of the present scope; future result reports must be labelled “before COGS / excluding inventory cost.”
+**Status on PR #19:** Phases 0–2.5 are implemented. Phase 3 is being aligned to the selected cash-received-only policy on this branch; schema migration v105 provides an immutable bill snapshot, payment-account defaults and historical cutover marker. The authoritative rules and worked examples are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md). Only actual cash/card/custom money receipts post Dr mapped asset / Cr Sales Revenue; actual monetary refunds post Dr contra-revenue / Cr payout asset. Bill finalization itself creates no revenue journal. Loyalty wallet awards/redemptions/balance changes, wallet refunds, discounts and cashback create no accounting entries. Do not call the PR release-ready until the final-head workflow passes. Opening balances, owner contributions/drawings, manual other income and management reports are next phases. COGS/inventory valuation is deliberately out of the present scope; future result reports must be labelled “before COGS / excluding inventory cost.”
 
 ## Read first
 
@@ -32,8 +32,8 @@ Existing sales/collection reports must retain their established meaning. Cash co
 
 Phase 3 choices are resolved for this PR in [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md) and fully specified in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md):
 1. A bill is recognized at an explicit immutable finalization or atomically with its first accepted payment; bill generation alone never posts revenue.
-2. Sale recognition debits receivables by the persisted bill total and credits sales revenue net of persisted POS tax plus a generic internal tax liability. This is not a country-specific tax-compliance implementation.
-3. Each accepted payment line settles receivables from its stable `payment_event_id`; refund entries use the committed refund row and actual payout method.
+2. Bill finalization records an immutable snapshot only; it does not post revenue, receivables or tax.
+3. Each accepted cash/card/custom payment line posts the actual applied money as debit to its mapped asset and credit to Sales Revenue; actual monetary refunds debit contra-revenue and credit the payout asset. Loyalty and discounts are completely excluded.
 4. Store-specific integer minor units and source timestamps plus regional timezone/business-day rules govern amounts and dates.
 5. Migration v105 marks automatic cutover; no historical bill/payment/refund is silently backfilled.
 6. Owner capital/drawings, opening balances, manual other income, full source reconciliation and reports remain next-phase work. COGS and inventory valuation are explicitly out of the requested basic scope.
