@@ -68,6 +68,8 @@ try {
   throws(() => expenses.saveExpenseCategory(db, { name: 'Bad active value', expense_account_id: 'acct-operating-expenses', is_active: 'false' }, 'manager-1'), /must be a boolean/i, 'invalid active flags are rejected');
 
   const mapping = expenses.setPaymentAccountMapping(db, 'cash', 'acct-cash-drawer', 'manager-1');
+  equal(expenses.listPaymentAccountMappings(db).some((item: any) => item.payment_method_key === 'loyalty'), false, 'loyalty wallet is not exposed as an accounting mapping');
+  throws(() => expenses.setPaymentAccountMapping(db, 'loyalty', 'acct-customer-advances', 'manager-1'), /supported existing payment method/i, 'loyalty wallet cannot be configured as an accounting payment method');
   equal(mapping.account_id, 'acct-cash-drawer', 'cash maps to cash drawer');
   throws(() => expenses.setPaymentAccountMapping(db, 'cash', 'acct-operating-expenses', 'manager-1'), /requires an account of type: asset/i, 'cash cannot map to expense account');
   throws(() => expenses.setPaymentAccountMapping(db, 'custom:999999', 'acct-bank', 'manager-1'), /custom payment method does not exist/i, 'unknown custom payment methods are rejected');
