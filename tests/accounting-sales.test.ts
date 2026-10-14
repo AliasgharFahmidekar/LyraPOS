@@ -75,7 +75,8 @@ try {
     equal(again.duplicate, true, 'repeated finalization reuses the snapshot');
     equal(db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get().n, 0, 'bill amount, tax and discount alone create no journal');
     throws(() => db.prepare('UPDATE bills SET total=101 WHERE id=?').run(billId), /ACCOUNTING_FINALIZED_BILL_AMOUNT_IMMUTABLE/i, 'finalized amount cannot be silently edited');
-    throws(() => sales.assertOrderCancellationAccountingSafe(db, orderId), /financially finalized bill/i, 'cancellation remains guarded after snapshot finalization');
+    sales.assertOrderCancellationAccountingSafe(db, orderId);
+    equal(true, true, 'snapshot-only bill does not block cancellation');
     closeDatabase();
   }
 
@@ -99,7 +100,7 @@ try {
   // Scenario 3: Actual cash receipt alone creates revenue; retries are idempotent.
   {
     const db = freshDb();
-    const { billId } = makeBill(db, 'COLLECTION');
+    const { orderId, billId } = makeBill(db, 'COLLECTION');
     const payment = { payment_event_id: 'payment-event-cash-001', method: 'cash', amount: 40, timestamp: '2026-10-14T08:00:00.000Z' };
     db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
     equal(journalForSource(db, 'bill', String(billId), 'sale_recognized'), undefined, 'payment does not create a separate bill-level sale journal');
@@ -111,6 +112,7 @@ try {
     equal(receiptLines.find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 40, 'receipt credits revenue only by money received');
     db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
     equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill_payment' AND source_id=? AND source_event='money_received'").get(String(billId) + ':' + payment.payment_event_id).n, 1, 'retry creates no second receipt journal');
+    throws(() => sales.assertOrderCancellationAccountingSafe(db, orderId), /accounting-recorded monetary receipt/i, 'cancellation is guarded after actual money has been journaled');
     closeDatabase();
   }
 
