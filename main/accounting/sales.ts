@@ -146,7 +146,7 @@ function writeAndPostJournal(db: DB, input: Parameters<typeof createDraftJournal
 /**
  * Order cancellation must not silently leave a monetary receipt journal without an adjustment.
  * Until a linked accounting adjustment/reversal workflow exists, reject the
- * operational status transition if any bill on the order was financially finalized.
+ * operational status transition if any bill on the order has a journaled money receipt.
  */
 export function assertOrderCancellationAccountingSafe(db: DB, orderId: string | number): void {
   const bill = db.prepare(
@@ -170,12 +170,6 @@ export function assertOrderCancellationAccountingSafe(db: DB, orderId: string | 
   }
 }
 
-/**
- * Finalizes the current persisted bill snapshot and recognizes the sale exactly once.
- * Discounts, operational charges and bill rounding are netted into sales revenue for
- * this basic management-accounting release. Persisted tax is split into the generic
- * persisted bill tax snapshot; this is not a jurisdiction-specific tax filing.
- */
 /**
  * Locks the bill snapshot for audit/anti-mutation protection only. It never creates
  * a journal. Revenue is recorded only when actual money is accepted through a real
