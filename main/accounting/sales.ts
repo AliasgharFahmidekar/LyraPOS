@@ -260,6 +260,50 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
   }
 }
 
+/**
+ * Recognizes the monetary value of cashback points when the POS awards them.
+ * This must be called in the same transaction as the loyalty_ledger credit,
+ * so future wallet redemption reduces a liability that was actually accrued.
+ * The caller passes points converted to store-currency major units using the
+ * POS's existing LOYALTY_REDEMPTION_RATE; no rate is invented here.
+ */
+export function postCashbackReward(db: DB, billId: string | number, currencyAmount: number, actorId: string | null): any {
+  return db.transaction(() => {
+    const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
+    if (!bill) fail('bill_not_found', 'Cashback source bill was not found.', 404);
+    if (!bill.accounting_finalized_at || !bill.accounting_sale_journal_entry_id) {
+      fail('cashback_sale_not_finalized', 'Cashback cannot be posted before its sale journal exists.', 409);
+    }
+    const currency = configuredCurrency(db);
+    const amountMinor = toMinorUnits(currencyAmount, currency, 'Cashback reward');
+    if (amountMinor <= 0) return { posted: false, reason: 'zero_cashback' };
+    const existing = db.prepare(
+      "SELECT id, status FROM accounting_journal_entries WHERE source_type='loyalty_reward' AND source_id=? AND source_event='cashback_credited'",
+    ).get(String(bill.id)) as { id: string; status: string } | undefined;
+    if (existing) {
+      if (existing.status !== 'posted') fail('cashback_journal_not_posted', 'The existing cashback journal is not posted.', 409);
+      return { posted: true, duplicate: true, journalEntryId: existing.id };
+    }
+    const contraRevenue = postingAccountBySystemKey(db, 'sales_discounts', 'revenue');
+    const customerCredit = postingAccountBySystemKey(db, 'customer_advances', 'liability');
+    const journal = writeAndPostJournal(db, {
+      entryDate: accountingDate(db, String(bill.paid_at || now())),
+      description: 'Cashback awarded for bill ' + bill.bill_number,
+      currencyCode: currency,
+      lines: [
+        { accountId: contraRevenue, debitMinor: amountMinor, creditMinor: 0, description: 'Cashback/loyalty reward contra-revenue' },
+        { accountId: customerCredit, debitMinor: 0, creditMinor: amountMinor, description: 'Accrue redeemable customer-credit liability' },
+      ],
+      createdBy: actorId,
+      sourceType: 'loyalty_reward',
+      sourceId: String(bill.id),
+      sourceEvent: 'cashback_credited',
+      idempotencyKey: 'cashback:' + String(bill.id),
+    });
+    return { posted: true, duplicate: false, journalEntryId: journal.id };
+  })();
+}
+
 function resolveRefundPaymentKey(db: DB, method: unknown): string {
   if (typeof method !== 'string' || !method.trim()) fail('refund_method_required', 'Refund method is required.', 409);
   const value = method.trim();
