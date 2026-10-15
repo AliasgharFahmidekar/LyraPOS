@@ -116,10 +116,12 @@ try {
   throws(() => expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 0, currency_code: 'IRR', description: 'Zero amount',
   }, 'manager-1'), /positive safe integer/i, 'zero amount is rejected');
+  const unmappedMethod = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Unmapped Test Method',1,20,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
+  const unmappedMethodKey = 'custom:' + Number(unmappedMethod.lastInsertRowid);
   throws(() => expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 100, currency_code: 'IRR', description: 'Paid without mapping',
-    payment_status: 'paid', payment_method_key: 'card', payment_date: '2026-10-11',
-  }, 'manager-1'), /map this payment method/i, 'paid expense requires a mapped payment method');
+    payment_status: 'paid', payment_method_key: unmappedMethodKey, payment_date: '2026-10-11',
+  }, 'manager-1'), /map this payment method/i, 'paid expense requires a mapping for an active supported payment method that is not configured');
 
   const paidRequest = {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 12000, currency_code: 'IRR',
