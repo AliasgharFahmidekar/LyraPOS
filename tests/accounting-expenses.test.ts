@@ -118,6 +118,13 @@ try {
   }, 'manager-1'), /positive safe integer/i, 'zero amount is rejected');
   const unmappedMethod = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Unmapped Test Method',1,20,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
   const unmappedMethodKey = 'custom:' + Number(unmappedMethod.lastInsertRowid);
+  // Ensure the fixture really represents an unmapped payment method.
+  db.prepare('DELETE FROM accounting_payment_method_mappings WHERE payment_method_key = ?').run(unmappedMethodKey);
+  equal(
+    (db.prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key = ?').get(unmappedMethodKey) as any).count,
+    0,
+    'unmapped-method fixture has no accounting mapping before expense creation',
+  );
   throws(() => expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 100, currency_code: 'IRR', description: 'Paid without mapping',
     payment_status: 'paid', payment_method_key: unmappedMethodKey, payment_date: '2026-10-11',
