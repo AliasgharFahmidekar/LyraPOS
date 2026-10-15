@@ -10,7 +10,8 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
   return originalLoad.apply(this, arguments as any);
 };
 
-const { initDatabase, getDatabase, closeDatabase, now } = require('../main/db');
+const { initDatabase, getDatabase, closeDatabase, now, getCurrentSchemaVersion, MIGRATIONS } = require('../main/db');
+const originalMigrations = MIGRATIONS.slice();
 
 function insertOrderAndBill(db: any, suffix: string, paymentDetails: string) {
   db.prepare(`
@@ -27,9 +28,12 @@ function insertOrderAndBill(db: any, suffix: string, paymentDetails: string) {
 
 function main() {
   console.log('Issue #214: migration retry/reference preservation');
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations.filter((migration: any) => migration.version <= 53));
   initDatabase();
   try {
     const db = getDatabase();
+    if (getCurrentSchemaVersion() !== 53) throw new Error('migration fixture did not start at schema v53');
     const cardPayment = JSON.stringify([{ method: 'card', amount: 10, transaction_id: 'legacy-reference-214', timestamp: now() }]);
     const upiPayment = JSON.stringify([{ method: 'upi', amount: 10, transaction_id: 'legacy-reference-214', timestamp: now() }]);
     const duplicateCardPayment = JSON.stringify([{ method: 'card', amount: 10, transaction_id: 'legacy-reference-214', timestamp: now() }]);
@@ -55,7 +59,10 @@ function main() {
       now(),
     );
 
-    db.pragma('user_version = 53');
+    // Upgrade a schema-v53 fixture once, instead of rewinding a current
+    // database and replaying every later migration.
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations);
     closeDatabase();
     initDatabase();
     const upgraded = getDatabase();
@@ -87,6 +94,8 @@ function main() {
     console.log('  ✓ ownerless historical retries retain compatibility ownership');
     console.log('2/2 passed');
   } finally {
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations);
     closeDatabase();
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
   }
@@ -95,6 +104,8 @@ function main() {
 try {
   main();
 } catch (error: any) {
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
   try { closeDatabase(); } catch {}
   try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
   console.error(error);

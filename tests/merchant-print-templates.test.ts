@@ -279,7 +279,7 @@ console.log('\n▶ Ordered block composition in renderBillDocumentToClassicLines
 // 3. Migration v72 (fresh install + legacy upgrade paths)
 // ---------------------------------------------------------------------------
 
-const { initDatabase, getDatabase, closeDatabase } = require('../main/db');
+const { initDatabase, getDatabase, closeDatabase, MIGRATIONS } = require('../main/db');
 try {
   initDatabase();
 } catch (error: any) {
@@ -313,8 +313,11 @@ console.log('\n▶ Migration v72: fresh install');
 console.log('\n▶ Migration v72: legacy value upgrade (idempotent rerun)');
 {
   const db = getDatabase();
-  // Simulate a pre-#447 database: legacy core value plus an installed pack
-  // template selected by bare id. Rewind user_version so v72 re-runs.
+  // Re-run only the migration under test. Rewinding the database-wide
+  // user_version on a current schema would also replay every later migration.
+  const migration72 = MIGRATIONS.find((migration: any) => migration.version === 72);
+  assert.ok(migration72, 'migration v72 exists');
+  const rerunMigration72 = () => db.transaction(() => migration72.up())();
   db.prepare(`INSERT INTO country_packs (id, publisher, country, jurisdiction, status)
               VALUES ('pack-test', 'test', 'IN', 'central', 'installed')
               ON CONFLICT(id) DO NOTHING`).run();
@@ -325,29 +328,21 @@ console.log('\n▶ Migration v72: legacy value upgrade (idempotent rerun)');
               (template_id, pack_id, pack_version_id, country, jurisdiction, display_name, paper_widths_json, renderer_json, template_payload_json, status)
               VALUES ('in-pack-receipt', 'pack-test', 'ver-test', 'IN', 'central', 'Pack receipt', '["cols-48"]', '{}', '{}', 'installed')`).run();
   db.prepare(`UPDATE settings SET value='compact' WHERE key='bill_template'`).run();
-  db.pragma('user_version = 71');
-  closeDatabase();
-
-  initDatabase();
+  rerunMigration72();
   const upgradedDb = getDatabase();
   const stored = upgradedDb.prepare(`SELECT value FROM settings WHERE key='bill_template'`).get() as any;
   assert.deepEqual(JSON.parse(stored.value), { source: 'core', id: 'compact' });
   ok('legacy bare core value upgraded transparently');
 
   upgradedDb.prepare(`UPDATE settings SET value='in-pack-receipt' WHERE key='bill_template'`).run();
-  upgradedDb.pragma('user_version = 71');
-  closeDatabase();
-
-  initDatabase();
+  rerunMigration72();
   const packDb = getDatabase();
   const packStored = packDb.prepare(`SELECT value FROM settings WHERE key='bill_template'`).get() as any;
   assert.deepEqual(JSON.parse(packStored.value), { source: 'pack', id: 'in-pack-receipt' });
   ok('legacy bare pack template id upgraded to the structured pack selection');
 
   // Idempotency: already-structured values must survive another rerun.
-  packDb.pragma('user_version = 71');
-  closeDatabase();
-  initDatabase();
+  rerunMigration72();
   const finalDb = getDatabase();
   const finalStored = finalDb.prepare(`SELECT value FROM settings WHERE key='bill_template'`).get() as any;
   assert.deepEqual(JSON.parse(finalStored.value), { source: 'pack', id: 'in-pack-receipt' });

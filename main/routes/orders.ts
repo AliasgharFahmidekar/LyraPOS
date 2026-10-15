@@ -14,6 +14,7 @@ import { calculateOrderTotals } from '../services/orders';
 import { adjustProductStock, resolveInventoryDeduction } from '../services/inventory';
 import { applyRecipeSnapshot, buildRecipeSnapshot, parseRecipeSnapshot } from '../services/recipes';
 import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
+import { assertOrderCancellationAccountingSafe } from '../accounting/sales';
 import { cloudSync } from '../services/cloud-sync';
 import { validateOrderNotes, validateItemNotes, validateProductQuantity } from './orders-validation';
 import { requireRole } from '../middleware/security';
@@ -975,6 +976,9 @@ router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales)
 
       // BUG #4 FIX: Sync bill if it exists (add-items didn't update the bill)
       const existingBill = db.prepare("SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'").get(req.params.id) as any;
+      if (existingBill?.accounting_finalized_at) {
+        throw Object.assign(new Error('This order has a financially finalized bill. Item or order changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      }
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(total, pack, currency);
@@ -1130,6 +1134,10 @@ router.patch('/:id/status', orderWriteRateLimit, requireRole(...ROLE_ACCESS.orde
           break;
 
         case 'cancelled': {
+          // Do not change a financially finalized order's operational status without
+          // an accounting adjustment workflow: that would strand posted revenue/A/R.
+          const cancellationOrderId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+          assertOrderCancellationAccountingSafe(db, cancellationOrderId);
           // Select only items eligible for restocking (exclude already cancelled, voided, or accounting adjustments)
           const eligibleItems = db.prepare(`
             SELECT * FROM order_items
@@ -1281,6 +1289,9 @@ router.patch('/:id/convert-to-takeaway', orderWriteRateLimit, requireRole(...ROL
       const openBills = db.prepare(
         "SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'",
       ).all(req.params.id) as any[];
+      if (openBills.some((bill) => bill.accounting_finalized_at)) {
+        throw Object.assign(new Error('This order has a financially finalized bill. Charge changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      }
       if (openBills.length > 0) {
         const pack = getActiveCountryPack(getSettingValue('country') || '');
         const { total: roundedBillTotal, adjustment: billRoundOff } = applyPayableRounding(newOrderTotal, pack, currency);
@@ -1488,6 +1499,9 @@ router.patch('/:id/discount', orderWriteRateLimit, requireRole(...ROLE_ACCESS.ow
       // Sync discount to bill if it exists and is unpaid
       const existingBill = db.prepare('SELECT * FROM bills WHERE order_id = ? AND payment_status != ?')
         .get(req.params.id, 'paid') as any;
+      if (existingBill?.accounting_finalized_at) {
+        throw Object.assign(new Error('This order has a financially finalized bill. Discount changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      }
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(newTotal, pack, currency);
@@ -1711,6 +1725,9 @@ router.patch('/:id/items/:itemId/discount', orderWriteRateLimit, requireRole(...
 
       // BUG #15 FIX: Sync item-level discount to bill
       const existingBill = db.prepare("SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'").get(req.params.id) as any;
+      if (existingBill?.accounting_finalized_at) {
+        throw Object.assign(new Error('This order has a financially finalized bill. Item or order changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      }
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(orderTotal, pack, currency);

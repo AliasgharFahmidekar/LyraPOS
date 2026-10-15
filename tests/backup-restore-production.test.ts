@@ -66,6 +66,27 @@ function copyAndStamp(sourcePath: string, destinationPath: string, schemaVersion
   fs.copyFileSync(sourcePath, destinationPath);
   const backupDb = new Database(destinationPath);
   backupDb.pragma('foreign_keys = OFF');
+
+  // A lower user_version must be paired with the schema that existed then.
+  // Stamping a v102-shaped file as v101 masked restore behavior for tables
+  // added by Phase 2; v99 fixtures must omit both ledger generations.
+  if (schemaVersion < 102) {
+    backupDb.exec(`
+      DROP TABLE IF EXISTS accounting_expenses;
+      DROP TABLE IF EXISTS accounting_payment_method_mappings;
+      DROP TABLE IF EXISTS accounting_expense_categories;
+    `);
+  }
+  if (schemaVersion < 100) {
+    backupDb.exec(`
+      DROP TABLE IF EXISTS accounting_journal_lines;
+      DROP TABLE IF EXISTS accounting_journal_entries;
+      DROP TABLE IF EXISTS accounting_audit_log;
+      DROP TABLE IF EXISTS accounting_sequences;
+      DROP TABLE IF EXISTS accounting_accounts;
+    `);
+  }
+
   backupDb.prepare("UPDATE _flo_meta SET value = ? WHERE key = 'schema_version'").run(String(schemaVersion));
   backupDb.pragma(`user_version = ${schemaVersion}`);
   backupDb.close();
@@ -279,11 +300,28 @@ async function run() {
     );
 
     const legacyPreLedgerBackup = path.join(testDir, 'legacy-pre-ledger.db');
-    copyAndStamp(sameSchemaBackup, legacyPreLedgerBackup, currentVersion - 1);
+    copyAndStamp(sameSchemaBackup, legacyPreLedgerBackup, 99);
     const legacyPreLedgerDb = new Database(legacyPreLedgerBackup);
     legacyPreLedgerDb.pragma('foreign_keys = OFF');
     legacyPreLedgerDb.prepare('UPDATE products SET stock_quantity = ? WHERE id = ?').run(5, 'restore-product');
-    legacyPreLedgerDb.exec('DROP TABLE inventory_movements');
+    legacyPreLedgerDb.exec(`
+      DROP TABLE IF EXISTS accounting_expenses;
+      DROP TABLE IF EXISTS accounting_payment_method_mappings;
+      DROP TABLE IF EXISTS accounting_expense_categories;
+      DROP TABLE IF EXISTS accounting_journal_lines;
+      DROP TABLE IF EXISTS accounting_journal_entries;
+      DROP TABLE IF EXISTS accounting_audit_log;
+      DROP TABLE IF EXISTS accounting_sequences;
+      DROP TABLE IF EXISTS accounting_accounts;
+      DROP TABLE inventory_movements;
+    `);
+    for (const table of ['accounting_expense_categories', 'accounting_payment_method_mappings', 'accounting_expenses', 'accounting_accounts']) {
+      assert.equal(
+        (legacyPreLedgerDb.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name=?").get(table) as { count: number }).count,
+        0,
+        'pre-ledger fixture excludes ' + table,
+      );
+    }
     legacyPreLedgerDb.close();
     const legacyPreLedgerRestore = restoreBackup(legacyPreLedgerBackup, false);
     assert.equal(legacyPreLedgerRestore.success, false, 'pre-ledger backups with stock are rejected without movement history');
@@ -294,8 +332,80 @@ async function run() {
     );
 
     clearLinkedData();
+    // Regression: a version-mismatched data-only restore must not fail when
+    // the live database contains protected accounting rows. Restore is the
+    // privileged replacement path; normal writes remain guarded by triggers.
+    const ledgerEntryId = 'restore-accounting-posted-entry';
+    getDatabase().prepare(`
+      INSERT INTO accounting_journal_entries
+        (id, entry_number, entry_date, description, currency_code, payload_hash)
+      VALUES (?, ?, '2026-10-10', 'Restore regression entry', 'IRR', ?)
+    `).run(ledgerEntryId, 'JE-RESTORE-001', 'a'.repeat(64));
+    getDatabase().prepare(`
+      INSERT INTO accounting_journal_lines
+        (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor)
+      VALUES ('restore-accounting-line-1', ?, 1, 'acct-cash-drawer', 500, 0),
+             ('restore-accounting-line-2', ?, 2, 'acct-sales-revenue', 0, 500)
+    `).run(ledgerEntryId, ledgerEntryId);
+    getDatabase().prepare(`
+      UPDATE accounting_journal_entries
+      SET status = 'posted', posted_at = datetime('now')
+      WHERE id = ?
+    `).run(ledgerEntryId);
+
     const restored = restoreBackup(olderBackup, false);
     assert.equal(restored.success, true, 'foreign-key-linked data-only restore succeeds');
+    assert.equal(
+      (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE id = ?').get(ledgerEntryId) as { count: number }).count,
+      0,
+      'data-only restore can replace a posted accounting entry from an older backup',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE is_system = 1").get() as { count: number }).count >= 20,
+      true,
+      'data-only restore preserves the seeded system chart of accounts',
+    );
+    assert.throws(
+      () => getDatabase().prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
+      /system or posted accounting account definitions are immutable/i,
+      'data-only restore reinstates the hardened system-account identity guard',
+    );
+    assert.throws(
+      () => getDatabase().prepare("UPDATE accounting_accounts SET system_key = 'bank_key_reassigned' WHERE id = 'acct-bank'").run(),
+      /system or posted accounting account definitions are immutable/i,
+      'data-only restore reinstates the stable system-key guard',
+    );
+    assert.throws(
+      () => getDatabase().prepare("DELETE FROM accounting_accounts WHERE id = 'acct-bank'").run(),
+      /system accounting accounts cannot be deleted/i,
+      'data-only restore keeps system-account deletion protection',
+    );
+    for (const trigger of [
+      'accounting_bill_finalization_fields_immutable',
+      'accounting_finalized_bill_amounts_immutable',
+      'accounting_custom_payment_method_default_mapping',
+      'accounting_custom_payment_method_mapping_cleanup',
+    ]) {
+      assert.equal(
+        (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger) as { count: number }).count,
+        1,
+        'data-only restore reinstates Phase 3 trigger ' + trigger,
+      );
+    }
+    const postRestoreMethod = getDatabase().prepare(
+      'INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES (?, 1, 999, datetime(\'now\'), datetime(\'now\'))',
+    ).run('Restore Custom Accounting Method');
+    assert.equal(
+      (getDatabase().prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { account_id: string }).account_id,
+      'acct-payment-clearing',
+      'restored custom payment-method trigger creates the safe clearing mapping',
+    );
+    getDatabase().prepare('DELETE FROM payment_methods WHERE id=?').run(Number(postRestoreMethod.lastInsertRowid));
+    assert.equal(
+      (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { count: number }).count,
+      0,
+      'restored payment-method cleanup trigger deletes its mapping',
+    );
     assert.equal(
       (getDatabase().prepare('SELECT name FROM products WHERE id = ?').get('restore-product') as { name: string }).name,
       'Restore Product',

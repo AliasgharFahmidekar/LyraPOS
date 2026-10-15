@@ -66,8 +66,11 @@ function testCurrentWorkflows() {
     workflow_dispatch: null,
   });
   assert.equal(regression.jobs.test['runs-on'], 'ubuntu-latest');
-  assert.equal(regression.jobs.test.steps[1].with['node-version'], '22.13.0');
-  assert.equal(regression.jobs.test.steps.at(-1).run, 'xvfb-run -a npm test');
+  const regressionSteps = regression.jobs.test.steps;
+  assert.equal(regressionSteps.find((s: any) => s.name === 'Setup Node').with['node-version'], '22.13.0');
+  assert.equal(regressionSteps.find((s: any) => s.name === 'Run original test suite unchanged under virtual display').run, 'xvfb-run -a npm test');
+  assert.equal(regressionSteps.find((s: any) => s.name === 'Build application TypeScript').run, 'npm run build');
+  assert.equal(regressionSteps.find((s: any) => s.name === 'Lint backend and frontend').run, 'npm run lint');
 
   const windows = loadWorkflow('.github/workflows/lyrapos-windows.yml');
   assert.equal(windows.jobs['build-windows'].name, 'Build LyraPOS Windows');
