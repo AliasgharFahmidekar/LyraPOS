@@ -36,6 +36,41 @@ function throws(operation: () => unknown, expected: RegExp, message: string): vo
 function tableExists(db: any, table: string): boolean {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
 }
+
+function assertAccountingSeedAccounts(db: any, context: string): void {
+  const accounts = db.prepare(
+    'SELECT id, system_key, account_code, is_postable FROM accounting_accounts ORDER BY account_code',
+  ).all() as Array<{
+    id: string;
+    system_key: string | null;
+    account_code: string;
+    is_postable: number;
+  }>;
+  const requiredAccounts = [
+    { id: 'acct-assets', systemKey: 'assets', accountCode: '1000', isPostable: 0 },
+    { id: 'acct-cash-drawer', systemKey: 'cash_drawer', accountCode: '1010', isPostable: 1 },
+    { id: 'acct-bank', systemKey: 'bank_accounts', accountCode: '1020', isPostable: 1 },
+    { id: 'acct-payment-clearing', systemKey: 'payment_clearing', accountCode: '1030', isPostable: 1 },
+    { id: 'acct-sales-revenue', systemKey: 'sales_revenue', accountCode: '4010', isPostable: 1 },
+    { id: 'acct-sales-tax-payable', systemKey: 'sales_tax_payable', accountCode: '2040', isPostable: 1 },
+    { id: 'acct-sales-returns', systemKey: 'sales_returns', accountCode: '4040', isPostable: 1 },
+  ];
+
+  for (const required of requiredAccounts) {
+    const account = accounts.find((candidate) => candidate.id === required.id);
+    check(!!account, context + ': required system account is seeded: ' + required.id);
+    if (!account) continue;
+    equal(account.system_key, required.systemKey, context + ': stable system key for ' + required.id);
+    equal(account.account_code, required.accountCode, context + ': stable account code for ' + required.id);
+    equal(account.is_postable, required.isPostable, context + ': posting capability for ' + required.id);
+  }
+
+  equal(
+    new Set(accounts.map((account) => account.account_code)).size,
+    accounts.length,
+    context + ': account codes remain unique',
+  );
+}
 function runPendingMigrations(): void {
   const db = getDatabase();
   for (const migration of MIGRATIONS) {
@@ -81,11 +116,7 @@ function freshInstallChecks(): void {
     check(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger), 'fresh install creates ' + trigger);
   }
 
-  const accounts = db.prepare('SELECT id, account_code, is_postable FROM accounting_accounts ORDER BY account_code').all() as any[];
-  equal(accounts.length, 21, 'migration seeds the starter chart of accounts including the internal tax liability');
-  equal(new Set(accounts.map((account) => account.account_code)).size, accounts.length, 'starter account codes are unique');
-  check(accounts.some((account) => account.id === 'acct-cash-drawer' && account.is_postable === 1), 'cash drawer is a postable account');
-  check(accounts.some((account) => account.id === 'acct-assets' && account.is_postable === 0), 'group account is not postable');
+  assertAccountingSeedAccounts(db, 'fresh install');
 
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
@@ -347,7 +378,7 @@ function upgradeFromPreviousSchemaChecks(): void {
     'existing-value',
     'upgrade preserves existing user settings',
   );
-  equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_accounts').get() as any).count, 21, 'upgrade seeds accounts including the monetary sales-returns contra-revenue account');
+  assertAccountingSeedAccounts(db, 'schema v99 to v105 upgrade');
   equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'upgraded database passes integrity_check');
 
   closeDatabase();
@@ -392,11 +423,7 @@ function upgradeFromVersion100Checks(): void {
     /system accounting accounts cannot be deleted/i,
     'v100 upgrade keeps system-account deletion protection',
   );
-  equal(
-    (db.prepare('SELECT COUNT(*) AS count FROM accounting_accounts').get() as any).count,
-    21,
-    'v100 upgrade through v105 preserves all seeded accounts including sales returns',
-  );
+  assertAccountingSeedAccounts(db, 'schema v100 to v105 upgrade');
 
   closeDatabase();
   fs.rmSync(activeTestDir, { recursive: true, force: true });
@@ -424,6 +451,7 @@ function upgradeFromVersion102Checks(): void {
   runPendingMigrations();
   db = getDatabase();
   equal(getCurrentSchemaVersion(), 105, 'v102 database upgrades to schema version 105');
+  assertAccountingSeedAccounts(db, 'schema v102 to v105 upgrade');
   const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key,reversal_journal_entry_id,reversal_reason FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
   equal(preserved.id, 'expense-v102-preserve', 'upgrade preserves existing expense records');
   equal(preserved.amount_minor, 2500, 'upgrade preserves existing expense amount');
@@ -463,6 +491,7 @@ function upgradeFromVersion101Checks(): void {
   runPendingMigrations();
   db = getDatabase();
   equal(getCurrentSchemaVersion(), 105, 'v101 database upgrades through schema version 105');
+  assertAccountingSeedAccounts(db, 'schema v101 to v105 upgrade');
   check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
   check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
   check(tableExists(db, 'accounting_expenses'), 'expense migration creates expenses');
