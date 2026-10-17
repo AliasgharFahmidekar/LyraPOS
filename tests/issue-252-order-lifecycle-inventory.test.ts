@@ -9,7 +9,7 @@
  * 5. Whole-order cancellation excludes voided items and void_adjustment rows from restocking in multi-item orders.
  * 6. Pending item in a preparing order follows pending cancellation/restock contract (not voided).
  * 7. Item cancellation & restoration are idempotent and state-conditional.
- * 8. Repeated void cancellation is idempotent and insufficient-stock restore is atomic.
+ * 8. Repeated void cancellation is idempotent and restore at zero stock records a negative balance.
  * 9. Auto-cancellation and concurrent whole-order cancellation do not double-restock inventory.
  *
  * Usage: node tests/run-electron-node-test.cjs tests/issue-252-order-lifecycle-inventory.test.ts
@@ -688,26 +688,37 @@ async function main() {
     const stockBeforeInsufficientRestore = db.prepare('SELECT stock_quantity FROM products WHERE id = ?').get('prod-track-1').stock_quantity;
     db.prepare('UPDATE products SET stock_quantity = 0 WHERE id = ?').run('prod-track-1');
 
-    const insufficientRestore = await api(baseUrl, `/api/orders/${insufficientOrderId}/items/${insufficientItemId}/restore`, {
+    const restoreAtZero = await api(baseUrl, `/api/orders/${insufficientOrderId}/items/${insufficientItemId}/restore`, {
       method: 'PATCH',
       headers: authHeader,
       body: {},
     });
-    assertEqual(insufficientRestore.status, 400, 'restore rejects when tracked stock is insufficient');
+    assertEqual(restoreAtZero.status, 200, 'restoring a cancelled item succeeds even when tracked stock is zero');
     assertEqual(
       db.prepare('SELECT status FROM order_items WHERE id = ?').get(insufficientItemId).status,
-      'cancelled',
-      'insufficient-stock restore leaves the item cancelled',
+      'pending',
+      'restoring the item returns it to an active order-item state',
     );
     assertEqual(
       db.prepare('SELECT stock_quantity FROM products WHERE id = ?').get('prod-track-1').stock_quantity,
-      0,
-      'insufficient-stock restore leaves stock unchanged',
+      -1,
+      'restoring the item from zero stock records negative inventory',
     );
     assertEqual(
       db.prepare('SELECT status FROM orders WHERE id = ?').get(insufficientOrderId).status,
       'pending',
-      'insufficient-stock restore leaves the parent order active',
+      'restoring the item keeps its parent order active',
+    );
+    const restoreAtZeroAgain = await api(baseUrl, `/api/orders/${insufficientOrderId}/items/${insufficientItemId}/restore`, {
+      method: 'PATCH',
+      headers: authHeader,
+      body: {},
+    });
+    assertEqual(restoreAtZeroAgain.status, 200, 'repeated restore of an active item remains idempotent');
+    assertEqual(
+      db.prepare('SELECT stock_quantity FROM products WHERE id = ?').get('prod-track-1').stock_quantity,
+      -1,
+      'repeated restore at negative stock does not deduct a second time',
     );
     db.prepare('UPDATE products SET stock_quantity = ? WHERE id = ?').run(stockBeforeInsufficientRestore, 'prod-track-1');
 

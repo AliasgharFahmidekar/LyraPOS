@@ -380,7 +380,15 @@
     "saveFailed": "Kaydedilemedi",
     "deleteFailed": "Silinemedi",
     "confirmDeleteSupply": "{name} sarf malzemesi silinsin mi? Hareket geçmişi korunacak.",
-    "confirmDeleteRecipe": "{name} için tarif silinsin mi?"
+    "confirmDeleteRecipe": "{name} için tarif silinsin mi?",
+    "allProducts": "Tüm ürünler",
+    "increaseStock": "Stoğu artır",
+    "decreaseStock": "Stoğu azalt",
+    "setStock": "Stoğu belirle",
+    "saleMovement": "Satış",
+    "cancelRestoreMovement": "Stok geri yüklendi",
+    "outOfStock": "Stokta yok",
+    "emptyProducts": "Ürün bulunamadı"
   },
   "kds": {
     "addonsLabel": "Eklentiler",
@@ -753,6 +761,7 @@
     "phone": "Telefon",
     "placeOrderButton": "Siparişi Ver",
     "placeOrderFailed": "Sipariş verilemedi",
+    "stockShortageWarning": "Bazı ürünlerin stoğu bitmiş veya istenen miktar için yetersiz. Satışa devam edebilirsiniz.",
     "placeOrderReady": "Hazır olduğunda siparişi verin.",
     "placing": "Veriliyor...",
     "pointsApproxValue": "{count} puan (≈ {value})",

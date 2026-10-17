@@ -380,7 +380,15 @@
     "saveFailed": "Gagal menyimpan",
     "deleteFailed": "Gagal menghapus",
     "confirmDeleteSupply": "Hapus persediaan {name}? Riwayat pergerakannya akan disimpan.",
-    "confirmDeleteRecipe": "Hapus resep untuk {name}?"
+    "confirmDeleteRecipe": "Hapus resep untuk {name}?",
+    "allProducts": "Semua produk",
+    "increaseStock": "Tambah stok",
+    "decreaseStock": "Kurangi stok",
+    "setStock": "Atur stok",
+    "saleMovement": "Penjualan",
+    "cancelRestoreMovement": "Stok dipulihkan",
+    "outOfStock": "Stok habis",
+    "emptyProducts": "Produk tidak ditemukan"
   },
   "kds": {
     "addonsLabel": "Tambahan",
@@ -754,6 +762,7 @@
     "phone": "Telepon",
     "placeOrderButton": "Buat Pesanan",
     "placeOrderFailed": "Gagal membuat pesanan",
+    "stockShortageWarning": "Beberapa produk kehabisan stok atau stoknya tidak cukup untuk jumlah yang diminta. Penjualan tetap dapat dilanjutkan.",
     "placeOrderReady": "Buat pesanan bila siap.",
     "placing": "Membuat...",
     "pointsApproxValue": "{count} poin (≈ {value})",

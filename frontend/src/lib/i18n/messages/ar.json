@@ -380,7 +380,15 @@
     "saveFailed": "فشل الحفظ",
     "deleteFailed": "فشل الحذف",
     "confirmDeleteSupply": "هل تريد حذف المادة {name}؟ سيتم الاحتفاظ بسجل تحركاتها.",
-    "confirmDeleteRecipe": "هل تريد حذف الوصفة الخاصة بـ {name}؟"
+    "confirmDeleteRecipe": "هل تريد حذف الوصفة الخاصة بـ {name}؟",
+    "allProducts": "جميع المنتجات",
+    "increaseStock": "زيادة المخزون",
+    "decreaseStock": "تقليل المخزون",
+    "setStock": "تحديد المخزون",
+    "saleMovement": "بيع",
+    "cancelRestoreMovement": "تمت استعادة المخزون",
+    "outOfStock": "نفد المخزون",
+    "emptyProducts": "لم يتم العثور على منتجات"
   },
   "kds": {
     "addonsLabel": "الإضافات",
@@ -753,6 +761,7 @@
     "phone": "الهاتف",
     "placeOrderButton": "تقديم الطلب",
     "placeOrderFailed": "فشل تنفيذ الطلب",
+    "stockShortageWarning": "بعض المنتجات نفدت أو أن مخزونها لا يكفي الكمية المطلوبة. يمكنك متابعة البيع.",
     "placeOrderReady": "قم بتقديم الطلب عندما تكون جاهزًا.",
     "placing": "جاري التحميل...",
     "pointsApproxValue": "{count} نقطة (≈ {value})",

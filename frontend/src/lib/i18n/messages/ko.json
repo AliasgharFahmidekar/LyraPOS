@@ -380,7 +380,15 @@
     "saveFailed": "저장하지 못했습니다",
     "deleteFailed": "삭제하지 못했습니다",
     "confirmDeleteSupply": "재고 품목 {name}을(를) 삭제할까요? 변동 기록은 유지됩니다.",
-    "confirmDeleteRecipe": "{name}의 레시피를 삭제할까요?"
+    "confirmDeleteRecipe": "{name}의 레시피를 삭제할까요?",
+    "allProducts": "모든 제품",
+    "increaseStock": "재고 늘리기",
+    "decreaseStock": "재고 줄이기",
+    "setStock": "재고 설정",
+    "saleMovement": "판매",
+    "cancelRestoreMovement": "재고 복원",
+    "outOfStock": "재고 없음",
+    "emptyProducts": "제품을 찾을 수 없습니다"
   },
   "kds": {
     "addonsLabel": "추가 메뉴",
@@ -753,6 +761,7 @@
     "phone": "전화",
     "placeOrderButton": "주문하기",
     "placeOrderFailed": "주문 접수에 실패했습니다",
+    "stockShortageWarning": "일부 상품의 재고가 없거나 요청한 수량에 부족합니다. 판매를 계속할 수 있습니다.",
     "placeOrderReady": "준비되면 주문하세요.",
     "placing": "주문 중...",
     "pointsApproxValue": "{count} 포인트 (≈ {value})",
