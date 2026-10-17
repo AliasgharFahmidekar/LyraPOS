@@ -761,6 +761,7 @@
     "phone": "전화",
     "placeOrderButton": "주문하기",
     "placeOrderFailed": "주문 접수에 실패했습니다",
+    "stockShortageWarning": "일부 상품의 재고가 없거나 요청한 수량에 부족합니다. 판매를 계속할 수 있습니다.",
     "placeOrderReady": "준비되면 주문하세요.",
     "placing": "주문 중...",
     "pointsApproxValue": "{count} 포인트 (≈ {value})",
