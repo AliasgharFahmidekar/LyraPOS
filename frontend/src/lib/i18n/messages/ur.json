@@ -380,7 +380,15 @@
     "saveFailed": "محفوظ نہیں ہو سکا",
     "deleteFailed": "حذف نہیں ہو سکا",
     "confirmDeleteSupply": "سامان {name} حذف کریں؟ اس کی حرکت کی تاریخ محفوظ رہے گی۔",
-    "confirmDeleteRecipe": "{name} کی ترکیب حذف کریں؟"
+    "confirmDeleteRecipe": "{name} کی ترکیب حذف کریں؟",
+    "allProducts": "تمام مصنوعات",
+    "increaseStock": "اسٹاک بڑھائیں",
+    "decreaseStock": "اسٹاک کم کریں",
+    "setStock": "اسٹاک مقرر کریں",
+    "saleMovement": "فروخت",
+    "cancelRestoreMovement": "اسٹاک بحال کیا گیا",
+    "outOfStock": "اسٹاک ختم",
+    "emptyProducts": "کوئی مصنوعات نہیں ملیں"
   },
   "kds": {
     "addonsLabel": "ایڈ آنز",
