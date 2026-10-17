@@ -762,6 +762,7 @@
     "phone": "Telepon",
     "placeOrderButton": "Buat Pesanan",
     "placeOrderFailed": "Gagal membuat pesanan",
+    "stockShortageWarning": "Beberapa produk kehabisan stok atau stoknya tidak cukup untuk jumlah yang diminta. Penjualan tetap dapat dilanjutkan.",
     "placeOrderReady": "Buat pesanan bila siap.",
     "placing": "Membuat...",
     "pointsApproxValue": "{count} poin (≈ {value})",
