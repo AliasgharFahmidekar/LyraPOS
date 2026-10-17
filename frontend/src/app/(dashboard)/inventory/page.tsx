@@ -106,7 +106,7 @@ export default function InventoryPage() {
   const catalogProducts = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return products.filter((product) => {
-      if (!includeInactive && !product.is_active) return false;
+      if (!includeInactive && (!product.is_active || (product.category && !product.category.is_active))) return false;
       if (!query) return true;
       return [product.name, product.sku, product.barcode]
         .some((value) => typeof value === 'string' && value.toLocaleLowerCase().includes(query));
