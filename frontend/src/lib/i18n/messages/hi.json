@@ -380,7 +380,15 @@
     "saveFailed": "सहेजने में विफल",
     "deleteFailed": "हटाने में विफल",
     "confirmDeleteSupply": "आपूर्ति {name} हटाएं? इसके मूवमेंट का इतिहास रखा जाएगा।",
-    "confirmDeleteRecipe": "{name} के लिए नुस्खा हटाएं?"
+    "confirmDeleteRecipe": "{name} के लिए नुस्खा हटाएं?",
+    "allProducts": "सभी उत्पाद",
+    "increaseStock": "स्टॉक बढ़ाएँ",
+    "decreaseStock": "स्टॉक घटाएँ",
+    "setStock": "स्टॉक निर्धारित करें",
+    "saleMovement": "बिक्री",
+    "cancelRestoreMovement": "स्टॉक बहाल किया गया",
+    "outOfStock": "स्टॉक समाप्त",
+    "emptyProducts": "कोई उत्पाद नहीं मिला"
   },
   "kds": {
     "addonsLabel": "ऐड-ऑन",
