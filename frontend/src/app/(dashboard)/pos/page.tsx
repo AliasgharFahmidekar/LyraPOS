@@ -587,7 +587,7 @@ export default function POSPage() {
   }, !anyModalOpen);
 
   const warnAboutCartStockShortage = () => {
-    const productsById = new Map(products.map((product) => [String(product.id), product]));
+    const productsById = new Map<string, Product>(products.map((product) => [String(product.id), product] as const));
     const requiredByInventoryProduct = new Map<string, { required: number; available: number }>();
 
     for (const item of cart.items) {
