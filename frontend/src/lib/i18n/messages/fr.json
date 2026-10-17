@@ -380,7 +380,15 @@
     "saveFailed": "Échec de l’enregistrement",
     "deleteFailed": "Échec de la suppression",
     "confirmDeleteSupply": "Supprimer l’approvisionnement {name} ? Son historique des mouvements sera conservé.",
-    "confirmDeleteRecipe": "Supprimer la recette de {name} ?"
+    "confirmDeleteRecipe": "Supprimer la recette de {name} ?",
+    "allProducts": "Tous les produits",
+    "increaseStock": "Augmenter le stock",
+    "decreaseStock": "Diminuer le stock",
+    "setStock": "Définir le stock",
+    "saleMovement": "Vente",
+    "cancelRestoreMovement": "Stock restauré",
+    "outOfStock": "Rupture de stock",
+    "emptyProducts": "Aucun produit trouvé"
   },
   "kds": {
     "addonsLabel": "Options",
