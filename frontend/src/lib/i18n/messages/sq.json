@@ -380,7 +380,15 @@
     "saveFailed": "Ruajtja dështoi",
     "deleteFailed": "Fshirja dështoi",
     "confirmDeleteSupply": "Të fshihet materiali {name}? Historiku i lëvizjeve do të ruhet.",
-    "confirmDeleteRecipe": "Të fshihet receta për {name}?"
+    "confirmDeleteRecipe": "Të fshihet receta për {name}?",
+    "allProducts": "Të gjitha produktet",
+    "increaseStock": "Rrit stokun",
+    "decreaseStock": "Ul stokun",
+    "setStock": "Vendos stokun",
+    "saleMovement": "Shitje",
+    "cancelRestoreMovement": "Stoku u rikthye",
+    "outOfStock": "Pa stok",
+    "emptyProducts": "Nuk u gjet asnjë produkt"
   },
   "kds": {
     "addonsLabel": "Shtesat",
