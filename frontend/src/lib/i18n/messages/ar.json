@@ -761,6 +761,7 @@
     "phone": "الهاتف",
     "placeOrderButton": "تقديم الطلب",
     "placeOrderFailed": "فشل تنفيذ الطلب",
+    "stockShortageWarning": "بعض المنتجات نفدت أو أن مخزونها لا يكفي الكمية المطلوبة. يمكنك متابعة البيع.",
     "placeOrderReady": "قم بتقديم الطلب عندما تكون جاهزًا.",
     "placing": "جاري التحميل...",
     "pointsApproxValue": "{count} نقطة (≈ {value})",
