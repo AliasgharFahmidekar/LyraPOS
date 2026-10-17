@@ -761,6 +761,7 @@
     "phone": "電話",
     "placeOrderButton": "下單",
     "placeOrderFailed": "下單失敗",
+    "stockShortageWarning": "部分商品已缺貨或庫存不足以滿足所需數量。您仍可繼續銷售。",
     "placeOrderReady": "準備好後即可下單。",
     "placing": "下單中…",
     "pointsApproxValue": "{count} 分（≈ {value}）",
