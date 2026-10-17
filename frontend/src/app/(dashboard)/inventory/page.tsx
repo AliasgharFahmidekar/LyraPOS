@@ -195,11 +195,16 @@ export default function InventoryPage() {
     }
   };
 
-  const movementLabel = (movementType: string): string => {
-    if (movementType === 'sale') return t('saleMovement');
-    if (movementType === 'cancel_restore') return t('cancelRestoreMovement');
-    if (movementType === 'adjustment') return t('adjustment');
-    return movementType;
+  const movementLabel = (movement: ProductMovement): string => {
+    if (movement.movement_type === 'sale') return t('saleMovement');
+    if (movement.movement_type === 'cancel_restore') return t('cancelRestoreMovement');
+    if (movement.movement_type === 'adjustment' && movement.reference_type === 'manual_adjustment') {
+      if (movement.reference_id?.endsWith(':increase')) return t('increaseStock');
+      if (movement.reference_id?.endsWith(':decrease')) return t('decreaseStock');
+      if (movement.reference_id?.endsWith(':set')) return t('setStock');
+    }
+    if (movement.movement_type === 'adjustment') return t('adjustment');
+    return movement.movement_type;
   };
 
   if (!canManage) {
@@ -364,7 +369,7 @@ export default function InventoryPage() {
                         <td className="p-4 text-center text-sm">
                           <span className="inline-flex items-center gap-1.5">
                             <Icon size={14} className="text-muted-foreground" />
-                            {movementLabel(movement.movement_type)}
+                            {movementLabel(movement)}
                           </span>
                         </td>
                         <td className={'whitespace-nowrap p-4 text-end text-sm font-medium ' + (delta < 0 ? 'text-red-600' : 'text-emerald-600')}>
