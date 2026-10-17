@@ -761,6 +761,7 @@
     "phone": "電話番号",
     "placeOrderButton": "注文を確定",
     "placeOrderFailed": "注文に失敗しました",
+    "stockShortageWarning": "在庫切れ、または要求数量に対して在庫が不足している商品があります。販売を続行できます。",
     "placeOrderReady": "準備ができたら注文してください。",
     "placing": "注文中…",
     "pointsApproxValue": "{count}pt（約{value}）",
