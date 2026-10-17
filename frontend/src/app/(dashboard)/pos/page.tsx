@@ -586,6 +586,40 @@ export default function POSPage() {
     }
   }, !anyModalOpen);
 
+  const warnAboutCartStockShortage = () => {
+    const productsById = new Map(products.map((product) => [String(product.id), product]));
+    const requiredByInventoryProduct = new Map<string, { required: number; available: number }>();
+
+    for (const item of cart.items) {
+      const product = item.product;
+      const linkedInventoryProductId = product.inventory_product_id;
+      if (!linkedInventoryProductId && !product.track_inventory) continue;
+
+      const inventoryProductId = String(linkedInventoryProductId || product.id);
+      const inventoryProduct = productsById.get(inventoryProductId)
+        || (String(product.id) === inventoryProductId ? product : undefined);
+      if (!inventoryProduct) continue;
+
+      const deductionFactor = linkedInventoryProductId
+        ? Number(product.inventory_deduction_quantity ?? 1)
+        : 1;
+      const requiredQuantity = Number(item.quantity) * deductionFactor;
+      if (!Number.isFinite(requiredQuantity) || requiredQuantity <= 0) continue;
+
+      const previous = requiredByInventoryProduct.get(inventoryProductId);
+      requiredByInventoryProduct.set(inventoryProductId, {
+        required: (previous?.required ?? 0) + requiredQuantity,
+        available: previous?.available ?? Number(inventoryProduct.stock_quantity ?? 0),
+      });
+    }
+
+    const hasShortage = [...requiredByInventoryProduct.values()]
+      .some(({ required, available }) => available < required);
+    if (hasShortage) {
+      toast(t('stockShortageWarning'), { duration: 6000, icon: '⚠️' });
+    }
+  };
+
   const handlePlaceOrder = async () => {
     if (cart.items.length === 0) {
       toast.error(t('cartEmpty'));
@@ -605,6 +639,9 @@ export default function POSPage() {
       setShowPrepaidCheckout(true);
       return;
     }
+
+    // Inform the cashier about a shortage, but never block the sale.
+    warnAboutCartStockShortage();
 
     // Postpaid store / unpaid order → place order, kitchen gets the ticket, payment collected later
     setSubmitting(true);
@@ -709,6 +746,8 @@ export default function POSPage() {
   const handlePrepaidCheckout = async (payments: PrepaidPayment[], walletAmount: number, discount: PrepaidDiscount | null) => {
     const isPrepaidCheckout = shouldTakePaymentNow;
     setShowPrepaidCheckout(false);
+    // Inform the cashier about a shortage, but never block the sale.
+    warnAboutCartStockShortage();
     setSubmitting(true);
     const orderItems = cart.items.map((item) => ({
       product_id: item.product.id,
