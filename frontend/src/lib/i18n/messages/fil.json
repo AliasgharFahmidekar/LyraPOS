@@ -380,7 +380,15 @@
     "saveFailed": "Hindi na-save",
     "deleteFailed": "Hindi na-delete",
     "confirmDeleteSupply": "I-delete ang supply {name}? Mapapanatili ang kasaysayan ng mga galaw nito.",
-    "confirmDeleteRecipe": "I-delete ang recipe para sa {name}?"
+    "confirmDeleteRecipe": "I-delete ang recipe para sa {name}?",
+    "allProducts": "Lahat ng produkto",
+    "increaseStock": "Dagdagan ang stock",
+    "decreaseStock": "Bawasan ang stock",
+    "setStock": "Itakda ang stock",
+    "saleMovement": "Benta",
+    "cancelRestoreMovement": "Naibalik ang stock",
+    "outOfStock": "Ubos na ang stock",
+    "emptyProducts": "Walang nahanap na produkto"
   },
   "kds": {
     "addonsLabel": "Mga Addon",
