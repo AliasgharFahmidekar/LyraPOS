@@ -66,6 +66,15 @@ export default function ProductGrid({
     return quantities;
   }, [cart.items]);
 
+  const productsById = useMemo(
+    () => new Map(products.map((product) => [String(product.id), product])),
+    [products],
+  );
+  const inventoryTargetIds = useMemo(
+    () => new Set(products.flatMap((product) => product.inventory_product_id ? [String(product.inventory_product_id)] : [])),
+    [products],
+  );
+
   const filtered = products.filter((p) => {
     const matchCat = !selectedCategory || p.category_id === selectedCategory;
     const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
@@ -139,6 +148,14 @@ export default function ProductGrid({
         }`}>
           {filtered.map((product) => {
             const inCartQty = cartQuantities.get(product.id) || 0;
+            const inventoryProduct = product.inventory_product_id
+              ? productsById.get(String(product.inventory_product_id))
+              : product;
+            const stockManaged = product.inventory_product_id
+              ? Boolean(inventoryProduct)
+              : Boolean(product.track_inventory || inventoryTargetIds.has(String(product.id)));
+            const stockQuantity = Number(inventoryProduct?.stock_quantity ?? product.stock_quantity ?? 0);
+            const lowStockThreshold = Number(inventoryProduct?.low_stock_threshold ?? product.low_stock_threshold ?? 0);
             
 
             return (
@@ -149,13 +166,13 @@ export default function ProductGrid({
                 onClick={() => onProductClick(product)}
                 className="min-h-36 bg-card rounded-xl p-2.5 border border-border hover:border-brand/40 active:border-brand active:bg-muted/40 hover:shadow-md transition-all text-start relative cursor-pointer overflow-hidden touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
               >
-                {!!product.track_inventory && (
+                {stockManaged && (
                   <>
-                    {product.stock_quantity <= 0 ? (
+                    {stockQuantity <= 0 ? (
                       <span className="absolute top-2 start-2 bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-[10px] font-bold px-2 py-0.5 rounded-full z-10 shadow-sm border border-red-200 dark:border-red-800/40 pointer-events-none">
                         {t('outOfStock')}
                       </span>
-                    ) : product.stock_quantity <= (product.low_stock_threshold || 0) ? (
+                    ) : stockQuantity <= lowStockThreshold ? (
                       <span className="absolute top-2 start-2 bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 text-[10px] font-bold px-2 py-0.5 rounded-full z-10 shadow-sm border border-orange-200 dark:border-orange-800/40 pointer-events-none">
                         {t('lowStock')}
                       </span>
