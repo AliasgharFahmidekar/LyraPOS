@@ -761,6 +761,7 @@
     "phone": "Telefono",
     "placeOrderButton": "Effettua ordine",
     "placeOrderFailed": "Effettuazione dell'ordine non riuscita",
+    "stockShortageWarning": "Alcuni prodotti sono esauriti o le scorte non bastano per la quantità richiesta. Puoi continuare la vendita.",
     "placeOrderReady": "Effettua l'ordine quando sei pronto.",
     "placing": "Invio in corso...",
     "pointsApproxValue": "{count} pt (≈ {value})",
