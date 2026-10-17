@@ -53,6 +53,20 @@ function isProductStockManaged(product: Product, inventoryTargets: Set<string>):
   return product.track_inventory || inventoryTargets.has(product.id);
 }
 
+function saleUnitTranslationKey(unit: Product['sale_unit']): 'saleUnitEach' | 'saleUnitKg' | 'saleUnitG' | 'saleUnitLb' | 'saleUnitMl' | 'saleUnitCl' | 'saleUnitL' | 'saleUnitFlOz' | 'saleUnitOz' {
+  switch (unit) {
+    case 'kg': return 'saleUnitKg';
+    case 'g': return 'saleUnitG';
+    case 'lb': return 'saleUnitLb';
+    case 'ml': return 'saleUnitMl';
+    case 'cl': return 'saleUnitCl';
+    case 'l': return 'saleUnitL';
+    case 'fl oz': return 'saleUnitFlOz';
+    case 'oz': return 'saleUnitOz';
+    default: return 'saleUnitEach';
+  }
+}
+
 const movementTypeIcons = {
   sale: PackageMinus,
   cancel_restore: ArrowUpCircle,
@@ -166,7 +180,6 @@ export default function InventoryPage() {
       toast.success(tCommon('save'));
       setSelectedProduct(null);
       refreshProducts();
-      if (tab === 'movements') await loadMovements(null);
     } catch (error: unknown) {
       toast.error(getApiErrorMessage(error) || t('saveFailed'));
     } finally {
@@ -241,7 +254,6 @@ export default function InventoryPage() {
                     <th className="p-4 text-end text-xs font-medium uppercase text-muted-foreground">{tProducts('fieldStock')}</th>
                     <th className="p-4 text-end text-xs font-medium uppercase text-muted-foreground">{tProducts('fieldLowStockThreshold')}</th>
                     <th className="p-4 text-center text-xs font-medium uppercase text-muted-foreground">{tProducts('fieldTrackInventory')}</th>
-                    <th className="p-4 text-center text-xs font-medium uppercase text-muted-foreground">{t('movementType')}</th>
                     <th className="p-4 text-center text-xs font-medium uppercase text-muted-foreground">{t('actions')}</th>
                   </tr>
                 </thead>
@@ -250,7 +262,7 @@ export default function InventoryPage() {
                     const stock = Number(product.stock_quantity ?? 0);
                     const threshold = product.low_stock_threshold === null ? null : Number(product.low_stock_threshold);
                     const stockManaged = isProductStockManaged(product, inventoryTargets);
-                    const isOutOfStock = stock <= 0;
+                    const isOutOfStock = stockManaged && stock <= 0;
                     const isLowStock = stockManaged && !isOutOfStock && threshold !== null && stock <= threshold;
 
                     return (
@@ -263,7 +275,7 @@ export default function InventoryPage() {
                           </div>
                         </td>
                         <td className={'whitespace-nowrap p-4 text-end text-sm font-semibold ' + (stock < 0 ? 'text-red-600' : 'text-foreground')}>
-                          {fmtNum(stock)} {tProducts(('saleUnit' + (product.sale_unit || 'each').replace(/(^|-| )(.)/g, (match) => match.trim().toUpperCase()).replace(/[^A-Za-z]/g, '')) as never)}
+                          {fmtNum(stock)} {tProducts(saleUnitTranslationKey(product.sale_unit || 'each'))}
                           {isOutOfStock && (
                             <Badge variant="destructive" className="ms-2">
                               {t('outOfStock')}
@@ -283,13 +295,8 @@ export default function InventoryPage() {
                             {stockManaged ? tCommon('active') : tCommon('inactive')}
                           </Badge>
                         </td>
-                        <td className="p-4 text-center text-sm text-muted-foreground">
-                          {product.inventory_product_id
-                            ? tProducts('fieldInventoryProduct')
-                            : stockManaged ? '—' : tCommon('inactive')}
-                        </td>
                         <td className="p-4 text-center">
-                          <Button variant="outline" size="sm" onClick={() => openStockAdjustment(product)}>
+                          <Button variant="outline" size="sm" disabled={!stockManaged} onClick={() => openStockAdjustment(product)} title={!stockManaged ? tProducts('fieldTrackInventory') : t('recordMovement')}>
                             <Edit size={14} className="me-1" />
                             {t('recordMovement')}
                           </Button>
