@@ -761,6 +761,7 @@
     "phone": "Téléphone",
     "placeOrderButton": "Passer la commande",
     "placeOrderFailed": "Impossible de passer la commande",
+    "stockShortageWarning": "Certains produits sont épuisés ou les stocks sont insuffisants pour la quantité demandée. Vous pouvez poursuivre la vente.",
     "placeOrderReady": "Passez la commande lorsque vous êtes prêt.",
     "placing": "Envoi...",
     "pointsApproxValue": "{count} pts (≈ {value})",
