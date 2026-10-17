@@ -380,7 +380,15 @@
     "saveFailed": "Salvataggio non riuscito",
     "deleteFailed": "Eliminazione non riuscita",
     "confirmDeleteSupply": "Eliminare la scorta {name}? La cronologia dei movimenti verrà conservata.",
-    "confirmDeleteRecipe": "Eliminare la ricetta di {name}?"
+    "confirmDeleteRecipe": "Eliminare la ricetta di {name}?",
+    "allProducts": "Tutti i prodotti",
+    "increaseStock": "Aumenta le scorte",
+    "decreaseStock": "Riduci le scorte",
+    "setStock": "Imposta le scorte",
+    "saleMovement": "Vendita",
+    "cancelRestoreMovement": "Scorte ripristinate",
+    "outOfStock": "Esaurito",
+    "emptyProducts": "Nessun prodotto trovato"
   },
   "kds": {
     "addonsLabel": "Extra",
