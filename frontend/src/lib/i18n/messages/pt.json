@@ -380,7 +380,15 @@
     "saveFailed": "Falha ao salvar",
     "deleteFailed": "Falha ao excluir",
     "confirmDeleteSupply": "Excluir o insumo {name}? O histórico de movimentações será mantido.",
-    "confirmDeleteRecipe": "Excluir a receita de {name}?"
+    "confirmDeleteRecipe": "Excluir a receita de {name}?",
+    "allProducts": "Todos os produtos",
+    "increaseStock": "Aumentar estoque",
+    "decreaseStock": "Diminuir estoque",
+    "setStock": "Definir estoque",
+    "saleMovement": "Venda",
+    "cancelRestoreMovement": "Estoque restaurado",
+    "outOfStock": "Sem estoque",
+    "emptyProducts": "Nenhum produto encontrado"
   },
   "kds": {
     "addonsLabel": "Adicionais",
