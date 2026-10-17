@@ -380,7 +380,15 @@
     "saveFailed": "Kan niet opslaan",
     "deleteFailed": "Kan niet verwijderen",
     "confirmDeleteSupply": "Voorraadartikel {name} verwijderen? De mutatiegeschiedenis blijft behouden.",
-    "confirmDeleteRecipe": "Het recept voor {name} verwijderen?"
+    "confirmDeleteRecipe": "Het recept voor {name} verwijderen?",
+    "allProducts": "Alle producten",
+    "increaseStock": "Voorraad verhogen",
+    "decreaseStock": "Voorraad verlagen",
+    "setStock": "Voorraad instellen",
+    "saleMovement": "Verkoop",
+    "cancelRestoreMovement": "Voorraad hersteld",
+    "outOfStock": "Niet op voorraad",
+    "emptyProducts": "Geen producten gevonden"
   },
   "kds": {
     "addonsLabel": "Add-ons",
