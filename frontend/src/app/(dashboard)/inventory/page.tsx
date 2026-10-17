@@ -103,31 +103,39 @@ export default function InventoryPage() {
     [products],
   );
 
+  const catalogProducts = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return products.filter((product) => {
+      if (!includeInactive && !product.is_active) return false;
+      if (!query) return true;
+      return [product.name, product.sku, product.barcode]
+        .some((value) => typeof value === 'string' && value.toLocaleLowerCase().includes(query));
+    });
+  }, [products, includeInactive, search]);
+
   const visibleProducts = useMemo(() => {
-    if (!lowStockOnly) return products;
-    return products.filter((product) =>
+    if (!lowStockOnly) return catalogProducts;
+    return catalogProducts.filter((product) =>
       isProductStockManaged(product, inventoryTargets)
       && Number(product.stock_quantity ?? 0) <= Number(product.low_stock_threshold ?? 0),
     );
-  }, [products, lowStockOnly, inventoryTargets]);
+  }, [catalogProducts, lowStockOnly, inventoryTargets]);
 
   const refreshProducts = useCallback(() => setRefreshKey((value) => value + 1), []);
 
   useEffect(() => {
     if (!canManage) return;
     const controller = new AbortController();
-    const params: Record<string, string> = {};
-    if (search.trim()) params.search = search.trim();
-    if (!includeInactive) params.active = 'true';
-
-    api.get('/products', { params, signal: controller.signal })
+    // Load the full catalog so inventory-product links remain resolvable even
+    // when a linked source product is hidden by the current search/active filter.
+    api.get('/products', { signal: controller.signal })
       .then(({ data }) => setProducts(Array.isArray(data.products) ? data.products : []))
       .catch((error: unknown) => {
         if (!isRequestCancelled(error)) toast.error(t('loadFailed'));
       });
 
     return () => controller.abort();
-  }, [canManage, includeInactive, refreshKey, search, t]);
+  }, [canManage, refreshKey, t]);
 
   const loadMovements = useCallback(async (cursor?: number | null, signal?: AbortSignal) => {
     try {
@@ -212,7 +220,7 @@ export default function InventoryPage() {
         </div>
         {tab === 'products' && (
           <span className="text-sm text-muted-foreground">
-            {fmtNum(visibleProducts.length)} / {fmtNum(products.length)}
+            {fmtNum(visibleProducts.length)} / {fmtNum(catalogProducts.length)}
           </span>
         )}
       </div>
