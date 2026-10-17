@@ -67,7 +67,7 @@ export default function ProductGrid({
   }, [cart.items]);
 
   const productsById = useMemo(
-    () => new Map(products.map((product) => [String(product.id), product])),
+    () => new Map<string, Product>(products.map((product) => [String(product.id), product] as const)),
     [products],
   );
   const inventoryTargetIds = useMemo(
