@@ -263,7 +263,7 @@ async function main() {
     });
     assert(missingItemsQueued, 'order.create.failed is enqueued for missing-item validation');
 
-    console.log('\n7. order.create.failed: insufficient-stock rejection is enqueued (order still 400)');
+    console.log('\n7. stock shortage no longer rejects a sale or emits an inventory-validation failure');
     const stockRes = await api(baseUrl, '/api/orders', {
       method: 'POST',
       headers: owner.authHeader,
@@ -273,14 +273,23 @@ async function main() {
         items: [{ product_id: 'p1', quantity: 5 }],
       },
     });
-    assert(stockRes.status >= 400, `insufficient stock order is rejected (got ${stockRes.status})`);
-    const stockQueued = await settle(() => findDiagnosticByStageAndStatus(db, 'order.create.failed', 'inventory_validation', 400, 1) !== null);
-    assert(stockQueued, 'order.create.failed is enqueued on inventory failure');
-    const stockDiag = findDiagnosticByStageAndStatus(db, 'order.create.failed', 'inventory_validation', 400, 1);
-    assertEqual(stockDiag?.metadata.status, stockRes.status, 'diagnostic metadata carries the HTTP status');
-    assertEqual(stockDiag?.metadata.item_count, 1, 'diagnostic metadata carries the product count');
-    assertEqual(stockDiag?.metadata.stage, 'inventory_validation', 'inventory failures report the inventory stage');
-    assertEqual(stockDiag?.status_ignored, undefined, 'row status remains driven by the outbox');
+    assertEqual(stockRes.status, 201, 'sale succeeds even when available stock is insufficient');
+    assertEqual(
+      db.prepare('SELECT stock_quantity FROM products WHERE id = ?').get('p1').stock_quantity,
+      -5,
+      'the shortage is reflected in the product stock instead of blocking the order',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assertEqual(
+      findDiagnosticByStage(db, 'order.create.failed', 'inventory_validation'),
+      null,
+      'an allowed negative-stock sale is not reported as an order failure',
+    );
+    assertEqual(
+      db.prepare('SELECT COUNT(*) AS count FROM inventory_movements WHERE product_id = ? AND movement_type = ?').get('p1', 'sale').count,
+      1,
+      'the accepted short-stock order creates one inventory sale movement',
+    );
 
     console.log('\n8. order.create.failed: other create failures (missing product) are also reported');
     const badOrderRes = await api(baseUrl, '/api/orders', {
