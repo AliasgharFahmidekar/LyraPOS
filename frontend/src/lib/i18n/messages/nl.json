@@ -761,6 +761,7 @@
     "phone": "Telefoon",
     "placeOrderButton": "Bestelling plaatsen",
     "placeOrderFailed": "Kan de bestelling niet plaatsen",
+    "stockShortageWarning": "Van sommige producten is de voorraad op of onvoldoende voor de gevraagde hoeveelheid. Je kunt de verkoop voortzetten.",
     "placeOrderReady": "Bestelling plaatsen wanneer klaar.",
     "placing": "Bestelling plaatsen…",
     "pointsApproxValue": "{count} punten (≈ {value})",
