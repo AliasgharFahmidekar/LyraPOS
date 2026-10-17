@@ -296,7 +296,7 @@ export default function InventoryPage() {
                           )}
                         </td>
                         <td className="p-4 text-end text-sm text-muted-foreground">
-                          {threshold === null ? '—' : fmtNum(threshold)}
+                          {threshold === null ? '—' : fmtNum(threshold) + ' ' + tProducts(saleUnitTranslationKey(product.sale_unit || 'each'))}
                         </td>
                         <td className="p-4 text-center text-sm">
                           <Badge variant={stockManaged ? 'secondary' : 'outline'}>
@@ -354,6 +354,8 @@ export default function InventoryPage() {
                 <tbody className="divide-y divide-border">
                   {movements.map((movement) => {
                     const Icon = movementTypeIcons[movement.movement_type as keyof typeof movementTypeIcons] || ClipboardList;
+                    const movementProduct = products.find((product) => product.id === movement.product_id);
+                    const unitLabel = movementProduct ? tProducts(saleUnitTranslationKey(movementProduct.sale_unit || 'each')) : '';
                     const delta = Number(movement.quantity_delta);
                     return (
                       <tr key={movement.id} className="hover:bg-muted/60">
@@ -366,10 +368,10 @@ export default function InventoryPage() {
                           </span>
                         </td>
                         <td className={'whitespace-nowrap p-4 text-end text-sm font-medium ' + (delta < 0 ? 'text-red-600' : 'text-emerald-600')}>
-                          {delta > 0 ? '+' : ''}{fmtNum(delta)}
+                          {delta > 0 ? '+' : ''}{fmtNum(delta)}{unitLabel ? ' ' + unitLabel : ''}
                         </td>
                         <td className={'whitespace-nowrap p-4 text-end text-sm ' + (Number(movement.stock_after) < 0 ? 'text-red-600' : 'text-muted-foreground')}>
-                          {fmtNum(Number(movement.stock_after))}
+                          {fmtNum(Number(movement.stock_after))}{unitLabel ? ' ' + unitLabel : ''}
                         </td>
                         <td className="p-4 text-sm text-muted-foreground">{movement.reason || '—'}</td>
                         <td className="p-4 text-sm text-muted-foreground">{movement.actor_name || '—'}</td>
@@ -392,9 +394,7 @@ export default function InventoryPage() {
       </Tabs>
 
       {selectedProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget && !saving) setSelectedProduct(null);
-        }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
           <section
             role="dialog"
             aria-modal="true"
@@ -414,7 +414,7 @@ export default function InventoryPage() {
             <div className="mb-4 rounded-lg bg-muted p-3">
               <div className="text-sm text-muted-foreground">{tProducts('fieldStock')}</div>
               <div className={'mt-1 text-xl font-semibold ' + (Number(selectedProduct.stock_quantity) < 0 ? 'text-red-600' : 'text-foreground')}>
-                {fmtNum(Number(selectedProduct.stock_quantity ?? 0))} {selectedProduct.sale_unit}
+                {fmtNum(Number(selectedProduct.stock_quantity ?? 0))} {tProducts(saleUnitTranslationKey(selectedProduct.sale_unit || 'each'))}
               </div>
               {Number(selectedProduct.stock_quantity ?? 0) <= 0 && (
                 <p className="mt-2 flex items-center gap-2 text-sm text-red-600">
