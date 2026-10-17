@@ -761,6 +761,7 @@
     "phone": "Phone",
     "placeOrderButton": "Place Order",
     "placeOrderFailed": "Failed to place order",
+    "stockShortageWarning": "Some products are out of stock or do not have enough inventory for the requested quantity. You can continue the sale.",
     "placeOrderReady": "Place order when ready.",
     "placing": "Placing...",
     "pointsApproxValue": "{count} pts (≈ {value})",
