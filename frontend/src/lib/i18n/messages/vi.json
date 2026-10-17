@@ -761,6 +761,7 @@
     "phone": "Điện thoại",
     "placeOrderButton": "Đặt đơn",
     "placeOrderFailed": "Không thể đặt đơn",
+    "stockShortageWarning": "Một số sản phẩm đã hết hàng hoặc không đủ tồn kho cho số lượng yêu cầu. Bạn vẫn có thể tiếp tục bán.",
     "placeOrderReady": "Đặt đơn khi bạn sẵn sàng.",
     "placing": "Đang đặt...",
     "pointsApproxValue": "{count} điểm (≈ {value})",
