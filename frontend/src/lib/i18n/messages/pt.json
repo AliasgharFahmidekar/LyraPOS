@@ -761,6 +761,7 @@
     "phone": "Telefone",
     "placeOrderButton": "Fazer Pedido",
     "placeOrderFailed": "Falha ao fazer o pedido",
+    "stockShortageWarning": "Alguns produtos estão sem estoque ou não têm estoque suficiente para a quantidade solicitada. Você pode continuar a venda.",
     "placeOrderReady": "Faça o pedido quando estiver pronto.",
     "placing": "Fazendo...",
     "pointsApproxValue": "{count} pts (≈ {value})",
