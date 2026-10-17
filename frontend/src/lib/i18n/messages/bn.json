@@ -761,6 +761,7 @@
     "phone": "ফোন",
     "placeOrderButton": "অর্ডার করুন",
     "placeOrderFailed": "অর্ডার দিতে ব্যর্থ",
+    "stockShortageWarning": "কিছু পণ্যের স্টক শেষ বা চাহিদামতো যথেষ্ট নয়। আপনি বিক্রি চালিয়ে যেতে পারেন।",
     "placeOrderReady": "প্রস্তুত হলে অর্ডার দিন।",
     "placing": "স্থাপন করা হচ্ছে...",
     "pointsApproxValue": "{count} পয়েন্ট (প্রায় {value})",
