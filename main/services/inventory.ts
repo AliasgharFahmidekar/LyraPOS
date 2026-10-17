@@ -128,7 +128,6 @@ export function adjustProductStock(
       ELSE ROUND(COALESCE(stock_quantity, 0) + ?, ?)
     END, updated_at = ?
     WHERE id = ?
-      AND COALESCE(stock_quantity, 0) + ? >= -?
       AND CASE
         WHEN ABS(COALESCE(stock_quantity, 0) + ?) <= ? THEN 0
         ELSE ROUND(COALESCE(stock_quantity, 0) + ?, ?)
@@ -144,12 +143,10 @@ export function adjustProductStock(
     normalizedQuantityDelta,
     INVENTORY_QUANTITY_TOLERANCE,
     normalizedQuantityDelta,
-    INVENTORY_QUANTITY_TOLERANCE,
-    normalizedQuantityDelta,
     INVENTORY_QUANTITY_PRECISION,
   );
   if (result.changes !== 1) {
-    throw new InventoryServiceError(current ? 400 : 404, current ? 'Insufficient stock' : 'Product not found');
+    throw new InventoryServiceError(current ? 400 : 404, current ? 'Stock update did not change the stored quantity' : 'Product not found');
   }
 
   const updated = db.prepare('SELECT stock_quantity FROM products WHERE id = ?').get(options.productId) as { stock_quantity: number };
