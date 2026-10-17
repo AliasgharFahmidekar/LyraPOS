@@ -380,7 +380,15 @@
     "saveFailed": "儲存失敗",
     "deleteFailed": "刪除失敗",
     "confirmDeleteSupply": "要刪除庫存品“{name}”嗎？其變動記錄將保留。",
-    "confirmDeleteRecipe": "要刪除{name}的配方嗎？"
+    "confirmDeleteRecipe": "要刪除{name}的配方嗎？",
+    "allProducts": "所有商品",
+    "increaseStock": "增加庫存",
+    "decreaseStock": "減少庫存",
+    "setStock": "設定庫存",
+    "saleMovement": "銷售",
+    "cancelRestoreMovement": "庫存已恢復",
+    "outOfStock": "缺貨",
+    "emptyProducts": "找不到商品"
   },
   "kds": {
     "addonsLabel": "加購",
