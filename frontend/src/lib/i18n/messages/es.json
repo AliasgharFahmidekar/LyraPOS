@@ -761,6 +761,7 @@
     "phone": "Teléfono",
     "placeOrderButton": "Confirmar pedido",
     "placeOrderFailed": "No se pudo confirmar el pedido",
+    "stockShortageWarning": "Algunos productos están agotados o no tienen existencias suficientes para la cantidad solicitada. Puedes continuar con la venta.",
     "placeOrderReady": "Confirmá el pedido cuando esté listo.",
     "placing": "Confirmando...",
     "pointsApproxValue": "{count} pts (≈ {value})",
