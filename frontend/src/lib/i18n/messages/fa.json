@@ -761,6 +761,7 @@
     "phone": "تلفن",
     "placeOrderButton": "ثبت سفارش",
     "placeOrderFailed": "ثبت سفارش انجام نشد",
+    "stockShortageWarning": "موجودی بعضی کالاها تمام شده یا برای مقدار درخواستی کافی نیست؛ می‌توانید فروش را ادامه دهید.",
     "placeOrderReady": "هنگامی که آماده بودید، سفارش را ثبت کنید.",
     "placing": "در حال ثبت",
     "pointsApproxValue": "{count} امتیاز (≈ {value})",
