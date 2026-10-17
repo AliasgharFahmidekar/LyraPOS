@@ -761,6 +761,7 @@
     "phone": "Telefoni",
     "placeOrderButton": "Vendosni porosinë",
     "placeOrderFailed": "Porositja dështoi",
+    "stockShortageWarning": "Disa produkte janë pa stok ose nuk kanë sasi të mjaftueshme për kërkesën. Mund të vazhdoni shitjen.",
     "placeOrderReady": "Bëj porosinë kur të jetë gati.",
     "placing": "Duke vendosur...",
     "pointsApproxValue": "{count} pikë (≈ {value})",
