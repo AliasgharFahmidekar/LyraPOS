@@ -250,11 +250,11 @@ async function main() {
       body: { action: 'decrease', quantity: 100, reason: 'Too much' },
     });
     assertEqual(failedDecrease.status, 200, 'manual decrease may make stock negative');
-    assertEqual(failedDecrease.data.product.stock_quantity, -9, 'manual decrease records the resulting negative stock');
+    assertEqual(failedDecrease.data.product.stock_quantity, -89, 'manual decrease records the resulting negative stock');
     const overdrawAdjustment = db.prepare('SELECT quantity_delta, movement_type, stock_after FROM inventory_movements WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(productId) as any;
-    assertEqual(overdrawAdjustment.quantity_delta, -20, 'negative manual adjustment records the complete signed delta');
+    assertEqual(overdrawAdjustment.quantity_delta, -100, 'negative manual adjustment records the complete signed delta');
     assertEqual(overdrawAdjustment.movement_type, 'adjustment', 'negative manual adjustment keeps the canonical movement type');
-    assertEqual(overdrawAdjustment.stock_after, -9, 'negative manual adjustment records resulting stock in the ledger');
+    assertEqual(overdrawAdjustment.stock_after, -89, 'negative manual adjustment records resulting stock in the ledger');
 
     const productUpdate = await api(baseUrl, `/api/products/${productId}`, {
       method: 'PUT',
@@ -264,7 +264,7 @@ async function main() {
     assertEqual(productUpdate.status, 200, 'absolute stock update succeeds');
     assertEqual(productUpdate.data.product.stock_quantity, 8, 'absolute stock update uses the cache as current state');
     const absoluteAdjustment = db.prepare('SELECT quantity_delta, movement_type, reason, reference_id FROM inventory_movements WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(productId) as any;
-    assertEqual(absoluteAdjustment.quantity_delta, 17, 'absolute stock update appends the signed adjustment from negative stock');
+    assertEqual(absoluteAdjustment.quantity_delta, 97, 'absolute stock update appends the signed adjustment from negative stock');
     assertEqual(absoluteAdjustment.movement_type, 'adjustment', 'absolute stock update uses the adjustment movement type');
     assertEqual(absoluteAdjustment.reason, 'Physical count', 'absolute stock update stores its reason');
     assert(String(absoluteAdjustment.reference_id).endsWith(':set'), 'product editor absolute count is stored as a set adjustment');
