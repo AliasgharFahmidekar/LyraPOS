@@ -214,6 +214,10 @@ async function main() {
     });
     assertEqual(manualIncrease.status, 200, 'reasoned manual increase succeeds');
     assertEqual(manualIncrease.data.product.stock_quantity, 12, 'manual increase updates the stock cache');
+    const increaseMovement = db.prepare('SELECT movement_type, reference_type, reference_id FROM inventory_movements WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(productId) as any;
+    assertEqual(increaseMovement.movement_type, 'adjustment', 'manual increase keeps the canonical adjustment movement type');
+    assertEqual(increaseMovement.reference_type, 'manual_adjustment', 'manual increase is identified as a manual adjustment');
+    assert(String(increaseMovement.reference_id).endsWith(':increase'), 'manual increase action is stored in adjustment metadata');
 
     const manualDecrease = await api(baseUrl, `/api/products/${productId}/stock`, {
       method: 'POST',
@@ -222,6 +226,10 @@ async function main() {
     });
     assertEqual(manualDecrease.status, 200, 'reasoned manual decrease succeeds');
     assertEqual(manualDecrease.data.product.stock_quantity, 10, 'manual decrease updates the stock cache');
+    const decreaseMovement = db.prepare('SELECT movement_type, reference_type, reference_id FROM inventory_movements WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(productId) as any;
+    assertEqual(decreaseMovement.movement_type, 'adjustment', 'manual decrease keeps the canonical adjustment movement type');
+    assertEqual(decreaseMovement.reference_type, 'manual_adjustment', 'manual decrease is identified as a manual adjustment');
+    assert(String(decreaseMovement.reference_id).endsWith(':decrease'), 'manual decrease action is stored in adjustment metadata');
 
     const defaultReasonAdjustment = await api(baseUrl, `/api/products/${productId}/stock`, {
       method: 'POST',
@@ -251,10 +259,11 @@ async function main() {
     });
     assertEqual(productUpdate.status, 200, 'absolute stock update succeeds');
     assertEqual(productUpdate.data.product.stock_quantity, 8, 'absolute stock update uses the cache as current state');
-    const absoluteAdjustment = db.prepare('SELECT quantity_delta, movement_type, reason FROM inventory_movements WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(productId);
+    const absoluteAdjustment = db.prepare('SELECT quantity_delta, movement_type, reason, reference_id FROM inventory_movements WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(productId) as any;
     assertEqual(absoluteAdjustment.quantity_delta, -3, 'absolute stock update appends the signed adjustment');
     assertEqual(absoluteAdjustment.movement_type, 'adjustment', 'absolute stock update uses the adjustment movement type');
     assertEqual(absoluteAdjustment.reason, 'Physical count', 'absolute stock update stores its reason');
+    assert(String(absoluteAdjustment.reference_id).endsWith(':set'), 'product editor absolute count is stored as a set adjustment');
 
     const failedProductUpdate = await api(baseUrl, `/api/products/${productId}`, {
       method: 'PUT',
@@ -263,6 +272,28 @@ async function main() {
     });
     assertEqual(failedProductUpdate.status, 400, 'PUT stock updates preserve typed inventory errors');
     assertEqual(db.prepare('SELECT stock_quantity FROM products WHERE id = ?').get(productId).stock_quantity, 8, 'failed PUT stock updates leave the cache unchanged');
+
+    const manualSet = await api(baseUrl, `/api/products/${productId}/stock`, {
+      method: 'POST',
+      headers: owner.authHeader,
+      body: { action: 'set', quantity: 7, reason: 'Physical recount' },
+    });
+    assertEqual(manualSet.status, 200, 'manual set stock succeeds');
+    assertEqual(manualSet.data.product.stock_quantity, 7, 'manual set stock stores the requested absolute count');
+    const setMovement = db.prepare('SELECT movement_type, reference_type, reference_id, quantity_delta, reason FROM inventory_movements WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(productId) as any;
+    assertEqual(setMovement.movement_type, 'adjustment', 'manual set also uses the canonical adjustment movement type');
+    assertEqual(setMovement.reference_type, 'manual_adjustment', 'manual set is identified as a manual adjustment');
+    assertEqual(setMovement.quantity_delta, -1, 'manual set records the difference rather than the absolute count');
+    assertEqual(setMovement.reason, 'Physical recount', 'manual set keeps the supplied reason');
+    assert(String(setMovement.reference_id).endsWith(':set'), 'manual set operation kind is machine-readable in adjustment metadata');
+
+    const restoreSetBaseline = await api(baseUrl, `/api/products/${productId}/stock`, {
+      method: 'POST',
+      headers: owner.authHeader,
+      body: { action: 'set', quantity: 8, reason: 'Test baseline restored' },
+    });
+    assertEqual(restoreSetBaseline.status, 200, 'manual set can establish the expected test baseline');
+    assertEqual(restoreSetBaseline.data.product.stock_quantity, 8, 'manual set baseline is restored exactly');
 
     const firstOrder = await api(baseUrl, '/api/orders', {
       method: 'POST',
