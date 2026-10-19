@@ -281,7 +281,7 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     if (!refund) fail('refund_not_found', 'Committed refund row was not found.', 404);
     const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(refund.bill_id) as any;
     if (!bill) fail('refund_bill_missing', 'The refund references a missing bill.', 409);
-    const refundMethod = String(refund.method || '').trim().toLowerCase().replace(/[\\s-]+/g, '_');
+    const refundMethod = String(refund.method || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
     if (['wallet', 'loyalty', 'credit', 'store_credit', 'loyalty_wallet'].includes(refundMethod)) {
       return { posted: false, reason: 'non_monetary_refund_ignored' };
     }
