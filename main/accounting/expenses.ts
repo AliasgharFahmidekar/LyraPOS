@@ -160,8 +160,8 @@ function paymentInput(db: DB, input: any) {
   const key = paymentKey(db, input?.payment_method_key, true);
   const mapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as { account_id: string } | undefined;
   if (!mapping) fail('payment_mapping_required', 'Map this payment method to an accounting account before using it for a paid expense.', 409);
-  const paymentAccount = postingAccount(db, mapping.account_id, ['asset']);
-  return { paymentStatus: status, paymentMethodKey: key, paymentAccountId: paymentAccount.id, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
+  const paymentAccountId = mappedAccount(db, key, mapping.account_id);
+  return { paymentStatus: status, paymentMethodKey: key, paymentAccountId: paymentAccountId, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
 }
 function configuredStoreCurrency(db: DB): string {
   const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency')").all() as { key: string; value: string | null }[];
