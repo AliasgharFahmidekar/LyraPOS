@@ -49,7 +49,7 @@ function assertAccountingSeedAccounts(db: any, context: string): void {
   }>;
 
   // A required-subset assertion alone can silently permit accidental extra
-  // seeded/system accounts. Keep a complete allowlist for the v105 system
+  // seeded/system accounts. Keep a complete allowlist for the v106 system
   // chart while still allowing owners to create their own non-system accounts.
   const expectedSystemAccountIds = [
     'acct-assets',
@@ -64,6 +64,7 @@ function assertAccountingSeedAccounts(db: any, context: string): void {
     'acct-equity',
     'acct-owner-capital',
     'acct-owner-drawings',
+    'acct-opening-balance-equity',
     'acct-income',
     'acct-sales-revenue',
     'acct-sales-discounts',
@@ -79,7 +80,7 @@ function assertAccountingSeedAccounts(db: any, context: string): void {
   equal(
     actualSystemAccountIds.join(','),
     expectedSystemAccountIds.join(','),
-    context + ': exact v105 system chart has no missing or unexpected system accounts',
+    context + ': exact v106 system chart has no missing or unexpected system accounts',
   );
   const requiredAccounts = [
     { id: 'acct-assets', systemKey: 'assets', accountCode: '1000', isPostable: 0 },
@@ -126,10 +127,10 @@ function freshInstallChecks(): void {
   initDatabase();
   const db = getDatabase();
 
-  equal(getCurrentSchemaVersion(), 105, 'fresh install reaches schema version 105');
+  equal(getCurrentSchemaVersion(), 106, 'fresh install reaches schema version 106');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
-    'accounting_journal_lines', 'accounting_audit_log',
+    'accounting_journal_lines', 'accounting_audit_log', 'accounting_opening_balances',
   ]) check(tableExists(db, table), 'fresh install creates ' + table);
   const billColumns = (db.pragma('table_info(bills)') as Array<{ name: string }>).map((column) => column.name);
   check(billColumns.includes('accounting_finalized_at'), 'migration v105 adds bill accounting finalization field');
@@ -152,6 +153,10 @@ function freshInstallChecks(): void {
   }
 
   assertAccountingSeedAccounts(db, 'fresh install');
+  check(!!db.prepare("SELECT 1 FROM accounting_accounts WHERE id='acct-opening-balance-equity' AND system_key='opening_balance_equity' AND account_type='equity' AND is_postable=1").get(), 'migration v106 seeds a dedicated opening-balance equity account');
+  for (const trigger of ['accounting_opening_balances_immutable_update', 'accounting_opening_balances_immutable_delete']) {
+    check(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger), 'migration v106 creates ' + trigger);
+  }
 
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
@@ -407,13 +412,13 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 105, 'existing database upgrades from v99 through schema version 105');
+  equal(getCurrentSchemaVersion(), 106, 'existing database upgrades from v99 through schema version 106');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
     'upgrade preserves existing user settings',
   );
-  assertAccountingSeedAccounts(db, 'schema v99 to v105 upgrade');
+  assertAccountingSeedAccounts(db, 'schema v99 to v106 upgrade');
   equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'upgraded database passes integrity_check');
 
   closeDatabase();
@@ -442,7 +447,7 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 105, 'v100 database upgrades through schema version 105');
+  equal(getCurrentSchemaVersion(), 106, 'v100 database upgrades through schema version 106');
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
     /system or posted accounting account definitions are immutable/i,
@@ -458,7 +463,7 @@ function upgradeFromVersion100Checks(): void {
     /system accounting accounts cannot be deleted/i,
     'v100 upgrade keeps system-account deletion protection',
   );
-  assertAccountingSeedAccounts(db, 'schema v100 to v105 upgrade');
+  assertAccountingSeedAccounts(db, 'schema v100 to v106 upgrade');
 
   closeDatabase();
   fs.rmSync(activeTestDir, { recursive: true, force: true });
@@ -485,8 +490,8 @@ function upgradeFromVersion102Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 105, 'v102 database upgrades to schema version 105');
-  assertAccountingSeedAccounts(db, 'schema v102 to v105 upgrade');
+  equal(getCurrentSchemaVersion(), 106, 'v102 database upgrades to schema version 106');
+  assertAccountingSeedAccounts(db, 'schema v102 to v106 upgrade');
   const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key,reversal_journal_entry_id,reversal_reason FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
   equal(preserved.id, 'expense-v102-preserve', 'upgrade preserves existing expense records');
   equal(preserved.amount_minor, 2500, 'upgrade preserves existing expense amount');
@@ -525,8 +530,8 @@ function upgradeFromVersion101Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 105, 'v101 database upgrades through schema version 105');
-  assertAccountingSeedAccounts(db, 'schema v101 to v105 upgrade');
+  equal(getCurrentSchemaVersion(), 106, 'v101 database upgrades through schema version 106');
+  assertAccountingSeedAccounts(db, 'schema v101 to v106 upgrade');
   check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
   check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
   check(tableExists(db, 'accounting_expenses'), 'expense migration creates expenses');
