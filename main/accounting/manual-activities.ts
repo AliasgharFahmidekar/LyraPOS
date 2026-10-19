@@ -36,7 +36,7 @@ function activeAccount(db: DB, value: unknown, types: string[], field: string): 
 function liquidAsset(db: DB, value: unknown): string {
   const account = activeAccount(db, value, ['asset'], 'asset_account_id');
   if (!['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(account.system_key ?? '')) {
-    fail('invalid_liquid_asset', 'Use a cash, bank, payment-clearing, or custom liquid-asset account; inventory and receivables are not payment accounts.');
+    fail('invalid_liquid_asset', 'Use a configured cash, bank, or payment-clearing account. Unclassified custom assets, inventory, and receivables are not payment accounts.');
   }
   return account.id;
 }
