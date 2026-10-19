@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { getAccountingMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
+import { getAccountingMinorUnitFactor, getCurrencyMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 import { localDateInTimezone, now, parseDbTimestamp, tenantBusinessDayStartTime } from '../db';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
 
@@ -292,8 +292,18 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
       return { posted: false, reason: 'pre_cutover_bill' };
     }
     const currency = configuredCurrency(db);
-    const amountMinor = Number(refund.amount_cents);
-    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) fail('refund_amount_invalid', 'The committed refund has an invalid amount.', 409);
+    // refunds.amount_cents follows the legacy POS fraction-factor storage contract;
+    // the accounting ledger uses canonical accounting minor units (whole rials for IRR).
+    const storedRefundAmount = Number(refund.amount_cents);
+    const legacyFactor = getCurrencyMinorUnitFactor(currency);
+    const accountingFactor = getAccountingMinorUnitFactor(currency);
+    const amountMinor = Math.round(storedRefundAmount * accountingFactor / legacyFactor);
+    if (!Number.isSafeInteger(storedRefundAmount) || storedRefundAmount <= 0
+      || !Number.isSafeInteger(legacyFactor) || legacyFactor <= 0
+      || !Number.isSafeInteger(accountingFactor) || accountingFactor <= 0
+      || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      fail('refund_amount_invalid', 'The committed refund has an invalid amount in the configured accounting currency.', 409);
+    }
     const payout = mappedPaymentAccount(db, resolveRefundPaymentKey(db, refund.method));
     const contraRevenue = postingAccountBySystemKey(db, 'sales_returns', 'revenue');
     writeAndPostJournal(db, {
