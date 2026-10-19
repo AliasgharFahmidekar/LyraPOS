@@ -339,7 +339,7 @@ async function main(): Promise<void> {
     equal(transferConflict.status, 409, 'changed transfer payload cannot reuse an idempotency key');
     
     // Stage 3: pre-cutover records stay visible exceptions, not backfilled journals.
-    const cutoverAt = '2025-01-01T00:00:00.000Z';
+    const cutoverAt = '2026-10-19T23:59:59.000Z';
     db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('accounting_cutover_at',?,?)").run(cutoverAt, now());
     const legacyStamp = '2024-01-01T10:00:00.000Z';
     const legacyOrder = db.prepare(
@@ -382,6 +382,12 @@ async function main(): Promise<void> {
       'reconciliation surfaces the actual runtime audit exception for the legacy receipt');
     equal(legacyOverview.body.audit_exceptions?.filter((row: any) => row.action === 'skipped_pre_cutover_refund').length, 1,
       'reconciliation surfaces the actual runtime audit exception for the legacy refund');
+    const afterCutoverAdjustment = await request(app).post('/api/accounting/reconciliation/adjustments')
+      .set(manager).set('Idempotency-Key', 'api-recon-adjustment-after-cutover')
+      .send({ account_id: 'acct-cash-drawer', adjustment_date: '2099-01-01', verified_balance_minor: 1,
+        reason: 'Must use an ordinary current-period classification for future differences' });
+    equal(afterCutoverAdjustment.status, 400, 'cutover reconciliation cannot use the opening-equity offset after the cutover business date');
+    equal(afterCutoverAdjustment.body.code, 'reconciliation_adjustment_after_cutover', 'post-cutover correction requires its proper accounting classification');
 
     // A clean cash checkpoint compares against the ledger only when a prior opening cash balance exists.
     const currentCash = db.prepare(`
