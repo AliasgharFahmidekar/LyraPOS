@@ -101,8 +101,11 @@ try {
   {
     const db = freshDb();
     const { orderId, billId } = makeBill(db, 'COLLECTION');
+    db.prepare("UPDATE bills SET payment_status='partial', paid_amount=40, balance=60 WHERE id=?").run(billId);
     const payment = { payment_event_id: 'payment-event-cash-001', method: 'cash', amount: 40, timestamp: '2026-10-14T08:00:00.000Z' };
     db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
+    equal((db.prepare('SELECT accounting_finalized_at FROM bills WHERE id=?').get(billId) as any).accounting_finalized_at ?? null,
+      null, 'a partial monetary receipt does not lock the commercial bill snapshot');
     equal(journalForSource(db, 'bill', String(billId), 'sale_recognized'), undefined, 'payment does not create a separate bill-level sale journal');
     const receipt = journalForSource(db, 'bill_payment', String(billId) + ':' + payment.payment_event_id, 'money_received');
     ok(receipt, 'receipt is sourced by bill ID plus stable payment event ID');
@@ -112,6 +115,19 @@ try {
     equal(receiptLines.find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 40, 'receipt credits revenue only by money received');
     db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
     equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill_payment' AND source_id=? AND source_event='money_received'").get(String(billId) + ':' + payment.payment_event_id).n, 1, 'retry creates no second receipt journal');
+
+    db.prepare("UPDATE bills SET payment_status='paid', paid_amount=100, balance=0 WHERE id=?").run(billId);
+    const finalPayment = { payment_event_id: 'payment-event-cash-002', method: 'cash', amount: 60, timestamp: '2026-10-14T08:01:00.000Z' };
+    db.transaction(() => sales.postCollectionPaymentLines(db, billId, [finalPayment], 'test-owner-accounting'))();
+    const finalSnapshot = db.prepare('SELECT accounting_finalized_at, accounting_snapshot_json FROM bills WHERE id=?').get(billId) as any;
+    ok(finalSnapshot.accounting_finalized_at, 'the fully settled bill receives its final commercial snapshot');
+    equal(JSON.parse(finalSnapshot.accounting_snapshot_json).fields.total, 100, 'the final snapshot captures the settled bill total');
+    equal((db.prepare(`
+      SELECT SUM(line.credit_minor) AS total
+      FROM accounting_journal_lines line JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id
+      JOIN accounting_accounts account ON account.id=line.account_id
+      WHERE entry.source_type='bill_payment' AND entry.source_id LIKE ? AND entry.status='posted' AND account.system_key='sales_revenue'
+    `).get(String(billId) + ':%') as any).total, 100, 'partial and final receipts recognize only the 100 actually received');
     throws(() => sales.assertOrderCancellationAccountingSafe(db, orderId), /accounting-recorded monetary receipt/i, 'cancellation is guarded after actual money has been journaled');
     closeDatabase();
   }
