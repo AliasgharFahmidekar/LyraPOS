@@ -57,9 +57,9 @@ function legacyMinorToAccountingMinor(value: unknown, currency: string): number 
   const legacyFactor = getCurrencyMinorUnitFactor(currency);
   const accountingFactor = getAccountingMinorUnitFactor(currency);
   const conversion = legacyFactor / accountingFactor;
-  if (!Number.isSafeInteger(raw) || !Number.isSafeInteger(conversion) || conversion < 1
-    || !Number.isSafeInteger(raw / conversion)) return null;
-  return raw / conversion;
+  if (!Number.isSafeInteger(raw) || raw < 0 || !Number.isSafeInteger(conversion) || conversion < 1) return null;
+  const normalized = Math.round(raw / conversion);
+  return Number.isSafeInteger(normalized) ? normalized : null;
 }
 
 function minorUnits(value: unknown, currency: string): number | null {
