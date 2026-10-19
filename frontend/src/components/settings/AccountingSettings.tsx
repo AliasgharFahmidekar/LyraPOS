@@ -112,7 +112,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
       mode === 'operations' ? api.get('/accounting/transfers?limit=100') : Promise.resolve({ data: { transfers: [] as Transfer[] } }),
       mode === 'operations' ? api.get('/accounting/activities?limit=100') : Promise.resolve({ data: { activities: [] as Activity[] } }),
       mode === 'operations' ? api.get('/accounting/opening-balances?limit=100') : Promise.resolve({ data: { opening_balances: [] as OpeningBalance[] } }),
-      mode === 'operations' ? api.get('/accounting/reconciliation?limit=50') : Promise.resolve({ data: null as ReconciliationOverview | null }),
+      mode === 'operations' ? api.get('/accounting/reconciliation?limit=50').catch(() => ({ data: null as ReconciliationOverview | null })) : Promise.resolve({ data: null as ReconciliationOverview | null }),
     ]);
     const accountRows: Account[] = accountsResponse.data.accounts || [];
     const categoryRows: Category[] = categoriesResponse.data.categories || [];
