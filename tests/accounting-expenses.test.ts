@@ -77,6 +77,13 @@ try {
   const customMethod = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Online Transfer',1,10,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
   const customKey = 'custom:' + Number(customMethod.lastInsertRowid);
   const customMapping = expenses.setPaymentAccountMapping(db, customKey, 'acct-bank', 'manager-1');
+  db.prepare(`
+    INSERT INTO accounting_accounts
+      (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable)
+    VALUES ('acct-custom-nonliquid-test', NULL, '1198', 'Unclassified custom asset', 'asset', 'debit', 'acct-assets', 0, 1, 1)
+  `).run();
+  throws(() => expenses.setPaymentAccountMapping(db, customKey, 'acct-custom-nonliquid-test', 'manager-1'),
+    /configured cash, bank, or payment-clearing/i, 'custom payment methods cannot map to an unclassified custom asset');
   throws(() => expenses.setPaymentAccountMapping(db, customKey, 'acct-payables', 'manager-1'), /requires an account of type: asset/i, 'custom payment methods cannot map to liability accounts');
   const customPaid = expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 1000, currency_code: 'IRR',
@@ -254,7 +261,7 @@ try {
     /positive safe integer/i, 'transfer rejects zero amounts');
   const inventoryAccount = db.prepare("SELECT id FROM accounting_accounts WHERE system_key='inventory'").get() as { id: string } | undefined;
   if (inventoryAccount) throws(() => transfers.createCashBankTransfer(db, { ...transferInput, source_account_id: inventoryAccount.id }, 'manager-1', 'transfer-inventory'),
-    /cash, bank, payment-clearing/i, 'transfer rejects inventory accounts as cash/bank accounts');
+    /configured cash, bank, or payment-clearing/i, 'transfer rejects inventory accounts as cash/bank accounts');
   throws(() => transfers.createCashBankTransfer(db, { ...transferInput, amount_minor: 4600 }, 'manager-1', 'transfer-test-001'),
     /different payload/i, 'reusing a transfer idempotency key with a changed amount is rejected');
   console.log('Accounting expense foundation: ' + checks + ' assertions passed.');
