@@ -71,12 +71,16 @@ function categoryInput(db: DB, input: any) {
   };
 }
 export function listPostingAccounts(db: DB, accountTypes?: string[]): any[] {
-  const rows = db.prepare('SELECT id, account_code, name, account_type, normal_balance, parent_account_id, is_active, is_postable FROM accounting_accounts WHERE is_active = 1 AND is_postable = 1 ORDER BY account_code').all() as any[];
-  if (accountTypes === undefined) return rows;
+  const rows = db.prepare('SELECT id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_active, is_postable FROM accounting_accounts WHERE is_active = 1 AND is_postable = 1 ORDER BY account_code').all() as any[];
   const allowedTypes = new Set(['asset', 'liability', 'equity', 'revenue', 'expense']);
-  const types = accountTypes.filter((type) => allowedTypes.has(type));
-  if (types.length === 0) return [];
-  return rows.filter((account) => types.includes(account.account_type));
+  const types = accountTypes === undefined ? null : accountTypes.filter((type) => allowedTypes.has(type));
+  if (types !== null && types.length === 0) return [];
+  return rows
+    .filter((account) => types === null || types.includes(account.account_type))
+    .map((account) => ({
+      ...account,
+      is_liquid: ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(account.system_key ?? ''),
+    }));
 }
 export function listExpenseCategories(db: DB, includeInactive = false): any[] {
   return db.prepare(
@@ -121,7 +125,12 @@ function paymentKey(db: DB, value: unknown, requireActive = false): string {
   return key;
 }
 function mappedAccount(db: DB, key: string, accountId: unknown): string {
-  return postingAccount(db, accountId, ['asset']).id;
+  const account = postingAccount(db, accountId, ['asset']);
+  const details = db.prepare('SELECT system_key FROM accounting_accounts WHERE id = ?').get(account.id) as { system_key: string | null };
+  if (!['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(details.system_key ?? '')) {
+    fail('invalid_payment_account', 'Payment-account mappings must target cash, bank, payment-clearing, or explicitly configured liquid-asset accounts.');
+  }
+  return account.id;
 }
 export function listPaymentAccountMappings(db: DB): any[] {
   const methods = [
