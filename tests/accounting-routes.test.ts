@@ -72,13 +72,14 @@ async function main(): Promise<void> {
     const accountList = await request(app).get('/api/accounting/accounts').set(manager);
     equal(accountList.body.accounts.find((a: any) => a.id === 'acct-bank')?.is_liquid, true, 'bank is explicitly marked as a liquid asset');
     equal(accountList.body.accounts.find((a: any) => a.id === 'acct-inventory')?.is_liquid, false, 'inventory is explicitly marked as non-liquid');
-    equal(accountList.body.accounts.find((a: any) => a.id === 'acct-custom-nonliquid')?.is_liquid, false, 'custom asset without a liquid classification is not selectable as a payment account');
 
     db.prepare(`
       INSERT INTO accounting_accounts
         (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable)
       VALUES ('acct-custom-nonliquid', NULL, '1199', 'Custom non-liquid asset', 'asset', 'debit', 'acct-assets', 0, 1, 1)
     `).run();
+    const customAccountList = await request(app).get('/api/accounting/accounts').set(manager);
+    equal(customAccountList.body.accounts.find((a: any) => a.id === 'acct-custom-nonliquid')?.is_liquid, false, 'custom asset without a liquid classification is not selectable as a payment account');
     const otherIncomePayload = { activity_type: 'other_income', entry_date: '2026-10-15', amount_minor: 12500, description: 'Interest received', asset_account_id: 'acct-bank', income_account_id: 'acct-other-income' };
     const otherIncome = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-income-001').send(otherIncomePayload);
     equal(otherIncome.status, 201, 'manager can record manual other income');
@@ -118,6 +119,81 @@ async function main(): Promise<void> {
     }
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_manual_activity'").get() as any).count,
       journalsBeforeInvalidAssets, 'rejected non-liquid account requests leave the ledger untouched');
+    
+    const openingCashPayload = {
+      account_id: 'acct-cash-drawer',
+      entry_date: '2026-10-01',
+      amount_minor: 125000,
+      currency_code: 'INR',
+      source_classification: 'cash_on_hand',
+      description: 'Cash at accounting cutover',
+    };
+    const openingCash = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-cash-001').send(openingCashPayload);
+    equal(openingCash.status, 201, 'manager can record a cash opening balance');
+    equal(openingCash.body.opening_balance?.source_classification, 'cash_on_hand', 'opening balance retains its source classification');
+    equal((db.prepare("SELECT status FROM accounting_journal_entries WHERE id=?").get(openingCash.body.opening_balance?.journal_entry_id) as any).status,
+      'posted', 'opening balance is posted through the existing ledger');
+    const openingCashJournalId = openingCash.body.opening_balance?.journal_entry_id;
+    const openingCashTotals = db.prepare("SELECT SUM(debit_minor) AS debit, SUM(credit_minor) AS credit FROM accounting_journal_lines WHERE journal_entry_id=?")
+      .get(openingCashJournalId) as any;
+    equal(openingCashTotals.debit, 125000, 'cash opening journal debits the exact amount');
+    equal(openingCashTotals.credit, 125000, 'cash opening journal credits the exact amount');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_lines line JOIN accounting_accounts account ON account.id=line.account_id WHERE line.journal_entry_id=? AND account.account_type IN ('revenue','expense')")
+      .get(openingCashJournalId) as any).count, 0, 'cash opening balance does not create income or expense');
+    const openingCashRetry = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-cash-001').send(openingCashPayload);
+    equal(openingCashRetry.status, 201, 'identical opening balance request is safely retryable');
+    equal(openingCashRetry.body.opening_balance?.id, openingCash.body.opening_balance?.id, 'opening balance retry returns the original setup record');
+    equal(openingCashRetry.body.opening_balance?.duplicate, true, 'opening balance retry is marked duplicate');
+    const openingCashChangedKey = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-cash-001').send({ ...openingCashPayload, amount_minor: 125001 });
+    equal(openingCashChangedKey.status, 409, 'opening-balance idempotency key cannot be reused with changed payload');
+    equal(openingCashChangedKey.body.code, 'idempotency_key_conflict', 'changed opening-balance retry has a stable error code');
+    const duplicateOpening = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-cash-002').send(openingCashPayload);
+    equal(duplicateOpening.status, 409, 'a second opening balance cannot be added to the same account');
+    equal(duplicateOpening.body.code, 'opening_balance_exists', 'duplicate account opening balance has a stable error code');
+
+    const openingPayable = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-payables-001')
+      .send({ account_id: 'acct-payables', entry_date: '2026-10-01', amount_minor: 6500, currency_code: 'INR', source_classification: 'accounts_payable' });
+    equal(openingPayable.status, 201, 'manager can record a payable opening balance');
+    equal((db.prepare("SELECT account.account_type FROM accounting_journal_lines line JOIN accounting_accounts account ON account.id=line.account_id WHERE line.journal_entry_id=? AND line.credit_minor>0")
+      .get(openingPayable.body.opening_balance?.journal_entry_id) as any).account_type, 'liability', 'payable opening balance credits the liability account');
+
+    const openingCapital = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-capital-001')
+      .send({ account_id: 'acct-owner-capital', entry_date: '2026-10-01', amount_minor: 11000, currency_code: 'INR', source_classification: 'owner_equity' });
+    equal(openingCapital.status, 201, 'manager can record prior owner equity as an opening balance');
+    equal((db.prepare("SELECT account.account_type FROM accounting_journal_lines line JOIN accounting_accounts account ON account.id=line.account_id WHERE line.journal_entry_id=? AND line.credit_minor>0")
+      .get(openingCapital.body.opening_balance?.journal_entry_id) as any).account_type, 'equity', 'opening owner equity remains equity and is not income');
+
+    const badClassification = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-bad-classification')
+      .send({ account_id: 'acct-bank', entry_date: '2026-10-01', amount_minor: 4500, currency_code: 'INR', source_classification: 'cash_on_hand' });
+    equal(badClassification.status, 400, 'opening-balance source classification must match selected account');
+    equal(badClassification.body.code, 'opening_balance_classification_mismatch', 'classification mismatch has a stable error code');
+    const inventoryOpening = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-inventory-deferred')
+      .send({ account_id: 'acct-inventory', entry_date: '2026-10-01', amount_minor: 8000, currency_code: 'INR', source_classification: 'other_asset' });
+    equal(inventoryOpening.status, 400, 'inventory valuation is not inferred by the opening-balance workflow');
+    equal(inventoryOpening.body.code, 'opening_inventory_deferred', 'deferred inventory opening has a stable error code');
+    const incomeOpening = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'opening-income-invalid')
+      .send({ account_id: 'acct-other-income', entry_date: '2026-10-01', amount_minor: 8000, currency_code: 'INR', source_classification: 'other_equity' });
+    equal(incomeOpening.status, 400, 'income accounts cannot be assigned an opening balance as an equity counter');
+    
+    const openingList = await request(app).get('/api/accounting/opening-balances?limit=100').set(manager);
+    equal(openingList.status, 200, 'manager can list opening-balance setup records');
+    equal(openingList.body.opening_balances?.length, 3, 'opening balance listing shows only the three accepted opening records');
+    const cashHistory = await request(app).get('/api/accounting/accounts/acct-cash-drawer/transactions?from=2026-10-01&to=2026-10-01').set(manager);
+    equal(cashHistory.status, 200, 'manager can read account transaction history with date filters');
+    equal(cashHistory.body.account?.balance_minor, 125000, 'account history balance reconciles to posted opening balance');
+    equal(cashHistory.body.transactions?.length, 1, 'date-filtered account history contains opening entry');
+    equal(cashHistory.body.transactions?.[0]?.source_type, 'accounting_opening_balance', 'account history identifies opening-balance source');
+    equal(cashHistory.body.transactions?.[0]?.balance_after_minor, 125000, 'account history includes a correct running balance');
+
 
     const categoryResponse = await request(app).post('/api/accounting/expense-categories')
       .set(manager).send({ name: 'API Utilities', expense_account_id: 'acct-operating-expenses' });
