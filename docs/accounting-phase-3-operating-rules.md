@@ -61,7 +61,7 @@ Payment methods are channels, not necessarily bank accounts. Keep the existing P
 ## 4. Refund policy
 
 - Only a refund that actually pays money out through cash, card or an active custom payment method affects accounting.
-- Such a refund debits Sales Returns/contra-revenue and credits the mapped payout asset account for the actual refunded amount. This reverses revenue previously recognized from a monetary receipt.
+- Such a refund debits Sales Returns/contra-revenue and credits the mapped payout asset account for the actual refunded amount. The stored legacy `refunds.amount_cents` uses the POS currency fraction factor; convert it to the accounting ledger factor before posting. In IRR, the legacy x100 amount is normalized to whole-rial ledger units.
 - A wallet/store-credit refund is non-monetary and is intentionally ignored by accounting. Loyalty crediting/debiting never creates an accounting journal.
 - No tax allocation or tax-liability reversal is performed by this integration.
 - Refunds use their persisted refund-row ID as the idempotent source identity. A retry cannot duplicate the journal.
@@ -77,7 +77,7 @@ Migration v105 stores `accounting_cutover_at` once, at the migration time. It do
 - pre-cutover monetary refunds are audited as skipped;
 - records on/after cutover use the new transactionally coupled posting rules.
 
-This avoids manufacturing historical income on upgrade. It also means the accounting balances may not yet equal the store's real cash/bank/open receivable position at launch. Before relying on balances or reports, the next phase must provide a controlled opening-balance/reconciliation workflow. Do not “solve” that gap by treating the first day's cash float or an owner's new money as sales income.
+This avoids manufacturing historical income on upgrade. Accounting balances may still differ from real cash/bank/open receivable positions until opening balances and reconciliation evidence are entered. Phase 4's opening-balance and cutover-reconciliation workflow provides that controlled setup path. Legacy cash-closure counts and refund amounts also use the POS fraction factor and must be normalized to the accounting factor before comparison; for IRR, that means converting legacy x100 values to whole-rial ledger units. Do not “solve” historical gaps by treating the first day's cash float or an owner's new money as sales income.
 
 ## 6. Date, currency, audit and integrity rules
 
