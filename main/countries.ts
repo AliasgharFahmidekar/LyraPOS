@@ -380,9 +380,21 @@ export function getCurrencyFractionDigits(currency: string): number {
   }
 }
 
-// Resolves the minor-unit factor (e.g. 1 for JPY, 100 for USD) for currency arithmetic.
+// Resolves the minor-unit factor used by locale/input currency arithmetic
+// (e.g. 1 for JPY, 100 for USD). This intentionally preserves the existing
+// IRR input/display precision behavior and must not be used as a ledger-unit
+// contract for currencies whose stored POS amount is already an integer rial.
 export function getCurrencyMinorUnitFactor(currency: string): number {
   return Math.pow(10, getCurrencyFractionDigits(currency));
+}
+
+// Ledger amounts are stored as integer units of the configured currency's
+// accounting denomination. LyraPOS stores Iranian amounts canonically in rial;
+// unlike the legacy UI fraction-digit preference, one stored IRR unit is one
+// rial, not one hundredth of a rial. Other currencies use their ISO minor unit.
+export function getAccountingMinorUnitFactor(currency: string): number {
+  if (currency.trim().toUpperCase() === IRAN_CURRENCY) return 1;
+  return getCurrencyMinorUnitFactor(currency);
 }
 
 // Centralized adapter for input/display conversions across currencies and display preferences.
