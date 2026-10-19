@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { getAccountingMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
+import { getAccountingMinorUnitFactor, getCurrencyMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 import { localDateInTimezone, now, parseDbTimestamp, tenantBusinessDayStartTime } from '../db';
 import { AccountingExpenseError, assertAccountingDate } from './expenses';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
@@ -50,6 +50,16 @@ function optionalText(value: unknown, field: string, maxLength = 160): string | 
   if (!valueText) return null;
   if (valueText.length > maxLength) fail('invalid_reconciliation_input', field + ' must be at most ' + maxLength + ' characters.');
   return valueText;
+}
+
+function legacyMinorToAccountingMinor(value: unknown, currency: string): number | null {
+  const raw = typeof value === 'number' ? value : Number(value);
+  const legacyFactor = getCurrencyMinorUnitFactor(currency);
+  const accountingFactor = getAccountingMinorUnitFactor(currency);
+  const conversion = legacyFactor / accountingFactor;
+  if (!Number.isSafeInteger(raw) || !Number.isSafeInteger(conversion) || conversion < 1
+    || !Number.isSafeInteger(raw / conversion)) return null;
+  return raw / conversion;
 }
 
 function minorUnits(value: unknown, currency: string): number | null {
@@ -191,15 +201,21 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
 
   const legacyRefundRows = cutoverAt ? db.prepare(`
     SELECT refund.id, refund.bill_id, bill.bill_number, bill.created_at AS bill_created_at,
-      refund.method, refund.amount_cents AS amount_minor, refund.reason, refund.created_at
+      refund.method, refund.amount_cents AS legacy_amount_cents, refund.reason, refund.created_at
     FROM refunds refund
     JOIN bills bill ON bill.id = refund.bill_id
     WHERE datetime(bill.created_at) <= datetime(?)
       AND lower(trim(COALESCE(refund.method,''))) NOT IN ('wallet','loyalty','credit','store_credit','store-credit','store credit','loyalty_wallet','loyalty-wallet')
     ORDER BY refund.created_at DESC, refund.id DESC
   `).all(cutoverAt) as any[] : [];
-  const legacyRefundCount = legacyRefundRows.length;
-  const legacyRefundAmount = legacyRefundRows.reduce((total, row) => {
+  let unclassifiedRefundCount = 0;
+  const normalizedRefundRows = legacyRefundRows.map((row) => {
+    const amountMinor = legacyMinorToAccountingMinor(row.legacy_amount_cents, currencyCode);
+    if (amountMinor === null || amountMinor <= 0) unclassifiedRefundCount++;
+    return { ...row, amount_minor: amountMinor };
+  });
+  const legacyRefundCount = normalizedRefundRows.length;
+  const legacyRefundAmount = normalizedRefundRows.reduce((total, row) => {
     const amount = Number(row.amount_minor);
     return Number.isSafeInteger(amount) && amount > 0 && Number.isSafeInteger(total + amount) ? total + amount : total;
   }, 0);
@@ -246,9 +262,10 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
       : null;
     const drawerMovementCount = drawerMovements ? Number(drawerMovements.count) : null;
     const ledgerBalanceMinor = balance ? Number(balance.balance_minor) : null;
+    const countedCashMinor = legacyMinorToAccountingMinor(closure.counted_cash_cents, currencyCode);
     const canCompare = ledgerBalanceMinor !== null && Number.isSafeInteger(ledgerBalanceMinor)
-      && Number.isSafeInteger(Number(closure.counted_cash_cents));
-    const difference = canCompare ? Number(closure.counted_cash_cents) - ledgerBalanceMinor! : null;
+      && countedCashMinor !== null && Number.isSafeInteger(countedCashMinor);
+    const difference = canCompare ? countedCashMinor! - ledgerBalanceMinor! : null;
     const comparisonStatus = !cashOpening ? 'opening_balance_missing'
       : !openingPredatesClose ? 'close_before_opening_balance'
         : !canCompare ? 'balance_not_comparable'
@@ -257,6 +274,7 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
               : difference === 0 ? 'matched' : 'difference';
     return {
       ...closure,
+      counted_cash_minor: countedCashMinor,
       ledger_balance_minor: canCompare ? ledgerBalanceMinor : null,
       difference_minor: difference,
       unclassified_drawer_movement_count: drawerMovementCount,
@@ -280,8 +298,10 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
       malformed_payment_details_count: malformedPaymentDetailsCount,
       refund_count: legacyRefundCount,
       refund_total_minor: legacyRefundAmount,
-      refund_samples: legacyRefundRows.slice(0, limit),
-      refund_samples_truncated: legacyRefundRows.length > limit,
+      unclassified_refund_count: unclassifiedRefundCount,
+      refund_samples: normalizedRefundRows.slice(0, limit),
+      refund_samples_truncated: normalizedRefundRows.length > limit,
+      unclassified_refund_count: unclassifiedRefundCount,
     },
     audit_exceptions: auditExceptions,
     cash_checkpoints: cashCheckpoints,
