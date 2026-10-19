@@ -200,10 +200,11 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
     LIMIT 50
   `).all() as any[];
   const cashCheckpoints = closures.slice(0, limit).map((closure) => {
+    const closeTime = parseDbTimestamp(String(closure.period_end)).getTime();
     const openingPredatesClose = !!cashOpening
       && Number.isFinite(parseDbTimestamp(cashOpening.created_at).getTime())
-      && Number.isFinite(parseDbTimestamp(closure.period_end).getTime())
-      && parseDbTimestamp(cashOpening.created_at).getTime() <= parseDbTimestamp(closure.period_end).getTime();
+      && Number.isFinite(closeTime)
+      && parseDbTimestamp(cashOpening.created_at).getTime() <= closeTime;
     const balance = openingPredatesClose
       ? db.prepare(`
           SELECT COALESCE(SUM(line.debit_minor - line.credit_minor), 0) AS balance_minor
@@ -215,17 +216,32 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
             AND datetime(entry.posted_at) <= datetime(?)
         `).get(String(closure.business_date), String(closure.period_end)) as { balance_minor: number }
       : null;
+    const drawerMovements = openingPredatesClose
+      ? db.prepare(`
+          SELECT COUNT(*) AS count
+          FROM cash_drawer_movements
+          WHERE voided_at IS NULL
+            AND movement_type IN ('pay_in','pay_out','safe_drop')
+            AND datetime(created_at) > datetime(?)
+            AND datetime(created_at) <= datetime(?)
+        `).get(String(cashOpening!.created_at), String(closure.period_end)) as { count: number }
+      : null;
+    const drawerMovementCount = drawerMovements ? Number(drawerMovements.count) : null;
     const ledgerBalanceMinor = balance ? Number(balance.balance_minor) : null;
     const canCompare = ledgerBalanceMinor !== null && Number.isSafeInteger(ledgerBalanceMinor)
       && Number.isSafeInteger(Number(closure.counted_cash_cents));
+    const difference = canCompare ? Number(closure.counted_cash_cents) - ledgerBalanceMinor! : null;
+    const comparisonStatus = !cashOpening ? 'opening_balance_missing'
+      : !openingPredatesClose ? 'close_before_opening_balance'
+        : !canCompare ? 'balance_not_comparable'
+          : drawerMovementCount! > 0 ? 'requires_review_drawer_movements'
+            : difference === 0 ? 'matched' : 'difference';
     return {
       ...closure,
       ledger_balance_minor: canCompare ? ledgerBalanceMinor : null,
-      difference_minor: canCompare ? Number(closure.counted_cash_cents) - ledgerBalanceMinor! : null,
-      comparison_status: !cashOpening ? 'opening_balance_missing'
-        : !openingPredatesClose ? 'close_before_opening_balance'
-          : !canCompare ? 'balance_not_comparable'
-            : Number(closure.counted_cash_cents) === ledgerBalanceMinor ? 'matched' : 'difference',
+      difference_minor: difference,
+      unclassified_drawer_movement_count: drawerMovementCount,
+      comparison_status: comparisonStatus,
     };
   });
 
