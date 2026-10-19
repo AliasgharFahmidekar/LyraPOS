@@ -135,7 +135,26 @@ try {
     closeDatabase();
   }
 
-  // Scenario 5: Monetary refunds reverse revenue; wallet refunds are ignored.
+  // Scenario 5: USD POS amounts are converted to cents, unlike canonical IRR/rial.
+  {
+    const db = freshDb();
+    const stamp = now();
+    db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('country','US',?)").run(stamp);
+    db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('currency','USD',?)").run(stamp);
+    db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('timezone','America/New_York',?)").run(stamp);
+    const { billId } = makeBill(db, 'USD-COLLECTION');
+    const payment = { payment_event_id: 'payment-event-usd-001', method: 'cash', amount: 40, timestamp: '2026-10-14T08:00:00.000Z' };
+    db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
+    const receipt = journalForSource(db, 'bill_payment', String(billId) + ':' + payment.payment_event_id, 'money_received');
+    ok(receipt, 'USD receipt is journaled');
+    const receiptLines = linesForJournal(db, receipt.id);
+    equal(receiptLines.find((line: any) => line.system_key === 'cash_drawer')?.debit_minor, 4000, 'USD 40.00 is stored as 4000 cents');
+    equal(receiptLines.find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 4000, 'USD revenue uses the same cents denomination');
+    balanced(db, receipt.id);
+    closeDatabase();
+  }
+
+  // Scenario 6: Monetary refunds reverse revenue; wallet refunds are ignored.
   {
     const db = freshDb();
     const { billId } = makeBill(db, 'REFUND');
@@ -164,7 +183,7 @@ try {
     closeDatabase();
   }
 
-  // Scenario 6: pre-cutover bills keep POS behavior but are not silently backfilled.
+  // Scenario 7: pre-cutover bills keep POS behavior but are not silently backfilled.
   {
     const db = freshDb();
     const legacyStamp = '2024-01-01T10:00:00.000Z';
