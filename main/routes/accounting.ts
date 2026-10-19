@@ -7,6 +7,7 @@ import { AccountingLedgerError } from '../accounting/ledger';
 import { createCashBankTransfer, listCashBankTransfers } from '../accounting/transfers';
 import { resolveTenantCurrency } from '../countries';
 import { createManualAccountingActivity, listManualAccountingActivities } from '../accounting/manual-activities';
+import { createOpeningBalance, listAccountTransactionHistory, listOpeningBalances } from '../accounting/opening-balances';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -44,6 +45,19 @@ router.post('/transfers', managerOnly, (req, res) => {
   try {
     res.status(201).json({ transfer: createCashBankTransfer(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) });
   } catch (error) { respondError(res, error); }
+});
+router.get('/opening-balances', managerOnly, (req, res) => {
+  try { res.json({ opening_balances: listOpeningBalances(getDatabase(), req.query) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/opening-balances', managerOnly, (req, res) => {
+  try {
+    res.status(201).json({ opening_balance: createOpeningBalance(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) });
+  } catch (error) { respondError(res, error); }
+});
+router.get('/accounts/:accountId/transactions', managerOnly, (req, res) => {
+  try { res.json(listAccountTransactionHistory(getDatabase(), String(req.params.accountId), req.query)); }
+  catch (error) { respondError(res, error); }
 });
 router.get('/accounts', managerOnly, (req, res) => {
   try {
