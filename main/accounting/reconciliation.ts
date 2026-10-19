@@ -59,7 +59,7 @@ function asPaymentLines(value: unknown): any[] | null {
 
 function legacyPaymentIsMonetary(payment: any): boolean {
   const method = String(payment?.method ?? '').trim().toLowerCase();
-  if (method === 'wallet' || method === 'loyalty' || method === 'credit') return false;
+  if (['wallet', 'loyalty', 'credit', 'store_credit', 'store-credit', 'store credit', 'loyalty_wallet', 'loyalty-wallet'].includes(method)) return false;
   const customId = Number(payment?.payment_method_id);
   return method === 'cash' || method === 'card' || (Number.isSafeInteger(customId) && customId > 0);
 }
@@ -179,7 +179,7 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
     FROM refunds refund
     JOIN bills bill ON bill.id = refund.bill_id
     WHERE datetime(bill.created_at) <= datetime(?)
-      AND lower(COALESCE(refund.method,'')) NOT IN ('wallet','loyalty','credit')
+      AND lower(trim(COALESCE(refund.method,''))) NOT IN ('wallet','loyalty','credit','store_credit','store-credit','store credit','loyalty_wallet','loyalty-wallet')
     ORDER BY refund.created_at DESC, refund.id DESC
   `).all(cutoverAt) as any[] : [];
   const legacyRefundCount = legacyRefundRows.length;
@@ -221,7 +221,7 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
           SELECT COUNT(*) AS count
           FROM cash_drawer_movements
           WHERE voided_at IS NULL
-            AND movement_type IN ('pay_in','pay_out','safe_drop')
+            AND movement_type IN ('opening_float','pay_in','pay_out','safe_drop')
             AND datetime(created_at) > datetime(?)
             AND datetime(created_at) <= datetime(?)
         `).get(String(cashOpening!.created_at), String(closure.period_end)) as { count: number }
