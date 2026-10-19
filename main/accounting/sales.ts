@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { getCurrencyMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
+import { getAccountingMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 import { localDateInTimezone, now, parseDbTimestamp, tenantBusinessDayStartTime } from '../db';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
 
@@ -41,13 +41,15 @@ function accountingDate(db: DB, timestamp: string): string {
 
 function toMinorUnits(value: unknown, currency: string, label: string): number {
   const numeric = typeof value === 'number' ? value : (typeof value === 'string' && value.trim() ? Number(value) : Number.NaN);
-  const factor = getCurrencyMinorUnitFactor(currency);
+  const factor = getAccountingMinorUnitFactor(currency);
   const minor = Math.round(numeric * factor);
   if (!Number.isFinite(numeric) || !Number.isSafeInteger(minor) || numeric < 0 || !Number.isSafeInteger(factor) || factor <= 0) {
     fail('accounting_amount_invalid', label + ' is not a valid non-negative store-currency amount.', 409);
   }
   // Persisted POS values are already rounded by the store's currency helpers.
-  // This boundary converts them once to integer minor units for the ledger.
+  // This boundary converts them once to integer ledger units. For IRR, the
+  // stored amount is already in whole rials; UI fraction-digit preferences do
+  // not create a fractional rial denomination.
   return minor;
 }
 
