@@ -53,7 +53,7 @@ Phase 3 choices are resolved for this PR in [accounting-phase-3-policy-proposal.
 3. Each accepted cash/card/custom payment line posts the actual applied money as debit to its mapped asset and credit to Sales Revenue; actual monetary refunds debit contra-revenue and credit the payout asset. Loyalty and discounts are completely excluded.
 4. Store-specific integer minor units and source timestamps plus regional timezone/business-day rules govern amounts and dates.
 5. Migration v105 marks automatic cutover; no historical monetary receipt/refund is silently backfilled.
-6. Phase 4 Stage 1 implements manual other income and owner capital/drawings. Pre-cutover reconciliation and reports remain future work. COGS and inventory valuation are explicitly out of the requested basic scope.
+6. Phase 4 Stage 1 implements manual other income and owner capital/drawings; Stage 2 implements opening balances and read-only account history on migration v106. Pre-cutover reconciliation and reports remain future work. COGS and inventory valuation are explicitly out of the requested basic scope.
 
 Do not infer statutory compliance or claim full net profit when cost of goods has not been recorded.
 
