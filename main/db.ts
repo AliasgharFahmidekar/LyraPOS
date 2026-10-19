@@ -6267,7 +6267,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           id TEXT PRIMARY KEY,
           account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           adjustment_date TEXT NOT NULL CHECK (length(adjustment_date)=10 AND adjustment_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
-          system_balance_minor INTEGER NOT NULL CHECK (typeof(system_balance_minor)='integer' AND system_balance_minor >= 0),
+          system_balance_minor INTEGER NOT NULL CHECK (typeof(system_balance_minor)='integer'),
           verified_balance_minor INTEGER NOT NULL CHECK (typeof(verified_balance_minor)='integer' AND verified_balance_minor >= 0),
           difference_minor INTEGER NOT NULL CHECK (typeof(difference_minor)='integer' AND difference_minor <> 0),
           currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
