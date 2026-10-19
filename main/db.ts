@@ -6203,10 +6203,54 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         END;
       `);
     },
+
   },
 
-];
+  {
+    version: 106,
+    name: 'accounting_opening_balances_and_history',
+    up: () => {
+      db.exec(`
+        INSERT OR IGNORE INTO accounting_accounts
+          (id, system_key, account_code, name, account_type, normal_balance, parent_account_id,
+           is_system, is_active, is_postable, description)
+        VALUES
+          ('acct-opening-balance-equity', 'opening_balance_equity', '3050', 'Opening balance equity',
+           'equity', 'credit', 'acct-equity', 1, 1, 1,
+           'Balancing equity account for one-time opening balances. It is not sales income or owner contribution.');
 
+        CREATE TABLE accounting_opening_balances (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL UNIQUE REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          opening_date TEXT NOT NULL CHECK (length(opening_date)=10 AND opening_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          amount_minor INTEGER NOT NULL CHECK (typeof(amount_minor)='integer' AND amount_minor > 0),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          source_classification TEXT NOT NULL CHECK (source_classification IN
+            ('cash_on_hand','bank_balance','accounts_receivable','accounts_payable','owner_equity','other_asset','other_liability','other_equity')),
+          journal_entry_id TEXT NOT NULL UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_accounting_opening_balances_date
+          ON accounting_opening_balances(opening_date, account_id);
+
+        CREATE TRIGGER accounting_opening_balances_immutable_update
+        BEFORE UPDATE ON accounting_opening_balances
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_OPENING_BALANCE_IMMUTABLE');
+        END;
+        CREATE TRIGGER accounting_opening_balances_immutable_delete
+        BEFORE DELETE ON accounting_opening_balances
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_OPENING_BALANCE_IMMUTABLE');
+        END;
+      `);
+    },
+  },
+];
+ 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
   if (buildingIdealSchema) return;
   let targetPath = '';
