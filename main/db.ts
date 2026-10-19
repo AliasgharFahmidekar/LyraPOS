@@ -6249,6 +6249,54 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+
+  {
+    version: 107,
+    name: 'accounting_pre_cutover_reconciliation',
+    up: () => {
+      db.exec(`
+        INSERT OR IGNORE INTO accounting_accounts
+          (id, system_key, account_code, name, account_type, normal_balance, parent_account_id,
+           is_system, is_active, is_postable, description)
+        VALUES
+          ('acct-reconciliation-adjustment-equity', 'reconciliation_adjustment_equity', '3060',
+           'Reconciliation adjustments', 'equity', 'credit', 'acct-equity', 1, 1, 1,
+           'Non-operating equity offset for documented balance reconciliation adjustments; never sales income or operating expense.');
+
+        CREATE TABLE accounting_reconciliation_adjustments (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          adjustment_date TEXT NOT NULL CHECK (length(adjustment_date)=10 AND adjustment_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          system_balance_minor INTEGER NOT NULL CHECK (typeof(system_balance_minor)='integer' AND system_balance_minor >= 0),
+          verified_balance_minor INTEGER NOT NULL CHECK (typeof(verified_balance_minor)='integer' AND verified_balance_minor >= 0),
+          difference_minor INTEGER NOT NULL CHECK (typeof(difference_minor)='integer' AND difference_minor <> 0),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 500),
+          source_reference TEXT CHECK (source_reference IS NULL OR length(trim(source_reference)) <= 160),
+          journal_entry_id TEXT NOT NULL UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_accounting_reconciliation_adjustments_date
+          ON accounting_reconciliation_adjustments(adjustment_date, account_id);
+        CREATE INDEX idx_accounting_reconciliation_adjustments_created
+          ON accounting_reconciliation_adjustments(created_at, id);
+
+        CREATE TRIGGER accounting_reconciliation_adjustments_immutable_update
+        BEFORE UPDATE ON accounting_reconciliation_adjustments
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE');
+        END;
+        CREATE TRIGGER accounting_reconciliation_adjustments_immutable_delete
+        BEFORE DELETE ON accounting_reconciliation_adjustments
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE');
+        END;
+      `);
+    },
+  },
 ];
  
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
