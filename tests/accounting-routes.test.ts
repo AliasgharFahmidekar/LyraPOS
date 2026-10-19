@@ -66,6 +66,8 @@ async function main(): Promise<void> {
       equal((await request(app).post('/api/accounting/expenses/not-an-id/reverse').set(headers).send({ reason: 'x', reversal_date: '2026-10-11' })).status, 403, role + ' cannot reverse accounting expenses');
     }
     equal((await request(app).get('/api/accounting/activities').set(cashier)).status, 403, 'cashier cannot read manual accounting activities');
+    equal((await request(app).get('/api/accounting/reconciliation').set(cashier)).status, 403, 'cashier cannot read accounting reconciliation');
+    equal((await request(app).post('/api/accounting/reconciliation/adjustments').set(cashier).send({})).status, 403, 'cashier cannot post reconciliation adjustments');
     equal((await request(app).post('/api/accounting/activities').set(cashier).send({})).status, 403, 'cashier cannot create manual accounting activities');
     equal((await request(app).get('/api/accounting/opening-balances').set(cashier)).status, 403, 'cashier cannot read opening balances');
     equal((await request(app).post('/api/accounting/opening-balances').set(cashier).send({})).status, 403, 'cashier cannot create opening balances');
@@ -335,6 +337,155 @@ async function main(): Promise<void> {
     equal((await request(app).get('/api/accounting/transfers').set(manager)).body.transfers?.length, 1, 'manager can list transfer history');
     const transferConflict = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'api-transfer-stage3-1').send({ ...transferPayload, amount_minor: 7600 });
     equal(transferConflict.status, 409, 'changed transfer payload cannot reuse an idempotency key');
+    
+    // Stage 3: pre-cutover records stay visible exceptions, not backfilled journals.
+    const cutoverAt = '2025-01-01T00:00:00.000Z';
+    db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('accounting_cutover_at',?,?)").run(cutoverAt, now());
+    const legacyStamp = '2024-01-01T10:00:00.000Z';
+    const legacyOrder = db.prepare(
+      'INSERT INTO orders (order_number,type,status,subtotal,tax_amount,total,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+    ).run('ACCT-LEGACY-RECON-1', 'takeaway', 'completed', 50, 0, 50, legacyStamp, legacyStamp);
+    const legacyPayment = { payment_event_id: 'legacy-recon-cash-1', method: 'cash', amount: 30, timestamp: '2024-01-01T10:05:00.000Z' };
+    const legacyBill = db.prepare(`
+      INSERT INTO bills
+        (bill_number,order_id,subtotal,tax_amount,tax_breakdown,tax_snapshot,discount_amount,
+         delivery_charge,packaging_charge,service_charge,table_charge,takeaway_charge,round_off,
+         total,paid_amount,balance,payment_status,payment_details,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run('ACCT-BILL-LEGACY-RECON-1', Number(legacyOrder.lastInsertRowid), 50, 0, '[]', '{}', 0,
+      0, 0, 0, 0, 0, 0, 50, 30, 20, 'partial', JSON.stringify([legacyPayment,
+        { payment_event_id: 'legacy-recon-wallet-1', method: 'wallet', amount: 20, timestamp: '2024-01-01T10:06:00.000Z' }]),
+      legacyStamp, legacyStamp);
+    const sales = require('../main/accounting/sales');
+    db.transaction(() => sales.postCollectionPaymentLines(db, Number(legacyBill.lastInsertRowid), [legacyPayment], 'accounting-api-manager'))();
+    const refundInsert = db.prepare(`
+      INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at)
+      VALUES (?,?,?,?,?,?,?)
+    `).run(Number(legacyBill.lastInsertRowid), 500, 'cash', 'pre-cutover reconciliation sample',
+      'accounting-api-manager', 'accounting-api-manager', '2024-01-01T10:10:00.000Z');
+    const legacyRefundResult = db.transaction(() => sales.postCommittedRefund(db, Number(refundInsert.lastInsertRowid), 'accounting-api-manager'))();
+    equal(legacyRefundResult.reason, 'pre_cutover_bill', 'legacy monetary refund remains skipped instead of being silently backfilled');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='bill_payment' AND source_id LIKE '%legacy-recon-cash-1%'").get() as any).count,
+      0, 'pre-cutover cash payment does not create a historical journal');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='refund' AND source_id=?").get(String(refundInsert.lastInsertRowid)) as any).count,
+      0, 'pre-cutover monetary refund does not create a historical journal');
+
+    const legacyOverview = await request(app).get('/api/accounting/reconciliation?limit=50').set(manager);
+    equal(legacyOverview.status, 200, 'manager can read cutover reconciliation overview');
+    equal(legacyOverview.body.legacy?.payment_count, 1, 'reconciliation counts only one real-money legacy payment and excludes wallet value');
+    equal(legacyOverview.body.legacy?.payment_total_minor, 3000, 'legacy payment summary converts INR to accounting minor units once');
+    equal(legacyOverview.body.legacy?.payment_by_method?.[0]?.method, 'cash', 'legacy summary exposes payment channel');
+    equal(legacyOverview.body.legacy?.refund_count, 1, 'reconciliation exposes historical monetary refund exceptions');
+    equal(legacyOverview.body.legacy?.refund_total_minor, 500, 'legacy refund summary preserves stored accounting minor units');
+    equal(legacyOverview.body.audit_exceptions?.filter((row: any) => row.action === 'skipped_pre_cutover_payment').length, 1,
+      'reconciliation surfaces the actual runtime audit exception for the legacy receipt');
+    equal(legacyOverview.body.audit_exceptions?.filter((row: any) => row.action === 'skipped_pre_cutover_refund').length, 1,
+      'reconciliation surfaces the actual runtime audit exception for the legacy refund');
+
+    // A clean cash checkpoint compares against the ledger only when a prior opening cash balance exists.
+    const currentCash = db.prepare(`
+      SELECT COALESCE(SUM(line.debit_minor-line.credit_minor),0) AS balance_minor
+      FROM accounting_journal_lines line
+      JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id
+      WHERE line.account_id='acct-cash-drawer' AND entry.status='posted' AND entry.entry_date <= '2099-01-01'
+    `).get() as any;
+    const expectedLedgerCash = Number(currentCash.balance_minor);
+    const testCountedCash = expectedLedgerCash + 1500;
+    db.prepare(`
+      INSERT INTO cash_closures
+        (scope,business_date,period_start,period_end,opening_float_cents,expected_cash_cents,
+         counted_cash_cents,variance_cents,gross_collected_cents,refunded_cents,net_collected_cents,
+         bill_count,refund_count,z_number,closed_by,notes,created_at)
+      VALUES ('day','2099-01-01','2099-01-01 00:00:00','2099-01-01 23:59:59',0,?,?,?,0,0,0,0,0,99123001,
+        'accounting-api-manager','reconciliation test checkpoint','2099-01-01 23:59:59')
+    `).run(testCountedCash, testCountedCash, 0);
+    const checkpoint = await request(app).get('/api/accounting/reconciliation?limit=50').set(manager);
+    equal(checkpoint.status, 200, 'reconciliation reads an existing cash closure');
+    equal(checkpoint.body.cash_checkpoints?.[0]?.comparison_status, 'difference', 'cash checkpoint shows a real ledger difference for review');
+    equal(checkpoint.body.cash_checkpoints?.[0]?.difference_minor, 1500, 'cash checkpoint difference is calculated from counted cash minus GL balance');
+
+    // Adjustments are posted only with a reason and traceable idempotency key, and never create income/expense.
+    const adjustmentDate = '2026-10-19';
+    const dayBalanceRow = db.prepare(`
+      SELECT COALESCE(SUM(CASE WHEN account.normal_balance='debit' THEN line.debit_minor-line.credit_minor
+                               ELSE line.credit_minor-line.debit_minor END),0) AS balance_minor
+      FROM accounting_journal_lines line
+      JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id
+      JOIN accounting_accounts account ON account.id=line.account_id
+      WHERE line.account_id='acct-cash-drawer' AND entry.status='posted' AND entry.entry_date <= ?
+    `).get(adjustmentDate) as any;
+    const ledgerBalanceBeforeAdjustment = Number(dayBalanceRow.balance_minor);
+    const adjustmentPayload = {
+      account_id: 'acct-cash-drawer',
+      adjustment_date: adjustmentDate,
+      verified_balance_minor: ledgerBalanceBeforeAdjustment + 1000,
+      reason: 'Independent banknote count during controlled cutover reconciliation',
+      source_reference: 'COUNT-2026-10-19-01',
+    };
+    const adjustment = await request(app).post('/api/accounting/reconciliation/adjustments')
+      .set(manager).set('Idempotency-Key', 'api-recon-adjustment-001').send(adjustmentPayload);
+    equal(adjustment.status, 201, 'manager can post an evidenced balance adjustment');
+    equal(adjustment.body.adjustment?.difference_minor, 1000, 'adjustment records the exact verified-minus-ledger difference');
+    equal(adjustment.body.adjustment?.reason, adjustmentPayload.reason, 'adjustment retains its reason');
+    equal(adjustment.body.adjustment?.source_reference, adjustmentPayload.source_reference, 'adjustment retains its source evidence reference');
+    equal(adjustment.body.adjustment?.journal_status, 'posted', 'adjustment is linked to a posted journal');
+    const adjustmentJournalId = adjustment.body.adjustment?.journal_entry_id;
+    const adjustmentTotals = db.prepare('SELECT SUM(debit_minor) AS debit, SUM(credit_minor) AS credit FROM accounting_journal_lines WHERE journal_entry_id=?')
+      .get(adjustmentJournalId) as any;
+    equal(adjustmentTotals.debit, 1000, 'reconciliation journal debits the exact adjustment amount');
+    equal(adjustmentTotals.credit, 1000, 'reconciliation journal balances exactly');
+    equal((db.prepare(`
+      SELECT COUNT(*) AS count FROM accounting_journal_lines line
+      JOIN accounting_accounts account ON account.id=line.account_id
+      WHERE line.journal_entry_id=? AND account.account_type IN ('revenue','expense')
+    `).get(adjustmentJournalId) as any).count, 0, 'reconciliation adjustment never posts to income or expense');
+
+    const adjustmentRetry = await request(app).post('/api/accounting/reconciliation/adjustments')
+      .set(manager).set('Idempotency-Key', 'api-recon-adjustment-001').send(adjustmentPayload);
+    equal(adjustmentRetry.status, 201, 'identical reconciliation adjustment retry succeeds');
+    equal(adjustmentRetry.body.adjustment?.id, adjustment.body.adjustment?.id, 'idempotent retry returns the original adjustment');
+    equal(adjustmentRetry.body.adjustment?.duplicate, true, 'identical reconciliation retry is marked duplicate');
+    const adjustmentConflict = await request(app).post('/api/accounting/reconciliation/adjustments')
+      .set(manager).set('Idempotency-Key', 'api-recon-adjustment-001').send({ ...adjustmentPayload, verified_balance_minor: adjustmentPayload.verified_balance_minor + 1 });
+    equal(adjustmentConflict.status, 409, 'changed reconciliation payload cannot reuse its idempotency key');
+    equal(adjustmentConflict.body.code, 'idempotency_key_conflict', 'changed reconciliation retry has a stable conflict code');
+
+    const inventoryAdjustment = await request(app).post('/api/accounting/reconciliation/adjustments')
+      .set(manager).set('Idempotency-Key', 'api-recon-adjustment-inventory')
+      .send({ ...adjustmentPayload, account_id: 'acct-inventory', verified_balance_minor: 100 });
+    equal(inventoryAdjustment.status, 400, 'inventory value cannot be reconciled until valuation and COGS are implemented');
+    equal(inventoryAdjustment.body.code, 'invalid_reconciliation_account', 'inventory reconciliation rejection has a stable error code');
+    const offsetAdjustment = await request(app).post('/api/accounting/reconciliation/adjustments')
+      .set(manager).set('Idempotency-Key', 'api-recon-adjustment-offset')
+      .send({ ...adjustmentPayload, account_id: 'acct-reconciliation-adjustment-equity' });
+    equal(offsetAdjustment.status, 400, 'reconciliation offset equity cannot be adjusted against itself');
+
+    require('node:assert/strict').throws(
+      () => db.prepare('UPDATE accounting_reconciliation_adjustments SET reason=? WHERE id=?').run('tampered', adjustment.body.adjustment?.id),
+      /ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE/,
+      'reconciliation adjustment metadata cannot be silently edited',
+    );
+    require('node:assert/strict').throws(
+      () => db.prepare('DELETE FROM accounting_reconciliation_adjustments WHERE id=?').run(adjustment.body.adjustment?.id),
+      /ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE/,
+      'reconciliation adjustment metadata cannot be silently deleted',
+    );
+    equal((db.prepare('SELECT reason FROM accounting_reconciliation_adjustments WHERE id=?').get(adjustment.body.adjustment?.id) as any).reason,
+      adjustmentPayload.reason, 'failed metadata mutations preserve the original adjustment evidence');
+
+    // With an unclassified physical drawer movement, report a review warning rather than suggesting a blind GL adjustment.
+    db.prepare(`
+      INSERT INTO cash_drawer_movements
+        (business_date,movement_type,amount_cents,reason,created_by,created_at)
+      VALUES ('2099-01-01','pay_out',200,'unclassified drawer event','accounting-api-manager','2099-01-01 12:00:00')
+    `).run();
+    const drawerMovementOverview = await request(app).get('/api/accounting/reconciliation?limit=50').set(manager);
+    equal(drawerMovementOverview.body.cash_checkpoints?.[0]?.comparison_status, 'requires_review_drawer_movements',
+      'cash drawer pay-outs force manual review before interpreting the GL difference');
+    equal(drawerMovementOverview.body.cash_checkpoints?.[0]?.unclassified_drawer_movement_count, 1,
+      'reconciliation identifies unclassified cash drawer movements');
+    equal(drawerMovementOverview.body.adjustments?.length, 1, 'reconciliation lists a posted, traceable adjustment');
+
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
     try { closeDatabase(); } catch {}
