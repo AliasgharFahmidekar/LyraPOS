@@ -10,10 +10,11 @@ type Category = { id: string; name: string; expense_account_id: string; expense_
 type Mapping = { payment_method_key: string; payment_method_name: string; account_id: string | null; payment_method_active?: boolean };
 type Expense = { id: string; expense_date: string; amount_minor: number; currency_code: string; description: string; category_name: string; payment_status: string; status: string };
 type Transfer = { id: string; entry_number: string; entry_date: string; description: string; currency_code: string; amount_minor: number; source_account_name: string; destination_account_name: string };
+type Activity = { id: string; entry_number: string; entry_date: string; description: string; currency_code: string; activity_type: 'other_income' | 'owner_contribution' | 'owner_drawing'; amount_minor: number; debit_account_name: string; credit_account_name: string };
 const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const labels = {
-  en: { title: 'Accounting', expenses: 'Expenses', transfers: 'Cash / bank transfers', setup: 'Categories & account mapping', amount: 'Amount', date: 'Date', description: 'Description', category: 'Category', payee: 'Payee (optional)', reference: 'Reference (optional)', paid: 'Paid', unpaid: 'Unpaid', method: 'Payment method', paymentDate: 'Payment date', createExpense: 'Record expense', post: 'Post to ledger', reverse: 'Reverse', reversalReason: 'Reason for reversal', reversalDate: 'Reversal accounting date (YYYY-MM-DD)', status: 'Status', draft: 'Draft', posted: 'Posted', reversed: 'Reversed', transferFrom: 'From account', transferTo: 'To account', transfer: 'Record transfer', history: 'Transfer history', categoryName: 'New category name', expenseAccount: 'Expense account', createCategory: 'Add category', mapping: 'Payment method → accounting account', noRows: 'No records yet', loadFailed: 'Could not load accounting data.', saveFailed: 'Could not save the accounting record.', required: 'Complete all required fields with a valid amount and date.', amountHint: 'Enter an amount in the store currency.', reversalConfirm: 'This creates a separate reversing journal; the original entry remains unchanged.', duplicateAccounts: 'Source and destination must differ.' },
-  fa: { title: 'حسابداری', expenses: 'هزینه‌ها', transfers: 'انتقال صندوق و بانک', setup: 'دسته‌بندی و نگاشت حساب‌ها', amount: 'مبلغ', date: 'تاریخ', description: 'شرح', category: 'دسته‌بندی', payee: 'پرداخت به (اختیاری)', reference: 'شماره پیگیری (اختیاری)', paid: 'پرداخت‌شده', unpaid: 'پرداخت‌نشده', method: 'روش پرداخت', paymentDate: 'تاریخ پرداخت', createExpense: 'ثبت هزینه', post: 'ثبت در دفتر کل', reverse: 'برگشت سند', reversalReason: 'دلیل برگشت', reversalDate: 'تاریخ حسابداری برگشت (سال-ماه-روز)', status: 'وضعیت', draft: 'پیش‌نویس', posted: 'ثبت‌شده', reversed: 'برگشت‌خورده', transferFrom: 'حساب مبدأ', transferTo: 'حساب مقصد', transfer: 'ثبت انتقال', history: 'تاریخچه انتقال‌ها', categoryName: 'نام دسته‌بندی جدید', expenseAccount: 'حساب هزینه', createCategory: 'افزودن دسته‌بندی', mapping: 'روش پرداخت ← حسابداری', noRows: 'هنوز رکوردی ثبت نشده است', loadFailed: 'بارگذاری اطلاعات حسابداری انجام نشد.', saveFailed: 'ذخیره اطلاعات حسابداری انجام نشد.', required: 'فیلدهای ضروری، مبلغ معتبر و تاریخ را کامل کنید.', amountHint: 'مبلغ را با واحد پول فروشگاه وارد کنید.', reversalConfirm: 'این عملیات سند معکوس جداگانه می‌سازد و سند اصلی را تغییر نمی‌دهد.', duplicateAccounts: 'حساب مبدأ و مقصد باید متفاوت باشند.' }
+  en: { title: 'Accounting', activities: 'Income & owner equity', otherIncome: 'Other income', ownerContribution: 'Owner contribution', ownerDrawing: 'Owner drawing', incomeAccount: 'Income account', liquidAccount: 'Cash / bank account', activityHistory: 'Activity history', expenses: 'Expenses', transfers: 'Cash / bank transfers', setup: 'Categories & account mapping', amount: 'Amount', date: 'Date', description: 'Description', category: 'Category', payee: 'Payee (optional)', reference: 'Reference (optional)', paid: 'Paid', unpaid: 'Unpaid', method: 'Payment method', paymentDate: 'Payment date', createExpense: 'Record expense', post: 'Post to ledger', reverse: 'Reverse', reversalReason: 'Reason for reversal', reversalDate: 'Reversal accounting date (YYYY-MM-DD)', status: 'Status', draft: 'Draft', posted: 'Posted', reversed: 'Reversed', transferFrom: 'From account', transferTo: 'To account', transfer: 'Record transfer', history: 'Transfer history', categoryName: 'New category name', expenseAccount: 'Expense account', createCategory: 'Add category', mapping: 'Payment method → accounting account', noRows: 'No records yet', loadFailed: 'Could not load accounting data.', saveFailed: 'Could not save the accounting record.', required: 'Complete all required fields with a valid amount and date.', amountHint: 'Enter an amount in the store currency.', reversalConfirm: 'This creates a separate reversing journal; the original entry remains unchanged.', duplicateAccounts: 'Source and destination must differ.' },
+  fa: { title: 'حسابداری', activities: 'درآمد متفرقه و سرمایه مالک', otherIncome: 'درآمد متفرقه', ownerContribution: 'آورده مالک', ownerDrawing: 'برداشت مالک', incomeAccount: 'حساب درآمد', liquidAccount: 'حساب صندوق / بانک', activityHistory: 'تاریخچه عملیات', expenses: 'هزینه‌ها', transfers: 'انتقال صندوق و بانک', setup: 'دسته‌بندی و نگاشت حساب‌ها', amount: 'مبلغ', date: 'تاریخ', description: 'شرح', category: 'دسته‌بندی', payee: 'پرداخت به (اختیاری)', reference: 'شماره پیگیری (اختیاری)', paid: 'پرداخت‌شده', unpaid: 'پرداخت‌نشده', method: 'روش پرداخت', paymentDate: 'تاریخ پرداخت', createExpense: 'ثبت هزینه', post: 'ثبت در دفتر کل', reverse: 'برگشت سند', reversalReason: 'دلیل برگشت', reversalDate: 'تاریخ حسابداری برگشت (سال-ماه-روز)', status: 'وضعیت', draft: 'پیش‌نویس', posted: 'ثبت‌شده', reversed: 'برگشت‌خورده', transferFrom: 'حساب مبدأ', transferTo: 'حساب مقصد', transfer: 'ثبت انتقال', history: 'تاریخچه انتقال‌ها', categoryName: 'نام دسته‌بندی جدید', expenseAccount: 'حساب هزینه', createCategory: 'افزودن دسته‌بندی', mapping: 'روش پرداخت ← حسابداری', noRows: 'هنوز رکوردی ثبت نشده است', loadFailed: 'بارگذاری اطلاعات حسابداری انجام نشد.', saveFailed: 'ذخیره اطلاعات حسابداری انجام نشد.', required: 'فیلدهای ضروری، مبلغ معتبر و تاریخ را کامل کنید.', amountHint: 'مبلغ را با واحد پول فروشگاه وارد کنید.', reversalConfirm: 'این عملیات سند معکوس جداگانه می‌سازد و سند اصلی را تغییر نمی‌دهد.', duplicateAccounts: 'حساب مبدأ و مقصد باید متفاوت باشند.' }
 };
 function amountToMinor(value: string, digits: number): number | null {
   const normalized = value.trim()
@@ -33,13 +34,20 @@ type AccountingMode = 'operations' | 'settings';
 export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: boolean; mode?: AccountingMode }) {
   const locale = useLocale();
   const t = locale.toLowerCase().startsWith('fa') ? labels.fa : labels.en;
-  const [tab, setTab] = useState<'expenses' | 'transfers' | 'setup'>(mode === 'settings' ? 'setup' : 'expenses');
+  const [tab, setTab] = useState<'expenses' | 'transfers' | 'activities' | 'setup'>(mode === 'settings' ? 'setup' : 'expenses');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [currency, setCurrency] = useState('IRR');
   const [categories, setCategories] = useState<Category[]>([]);
   const [mappings, setMappings] = useState<Mapping[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activityType, setActivityType] = useState<Activity['activity_type']>('other_income');
+  const [activityAmount, setActivityAmount] = useState('');
+  const [activityDate, setActivityDate] = useState(today());
+  const [activityDescription, setActivityDescription] = useState('');
+  const [activityAssetAccount, setActivityAssetAccount] = useState('');
+  const [activityIncomeAccount, setActivityIncomeAccount] = useState('');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [expenseDate, setExpenseDate] = useState(today());
@@ -61,25 +69,30 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
   const expenseRequestPayload = useRef('');
   const transferRequestKey = useRef('');
   const transferRequestPayload = useRef('');
+  const activityRequestKey = useRef('');
+  const activityRequestPayload = useRef('');
   const digits = useMemo(() => {
     try { return new Intl.NumberFormat(locale, { style: 'currency', currency }).resolvedOptions().maximumFractionDigits || 0; } catch { return 0; }
   }, [currency, locale]);
   const load = useCallback(async () => {
-    const [accountsResponse, categoriesResponse, mappingsResponse, expensesResponse, transfersResponse] = await Promise.all([
+    const [accountsResponse, categoriesResponse, mappingsResponse, expensesResponse, transfersResponse, activitiesResponse] = await Promise.all([
       api.get('/accounting/accounts'),
       api.get('/accounting/expense-categories?include_inactive=true'),
       api.get('/accounting/payment-account-mappings'),
       mode === 'operations' ? api.get('/accounting/expenses?limit=100') : Promise.resolve({ data: { expenses: [] as Expense[] } }),
       mode === 'operations' ? api.get('/accounting/transfers?limit=100') : Promise.resolve({ data: { transfers: [] as Transfer[] } }),
+      mode === 'operations' ? api.get('/accounting/activities?limit=100') : Promise.resolve({ data: { activities: [] as Activity[] } }),
     ]);
     const accountRows: Account[] = accountsResponse.data.accounts || [];
     const categoryRows: Category[] = categoriesResponse.data.categories || [];
     setAccounts(accountRows); if (accountsResponse.data.currency_code) setCurrency(accountsResponse.data.currency_code);
     setCategories(categoryRows); setMappings(mappingsResponse.data.mappings || []);
-    setExpenses(expensesResponse.data.expenses || []); setTransfers(transfersResponse.data.transfers || []);
+    setExpenses(expensesResponse.data.expenses || []); setTransfers(transfersResponse.data.transfers || []); setActivities(activitiesResponse.data.activities || []);
     const assets = accountRows.filter((a) => a.account_type === 'asset' && a.is_active === 1 && a.is_postable === 1);
     setSourceAccount((v) => assets.some((a) => a.id === v) ? v : (assets[0]?.id || ''));
     setDestinationAccount((v) => assets.some((a) => a.id === v) ? v : (assets[1]?.id || assets[0]?.id || ''));
+    setActivityAssetAccount((v) => assets.some((a) => a.id === v) ? v : (assets[0]?.id || ''));
+    setActivityIncomeAccount((v) => accountRows.some((a) => a.id === v && a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['acct-sales-revenue','acct-sales-returns','acct-sales-discounts'].includes(a.id)) ? v : (accountRows.find((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['acct-sales-revenue','acct-sales-returns','acct-sales-discounts'].includes(a.id))?.id || ''));
     setCategoryId((v) => categoryRows.some((c) => c.id === v && c.is_active === 1) ? v : (categoryRows.find((c) => c.is_active === 1)?.id || ''));
     setNewCategoryAccount((v) => accountRows.some((a) => a.id === v && a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1) ? v : (accountRows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1)?.id || ''));
   }, [mode]);
@@ -138,6 +151,19 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
       setTransferAmount(''); setTransferDescription(''); await load();
     } catch { toast.error(t.saveFailed); } finally { setBusy(false); }
   }
+  async function saveActivity() {
+    const minor = amountToMinor(activityAmount, digits);
+    if (!activityAssetAccount || !activityDescription.trim() || minor === null || (activityType === 'other_income' && !activityIncomeAccount)) { toast.error(t.required); return; }
+    setBusy(true);
+    try {
+      const payload = { activity_type: activityType, amount_minor: minor, entry_date: activityDate, description: activityDescription.trim(), asset_account_id: activityAssetAccount, ...(activityType === 'other_income' ? { income_account_id: activityIncomeAccount } : {}) };
+      const signature = JSON.stringify(payload);
+      if (activityRequestPayload.current !== signature) { activityRequestPayload.current = signature; activityRequestKey.current = token(); }
+      await api.post('/accounting/activities', payload, { headers: { 'Idempotency-Key': activityRequestKey.current } });
+      activityRequestKey.current = ''; activityRequestPayload.current = '';
+      setActivityAmount(''); setActivityDescription(''); await load();
+    } catch { toast.error(t.saveFailed); } finally { setBusy(false); }
+  }
   async function saveCategory() {
     if (!newCategory.trim() || !newCategoryAccount) { toast.error(t.required); return; }
     setBusy(true);
@@ -156,7 +182,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
   return <section className="w-full max-w-5xl space-y-5" dir={locale.toLowerCase().startsWith('fa') ? 'rtl' : 'ltr'}>
     <h2 className="text-xl font-semibold">{t.title}</h2>
     <div className="flex flex-wrap gap-2" role="tablist">
-      {(mode === 'settings' ? (['setup'] as const) : (['expenses', 'transfers'] as const)).map((key) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={tab === key ? 'rounded-lg border border-brand bg-brand/10 px-4 py-2 text-sm text-brand' : 'rounded-lg border border-border px-4 py-2 text-sm'}>{t[key]}</button>)}
+      {(mode === 'settings' ? (['setup'] as const) : (['expenses', 'transfers', 'activities'] as const)).map((key) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={tab === key ? 'rounded-lg border border-brand bg-brand/10 px-4 py-2 text-sm text-brand' : 'rounded-lg border border-border px-4 py-2 text-sm'}>{t[key]}</button>)}
     </div>
     {mode === 'operations' && tab === 'expenses' && <div className="space-y-5">
       <form className={cardClass} onSubmit={(e) => { e.preventDefault(); void saveExpense(); }}>
@@ -173,6 +199,20 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         </div><button disabled={busy || !activeCategories.length} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{t.createExpense}</button>
       </form>
       <div className={cardClass}><h3 className="font-semibold">{t.expenses}</h3>{expenses.length === 0 ? <p className="text-sm text-muted-foreground">{t.noRows}</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.description}</th><th className="p-2 text-start">{t.category}</th><th className="p-2 text-start">{t.amount}</th><th className="p-2 text-start">{t.status}</th><th /></tr></thead><tbody>{expenses.map((e) => <tr key={e.id} className="border-b border-border/60"><td className="p-2">{e.expense_date}</td><td className="p-2">{e.description}</td><td className="p-2">{e.category_name}</td><td className="p-2 whitespace-nowrap">{money(e.amount_minor)}</td><td className="p-2">{t[e.status as 'draft' | 'posted' | 'reversed'] || e.status} · {e.payment_status === 'paid' ? t.paid : t.unpaid}</td><td className="p-2 whitespace-nowrap">{e.status === 'draft' && e.payment_status === 'paid' && <button type="button" disabled={busy} onClick={() => { void api.post('/accounting/expenses/' + e.id + '/post').then(() => load()).catch(() => toast.error(t.saveFailed)); }} className="text-brand underline">{t.post}</button>}{e.status === 'posted' && <button type="button" disabled={busy} onClick={() => void reverseExpense(e)} className="ms-2 text-brand underline">{t.reverse}</button>}</td></tr>)}</tbody></table></div>}</div>
+    </div>}
+    {mode === 'operations' && tab === 'activities' && <div className="space-y-5">
+      <form className={cardClass} onSubmit={(e) => { e.preventDefault(); void saveActivity(); }}>
+        <h3 className="font-semibold">{t.activities}</h3><p className="text-xs text-muted-foreground">{t.amountHint} · {currency}</p>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="space-y-1 text-sm"><span>{t.status}</span><select value={activityType} onChange={(e) => setActivityType(e.target.value as Activity['activity_type'])} className={selectClass}><option value="other_income">{t.otherIncome}</option><option value="owner_contribution">{t.ownerContribution}</option><option value="owner_drawing">{t.ownerDrawing}</option></select></label>
+          <label className="space-y-1 text-sm"><span>{t.amount}</span><input required value={activityAmount} onChange={(e) => setActivityAmount(e.target.value)} inputMode="decimal" className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.date}</span><input required type="date" value={activityDate} onChange={(e) => setActivityDate(e.target.value)} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.liquidAccount}</span><select required value={activityAssetAccount} onChange={(e) => setActivityAssetAccount(e.target.value)} className={selectClass}>{activeAssets.filter((a) => !['acct-inventory','acct-receivables'].includes(a.id)).map((a) => <option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>
+          {activityType === 'other_income' && <label className="space-y-1 text-sm"><span>{t.incomeAccount}</span><select required value={activityIncomeAccount} onChange={(e) => setActivityIncomeAccount(e.target.value)} className={selectClass}>{accounts.filter((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['acct-sales-revenue','acct-sales-returns','acct-sales-discounts'].includes(a.id)).map((a) => <option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>}
+          <label className="space-y-1 text-sm md:col-span-2"><span>{t.description}</span><input required value={activityDescription} onChange={(e) => setActivityDescription(e.target.value)} className={inputClass} /></label>
+        </div><button disabled={busy || !activeAssets.length || (activityType === 'other_income' && !accounts.some((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['acct-sales-revenue','acct-sales-returns','acct-sales-discounts'].includes(a.id)))} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{t.activities}</button>
+      </form>
+      <div className={cardClass}><h3 className="font-semibold">{t.activityHistory}</h3>{activities.length === 0 ? <p className="text-sm text-muted-foreground">{t.noRows}</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.description}</th><th className="p-2 text-start">{t.status}</th><th className="p-2 text-start">{t.amount}</th><th className="p-2 text-start">{t.liquidAccount}</th></tr></thead><tbody>{activities.map((a) => <tr key={a.id} className="border-b border-border/60"><td className="p-2">{a.entry_date}</td><td className="p-2">{a.description}</td><td className="p-2">{t[a.activity_type === 'other_income' ? 'otherIncome' : a.activity_type === 'owner_contribution' ? 'ownerContribution' : 'ownerDrawing']}</td><td className="p-2 whitespace-nowrap">{money(a.amount_minor)}</td><td className="p-2">{a.activity_type === 'owner_drawing' ? a.credit_account_name : a.debit_account_name}</td></tr>)}</tbody></table></div>}</div>
     </div>}
     {mode === 'operations' && tab === 'transfers' && <div className="space-y-5">
       <form className={cardClass} onSubmit={(e) => { e.preventDefault(); void saveTransfer(); }}><h3 className="font-semibold">{t.transfer}</h3><p className="text-xs text-muted-foreground">{t.amountHint} · {currency}</p>
