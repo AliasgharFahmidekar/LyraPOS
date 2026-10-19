@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
-import { getAccountingMinorUnitFactor, resolveTenantCurrency } from '../countries';
-import { now, parseDbTimestamp } from '../db';
+import { getAccountingMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
+import { localDateInTimezone, now, parseDbTimestamp, tenantBusinessDayStartTime } from '../db';
 import { AccountingExpenseError, assertAccountingDate } from './expenses';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
 
@@ -18,6 +18,21 @@ function configuredCurrency(db: DB): string {
     return resolveTenantCurrency(settings.currency, settings.country ?? '');
   } catch {
     fail('accounting_currency_unconfigured', 'Configure store country and currency before reconciling accounting balances.', 409);
+  }
+}
+
+function cutoverBusinessDate(db: DB): string {
+  const cutoff = db.prepare("SELECT value FROM settings WHERE key='accounting_cutover_at'").get() as { value: string | null } | undefined;
+  if (!cutoff?.value) fail('accounting_cutover_missing', 'Accounting cutover is not configured; reconciliation adjustments are disabled.', 409);
+  const cutoffDate = parseDbTimestamp(cutoff.value);
+  if (!Number.isFinite(cutoffDate.getTime())) fail('accounting_cutover_invalid', 'The configured accounting cutover timestamp is invalid.', 409);
+  const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country','currency','timezone')").all() as Array<{ key: string; value: string | null }>;
+  const settings = Object.fromEntries(rows.map((row) => [row.key, row.value ?? undefined]));
+  try {
+    const regional = resolveRegionalSnapshot({ country: settings.country, currency: settings.currency, timezone: settings.timezone });
+    return localDateInTimezone(cutoffDate, regional.timezone, tenantBusinessDayStartTime(db));
+  } catch {
+    fail('accounting_regional_settings_invalid', 'Valid store region and business-day settings are required before reconciliation.', 409);
   }
 }
 
@@ -106,6 +121,7 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
     fail('accounting_cutover_invalid', 'The configured accounting cutover timestamp is invalid.', 409);
   }
   const currencyCode = configuredCurrency(db);
+  const cutoffBusinessDate = cutoverAt ? cutoverBusinessDate(db) : null;
   const limitValue = input.limit === undefined ? 50 : Number(input.limit);
   const limit = Number.isInteger(limitValue) && limitValue >= 1 && limitValue <= 250 ? limitValue : 50;
 
@@ -252,6 +268,7 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
   return {
     currency_code: currencyCode,
     cutover_at: cutoverAt,
+    cutover_business_date: cutoffBusinessDate,
     cutover_configured: !!cutoverAt,
     legacy: {
       payment_count: legacyPaymentCount,
@@ -302,6 +319,12 @@ export function createReconciliationAdjustment(
       const record = db.prepare(ADJUSTMENT_SELECT + ' WHERE adjustment.id=?').get(existing.id) as any;
       if (!record || record.journal_status !== 'posted') fail('reconciliation_adjustment_corrupt', 'The original reconciliation adjustment is missing or is not posted.', 409);
       return { ...record, duplicate: true };
+    }
+
+    const maximumAdjustmentDate = cutoverBusinessDate(db);
+    if (adjustmentDate > maximumAdjustmentDate) {
+      fail('reconciliation_adjustment_after_cutover',
+        'Cutover reconciliation adjustments must be dated on or before the cutover business date (' + maximumAdjustmentDate + '). Use a properly classified current-period transaction for later differences.', 400);
     }
 
     const account = db.prepare(`
