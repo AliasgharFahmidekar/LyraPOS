@@ -67,6 +67,9 @@ async function main(): Promise<void> {
     }
     equal((await request(app).get('/api/accounting/activities').set(cashier)).status, 403, 'cashier cannot read manual accounting activities');
     equal((await request(app).post('/api/accounting/activities').set(cashier).send({})).status, 403, 'cashier cannot create manual accounting activities');
+    equal((await request(app).get('/api/accounting/opening-balances').set(cashier)).status, 403, 'cashier cannot read opening balances');
+    equal((await request(app).post('/api/accounting/opening-balances').set(cashier).send({})).status, 403, 'cashier cannot create opening balances');
+    equal((await request(app).get('/api/accounting/accounts/acct-bank/transactions').set(cashier)).status, 403, 'cashier cannot read account history');
     equal((await request(app).get('/api/accounting/accounts').set(owner)).status, 200, 'owner can read posting accounts');
     equal((await request(app).get('/api/accounting/accounts').set(manager)).status, 200, 'manager can read posting accounts');
     const accountList = await request(app).get('/api/accounting/accounts').set(manager);
@@ -208,6 +211,15 @@ async function main(): Promise<void> {
     const mappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
       .set(manager).send({ account_id: 'acct-cash-drawer' });
     equal(mappingResponse.status, 200, 'manager can configure payment-account mapping');
+    db.prepare("UPDATE accounting_payment_method_mappings SET account_id='acct-inventory' WHERE payment_method_key='card'").run();
+    const invalidPersistedMapping = await request(app).post('/api/accounting/expenses')
+      .set(manager).set('Idempotency-Key', 'accounting-invalid-persisted-mapping')
+      .send({ category_id: categoryId, expense_date: '2026-10-11', amount_minor: 5000, currency_code: 'INR', description: 'Must reject corrupted mapping', payment_status: 'paid', payment_method_key: 'card', payment_date: '2026-10-11' });
+    equal(invalidPersistedMapping.status, 400, 'paid expense creation rejects a pre-existing invalid payment mapping');
+    equal(invalidPersistedMapping.body.code, 'invalid_payment_account', 'corrupted persisted mapping is rejected with stable code');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_expenses WHERE idempotency_key='accounting-invalid-persisted-mapping'").get() as any).count,
+      0, 'invalid persisted payment mapping does not create an expense');
+    db.prepare("UPDATE accounting_payment_method_mappings SET account_id='acct-payment-clearing' WHERE payment_method_key='card'").run();
 
     const payload = {
       category_id: categoryId,
@@ -290,6 +302,17 @@ async function main(): Promise<void> {
     equal(reverseConflict.body.code, 'expense_reversal_conflict', 'reversal conflict has a stable error code');
     equal((await request(app).get('/api/accounting/transfers')).status, 401, 'unauthenticated transfer history is denied');
     const transferPayload = { source_account_id: 'acct-cash-drawer', destination_account_id: 'acct-bank', amount_minor: 7500, entry_date: '2026-10-12', description: 'API cash deposit' };
+    const transferCountBeforeInvalid = (db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='cash_bank_transfer'").get() as any).count;
+    const inventoryTransfer = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'api-transfer-invalid-inventory')
+      .send({ ...transferPayload, destination_account_id: 'acct-inventory' });
+    equal(inventoryTransfer.status, 400, 'transfers cannot use inventory as a destination account');
+    equal(inventoryTransfer.body.code, 'invalid_transfer_account_type', 'non-liquid transfer account has stable error code');
+    const customTransfer = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'api-transfer-invalid-custom')
+      .send({ ...transferPayload, destination_account_id: 'acct-custom-nonliquid' });
+    equal(customTransfer.status, 400, 'transfers cannot use an unclassified custom asset');
+    equal(customTransfer.body.code, 'invalid_transfer_account_type', 'custom non-liquid transfer rejection has stable error code');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='cash_bank_transfer'").get() as any).count,
+      transferCountBeforeInvalid, 'rejected transfers leave the ledger untouched');
     const transferResponse = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'api-transfer-stage3-1').send(transferPayload);
     equal(transferResponse.status, 201, 'manager can create a cash/bank transfer');
     equal(transferResponse.body.transfer?.status, 'posted', 'transfer route returns a posted journal');
