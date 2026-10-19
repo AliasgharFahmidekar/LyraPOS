@@ -301,7 +301,6 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
       unclassified_refund_count: unclassifiedRefundCount,
       refund_samples: normalizedRefundRows.slice(0, limit),
       refund_samples_truncated: normalizedRefundRows.length > limit,
-      unclassified_refund_count: unclassifiedRefundCount,
     },
     audit_exceptions: auditExceptions,
     cash_checkpoints: cashCheckpoints,
