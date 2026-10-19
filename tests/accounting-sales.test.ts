@@ -162,7 +162,7 @@ try {
     const stamp = now();
     const refund = db.prepare(
       'INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at) VALUES (?,?,?,?,?,?,?)',
-    ).run(billId, 25, 'cash', 'test monetary refund', 'test-owner-accounting', 'test-owner-accounting', stamp);
+     ).run(billId, 2500, 'cash', 'test monetary refund', 'test-owner-accounting', 'test-owner-accounting', stamp);
     const first = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
     equal(first.posted, true, 'committed monetary refund is posted');
     const refundJournal = journalForSource(db, 'refund', String(refund.lastInsertRowid), 'money_refunded');
