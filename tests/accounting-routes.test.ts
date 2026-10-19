@@ -399,7 +399,7 @@ async function main(): Promise<void> {
          bill_count,refund_count,z_number,closed_by,notes,created_at)
       VALUES ('day','2099-01-01','2099-01-01 00:00:00','2099-01-01 23:59:59',0,?,?,?,0,0,0,0,0,99123001,
         'accounting-api-manager','reconciliation test checkpoint','2099-01-01 23:59:59')
-    `).run(testCountedCash, testCountedCash, 0);
+    `).run(expectedLedgerCash, testCountedCash, 1500);
     const checkpoint = await request(app).get('/api/accounting/reconciliation?limit=50').set(manager);
     equal(checkpoint.status, 200, 'reconciliation reads an existing cash closure');
     equal(checkpoint.body.cash_checkpoints?.[0]?.comparison_status, 'difference', 'cash checkpoint shows a real ledger difference for review');
