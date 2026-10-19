@@ -146,6 +146,26 @@ function writeAndPostJournal(db: DB, input: Parameters<typeof createDraftJournal
 }
 
 /**
+ * Whether the ledger contains an actually posted monetary receipt for this bill.
+ * A partial receipt is enough to block ordinary commercial-line edits, but an
+ * explicitly supported discount may still reduce the outstanding balance as
+ * long as the revised bill total does not fall below money already received.
+ */
+export function hasAccountingRecordedMonetaryReceipt(db: DB, billId: string | number): boolean {
+  const billKey = String(billId).replace(/[%_]/g, '');
+  const row = db.prepare(`
+    SELECT 1
+    FROM accounting_journal_entries
+    WHERE source_type='bill_payment'
+      AND source_event='money_received'
+      AND status='posted'
+      AND source_id LIKE ?
+    LIMIT 1
+  `).get(billKey + ':%');
+  return Boolean(row);
+}
+
+/**
  * Order cancellation must not silently leave a monetary receipt journal without an adjustment.
  * Until a linked accounting adjustment/reversal workflow exists, reject the
  * operational status transition if any bill on the order has a journaled money receipt.
@@ -211,9 +231,19 @@ export function finalizeBillSale(db: DB, billId: string | number, actorId: strin
  * redemptions create accounting entries. Discounts are not posted separately.
  */
 export function postCollectionPaymentLines(db: DB, billId: string | number, paymentLines: any[], actorId: string | null): void {
-  if (!paymentLines.length) return;
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
   if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
+  if (!paymentLines.length) {
+    // A supported discount may consume the remaining balance after a prior real-money
+    // partial receipt. When POS subsequently closes that bill without applying more
+    // cash (the tender is returned as change), lock the final commercial snapshot now.
+    // A 100%-discount/free bill has no receipt journal and is intentionally not finalized.
+    if (bill.payment_status === 'paid' && !bill.accounting_finalized_at
+      && hasAccountingRecordedMonetaryReceipt(db, billId)) {
+      finalizeBillSale(db, billId, actorId);
+    }
+    return;
+  }
   if (isBeforeAccountingCutover(db, bill.created_at)) {
     for (const payment of paymentLines) {
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
@@ -224,9 +254,11 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
     }
     return;
   }
-  // Wallet-only batches must not even finalize the accounting snapshot.
+  // Wallet-only batches must not create accounting entries or finalize a bill.
   if (paymentLines.every((payment) => payment?.method === 'wallet' || payment?.method === 'loyalty')) return;
-  if (!bill.accounting_finalized_at) finalizeBillSale(db, billId, actorId);
+  // A bill remains editable under POS rules after a partial receipt so its discount can
+  // safely settle the remaining balance. Lock the snapshot only when the bill is paid.
+  if (!bill.accounting_finalized_at && bill.payment_status === 'paid') finalizeBillSale(db, billId, actorId);
   const currency = configuredCurrency(db);
   const revenueId = postingAccountBySystemKey(db, 'sales_revenue', 'revenue');
   for (const payment of paymentLines) {
