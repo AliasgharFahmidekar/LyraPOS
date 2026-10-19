@@ -69,7 +69,16 @@ async function main(): Promise<void> {
     equal((await request(app).post('/api/accounting/activities').set(cashier).send({})).status, 403, 'cashier cannot create manual accounting activities');
     equal((await request(app).get('/api/accounting/accounts').set(owner)).status, 200, 'owner can read posting accounts');
     equal((await request(app).get('/api/accounting/accounts').set(manager)).status, 200, 'manager can read posting accounts');
+    const accountList = await request(app).get('/api/accounting/accounts').set(manager);
+    equal(accountList.body.accounts.find((a: any) => a.id === 'acct-bank')?.is_liquid, true, 'bank is explicitly marked as a liquid asset');
+    equal(accountList.body.accounts.find((a: any) => a.id === 'acct-inventory')?.is_liquid, false, 'inventory is explicitly marked as non-liquid');
+    equal(accountList.body.accounts.find((a: any) => a.id === 'acct-custom-nonliquid')?.is_liquid, false, 'custom asset without a liquid classification is not selectable as a payment account');
 
+    db.prepare(`
+      INSERT INTO accounting_accounts
+        (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable)
+      VALUES ('acct-custom-nonliquid', NULL, '1199', 'Custom non-liquid asset', 'asset', 'debit', 'acct-assets', 0, 1, 1)
+    `).run();
     const otherIncomePayload = { activity_type: 'other_income', entry_date: '2026-10-15', amount_minor: 12500, description: 'Interest received', asset_account_id: 'acct-bank', income_account_id: 'acct-other-income' };
     const otherIncome = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-income-001').send(otherIncomePayload);
     equal(otherIncome.status, 201, 'manager can record manual other income');
@@ -99,12 +108,27 @@ async function main(): Promise<void> {
     const invalidIncomeAccount = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-income-invalid').send({ ...otherIncomePayload, income_account_id: 'acct-sales-revenue' });
     equal(invalidIncomeAccount.status, 400, 'manual other income cannot post to POS sales revenue');
 
+    const journalsBeforeInvalidAssets = (db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_manual_activity'").get() as any).count;
+    for (const [accountId, label] of [['acct-inventory', 'inventory'], ['acct-receivables', 'receivables'], ['acct-custom-nonliquid', 'custom non-liquid asset']] as const) {
+      const invalidAsset = await request(app).post('/api/accounting/activities').set(manager)
+        .set('Idempotency-Key', 'manual-income-invalid-asset-' + label.replace(/ /g, '-'))
+        .send({ ...otherIncomePayload, asset_account_id: accountId });
+      equal(invalidAsset.status, 400, label + ' cannot be used as a manual receipt account');
+      equal(invalidAsset.body.code, 'invalid_liquid_asset', label + ' has a stable liquid-account validation error');
+    }
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_manual_activity'").get() as any).count,
+      journalsBeforeInvalidAssets, 'rejected non-liquid account requests leave the ledger untouched');
+
     const categoryResponse = await request(app).post('/api/accounting/expense-categories')
       .set(manager).send({ name: 'API Utilities', expense_account_id: 'acct-operating-expenses' });
     equal(categoryResponse.status, 201, 'manager can create expense category');
     const categoryId = categoryResponse.body.category?.id;
     ok(typeof categoryId === 'string' && categoryId.length > 0, 'category response contains an identifier');
 
+    const invalidMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
+      .set(manager).send({ account_id: 'acct-inventory' });
+    equal(invalidMappingResponse.status, 400, 'payment methods cannot be mapped to inventory');
+    equal(invalidMappingResponse.body.code, 'invalid_payment_account', 'invalid payment account mapping has stable error code');
     const mappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
       .set(manager).send({ account_id: 'acct-cash-drawer' });
     equal(mappingResponse.status, 200, 'manager can configure payment-account mapping');
