@@ -404,6 +404,11 @@ async function main(): Promise<void> {
     equal(checkpoint.status, 200, 'reconciliation reads an existing cash closure');
     equal(checkpoint.body.cash_checkpoints?.[0]?.comparison_status, 'difference', 'cash checkpoint shows a real ledger difference for review');
     equal(checkpoint.body.cash_checkpoints?.[0]?.difference_minor, 1500, 'cash checkpoint difference is calculated from counted cash minus GL balance');
+    db.prepare("UPDATE accounting_payment_method_mappings SET account_id='acct-bank' WHERE payment_method_key='cash'").run();
+    const wrongCashMapping = await request(app).get('/api/accounting/reconciliation?limit=50').set(manager);
+    equal(wrongCashMapping.body.cash_checkpoints?.[0]?.comparison_status, 'requires_review_cash_mapping',
+      'mapping cash receipts to bank prevents an automatic cash-drawer comparison');
+    db.prepare("UPDATE accounting_payment_method_mappings SET account_id='acct-cash-drawer' WHERE payment_method_key='cash'").run();
 
     // Adjustments are posted only with a reason and traceable idempotency key, and never create income/expense.
     const adjustmentDate = '2026-10-19';
