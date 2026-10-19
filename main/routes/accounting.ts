@@ -6,6 +6,7 @@ import { AccountingExpenseError, createExpense, getExpense, listExpenseCategorie
 import { AccountingLedgerError } from '../accounting/ledger';
 import { createCashBankTransfer, listCashBankTransfers } from '../accounting/transfers';
 import { resolveTenantCurrency } from '../countries';
+import { createManualAccountingActivity, listManualAccountingActivities } from '../accounting/manual-activities';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -27,6 +28,14 @@ function respondError(res: Response, error: any): void {
   console.error('[API] Accounting expense request failed:', error);
   res.status(500).json({ error: 'Unable to process accounting request.' });
 }
+router.get('/activities', managerOnly, (req, res) => {
+  try { res.json({ activities: listManualAccountingActivities(getDatabase(), req.query) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/activities', managerOnly, (req, res) => {
+  try { res.status(201).json({ activity: createManualAccountingActivity(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) }); }
+  catch (error) { respondError(res, error); }
+});
 router.get('/transfers', managerOnly, (req, res) => {
   try { res.json({ transfers: listCashBankTransfers(getDatabase(), req.query) }); }
   catch (error) { respondError(res, error); }

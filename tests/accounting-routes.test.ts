@@ -65,8 +65,39 @@ async function main(): Promise<void> {
       equal((await request(app).post('/api/accounting/expenses/not-an-id/post').set(headers).send({})).status, 403, role + ' cannot post accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/reverse').set(headers).send({ reason: 'x', reversal_date: '2026-10-11' })).status, 403, role + ' cannot reverse accounting expenses');
     }
+    equal((await request(app).get('/api/accounting/activities').set(cashier)).status, 403, 'cashier cannot read manual accounting activities');
+    equal((await request(app).post('/api/accounting/activities').set(cashier).send({})).status, 403, 'cashier cannot create manual accounting activities');
     equal((await request(app).get('/api/accounting/accounts').set(owner)).status, 200, 'owner can read posting accounts');
     equal((await request(app).get('/api/accounting/accounts').set(manager)).status, 200, 'manager can read posting accounts');
+
+    const otherIncomePayload = { activity_type: 'other_income', entry_date: '2026-10-15', amount_minor: 12500, description: 'Interest received', asset_account_id: 'acct-bank', income_account_id: 'acct-other-income' };
+    const otherIncome = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-income-001').send(otherIncomePayload);
+    equal(otherIncome.status, 201, 'manager can record manual other income');
+    equal(otherIncome.body.activity?.activity_type, 'other_income', 'other-income activity type is returned');
+    const incomeJournalId = otherIncome.body.activity?.id;
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_manual_activity' AND source_event='other_income' AND status='posted'").get() as any).count, 1, 'other income creates one posted journal');
+    const incomeTotals = db.prepare("SELECT SUM(debit_minor) AS debit, SUM(credit_minor) AS credit FROM accounting_journal_lines WHERE journal_entry_id=?").get(incomeJournalId) as any;
+    equal(incomeTotals.debit, 12500, 'other income debits exact amount');
+    equal(incomeTotals.credit, 12500, 'other income credits exact amount');
+    equal((db.prepare("SELECT account.account_type FROM accounting_journal_lines line JOIN accounting_accounts account ON account.id=line.account_id WHERE line.journal_entry_id=? AND line.credit_minor>0").get(incomeJournalId) as any).account_type, 'revenue', 'other income credits revenue');
+    const incomeRetry = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-income-001').send(otherIncomePayload);
+    equal(incomeRetry.status, 201, 'manual other-income retry is accepted');
+    equal(incomeRetry.body.activity?.id, incomeJournalId, 'manual other-income retry returns same journal');
+    const incomeConflict = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-income-001').send({ ...otherIncomePayload, amount_minor: 12501 });
+    equal(incomeConflict.status, 409, 'changed manual activity payload cannot reuse an idempotency key');
+
+    const contribution = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-capital-001').send({ ...otherIncomePayload, activity_type: 'owner_contribution', description: 'Owner capital' });
+    equal(contribution.status, 201, 'manager can record owner contribution');
+    equal((db.prepare("SELECT account.account_type FROM accounting_journal_lines line JOIN accounting_accounts account ON account.id=line.account_id WHERE line.journal_entry_id=? AND line.credit_minor>0").get(contribution.body.activity?.id) as any).account_type, 'equity', 'owner contribution credits equity, not revenue');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_lines line JOIN accounting_accounts account ON account.id=line.account_id WHERE line.journal_entry_id=? AND account.account_type='revenue'").get(contribution.body.activity?.id) as any).count, 0, 'owner contribution creates no revenue line');
+
+    const drawing = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-drawing-001').send({ ...otherIncomePayload, activity_type: 'owner_drawing', description: 'Owner drawing' });
+    equal(drawing.status, 201, 'manager can record owner drawing');
+    equal((db.prepare("SELECT account.account_type FROM accounting_journal_lines line JOIN accounting_accounts account ON account.id=line.account_id WHERE line.journal_entry_id=? AND line.debit_minor>0").get(drawing.body.activity?.id) as any).account_type, 'equity', 'owner drawing debits equity, not expense');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_lines line JOIN accounting_accounts account ON account.id=line.account_id WHERE line.journal_entry_id=? AND account.account_type='expense'").get(drawing.body.activity?.id) as any).count, 0, 'owner drawing creates no expense line');
+
+    const invalidIncomeAccount = await request(app).post('/api/accounting/activities').set(manager).set('Idempotency-Key', 'manual-income-invalid').send({ ...otherIncomePayload, income_account_id: 'acct-sales-revenue' });
+    equal(invalidIncomeAccount.status, 400, 'manual other income cannot post to POS sales revenue');
 
     const categoryResponse = await request(app).post('/api/accounting/expense-categories')
       .set(manager).send({ name: 'API Utilities', expense_account_id: 'acct-operating-expenses' });

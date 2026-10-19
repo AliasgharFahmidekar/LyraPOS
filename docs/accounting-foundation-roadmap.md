@@ -328,6 +328,18 @@ Suggested initial tests/files (final paths follow repository conventions):
 This sequencing establishes a tested foundation before business events are connected to automatic posting.
 
 
+### Phase 4 — Stage 1: manual other income and owner equity movements
+
+This stage adds manager-only, idempotent manual activity posting on the existing ledger; it does not add a parallel financial transaction store. Each activity is posted as a balanced journal and appears in activity history.
+
+- **Other income:** debit a selected active cash/bank/clearing/custom liquid-asset account and credit an eligible revenue account. POS Sales Revenue, Sales Returns and Sales Discounts are not eligible targets.
+- **Owner contribution:** debit the selected liquid-asset account and credit the dedicated Owner Capital equity account. This is not revenue and must not affect profit.
+- **Owner drawing:** debit the dedicated Owner Drawings equity account and credit the selected liquid-asset account. This is not an operating expense.
+- Activity dates must be valid ISO calendar dates; amounts are positive safe integer currency-minor units; currency comes from store configuration. An idempotency key is mandatory, and a changed payload for the same key is a conflict. Posting is immediate and audited through the existing ledger.
+- **Not included in this stage:** opening balances, account-level running balance history, pre-cutover reconciliation UI, COGS or profit reports.
+
+Acceptance: all three activity types create exactly one posted balanced journal; invalid account types/inactive accounts/invalid amounts/dates are rejected; owner contribution never credits revenue; owner drawing never debits an expense account; retries are idempotent and changed-payload retries are rejected; owner/manager authorization is covered.
+
 ## Implementation status and next gates
 
 As of this PR branch, Phase 0 discovery, Phase 1 ledger, Phase 2 expenses/transfers and Phase 2.5 operations/setup UI are implemented. Phase 3 now implements cash-received-only money receipt/refund posting plus migration v105 and focused regression coverage. Read [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md) for the actual rules and worked scenarios. The new posting code is not considered release-ready until the final-head workflow passes.

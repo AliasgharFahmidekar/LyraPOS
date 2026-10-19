@@ -14,6 +14,10 @@ Before implementation, read:
 
 **Runtime code and automated tests define current behavior.** This document records architecture boundaries and future intent; never claim planned work is already implemented.
 
+### Phase 4 Stage 1 implementation contract
+
+Manual accounting activities reuse `accounting_journal_entries` and `accounting_journal_lines`; no second money ledger/table is introduced. `main/accounting/manual-activities.ts` supports three explicit event types: `other_income`, `owner_contribution`, and `owner_drawing`. Other income may credit only an active postable revenue account other than POS sales/returns/discount accounts. Owner contributions always credit `acct-owner-capital`; drawings always debit `acct-owner-drawings`. Both use an active liquid asset account on the other side. Every request requires a caller-provided idempotency key and posts the journal transactionally. Owner contributions are equity, never revenue; drawings are equity, never expense.
+
 ## 1. Product boundary and verified Phase 0 discoveries
 
 LyraPOS is an offline-first Electron desktop POS backed by local SQLite. Accounting is an added financial ledger, not a new POS. Reuse the existing sources of operational truth:
