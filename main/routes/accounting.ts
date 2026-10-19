@@ -8,6 +8,7 @@ import { createCashBankTransfer, listCashBankTransfers } from '../accounting/tra
 import { resolveTenantCurrency } from '../countries';
 import { createManualAccountingActivity, listManualAccountingActivities } from '../accounting/manual-activities';
 import { createOpeningBalance, listAccountTransactionHistory, listOpeningBalances } from '../accounting/opening-balances';
+import { createReconciliationAdjustment, getAccountingReconciliationOverview } from '../accounting/reconciliation';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -58,6 +59,17 @@ router.post('/opening-balances', managerOnly, (req, res) => {
 router.get('/accounts/:accountId/transactions', managerOnly, (req, res) => {
   try { res.json(listAccountTransactionHistory(getDatabase(), String(req.params.accountId), req.query)); }
   catch (error) { respondError(res, error); }
+});
+router.get('/reconciliation', managerOnly, (req, res) => {
+  try { res.json(getAccountingReconciliationOverview(getDatabase(), req.query)); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/reconciliation/adjustments', managerOnly, (req, res) => {
+  try {
+    res.status(201).json({
+      adjustment: createReconciliationAdjustment(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')),
+    });
+  } catch (error) { respondError(res, error); }
 });
 router.get('/accounts', managerOnly, (req, res) => {
   try {
