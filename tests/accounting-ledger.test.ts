@@ -507,7 +507,7 @@ function upgradeFromVersion102Checks(): void {
     !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='accounting_expense_state_transition_guard'").get(),
     'v104 installs expense lifecycle guards on upgrade',
   );
-  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v104 upgrade passes integrity_check');
+  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v106 upgrade passes integrity_check');
 
   closeDatabase();
   fs.rmSync(activeTestDir, { recursive: true, force: true });
