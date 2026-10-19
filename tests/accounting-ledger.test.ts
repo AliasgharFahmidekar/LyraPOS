@@ -39,13 +39,48 @@ function tableExists(db: any, table: string): boolean {
 
 function assertAccountingSeedAccounts(db: any, context: string): void {
   const accounts = db.prepare(
-    'SELECT id, system_key, account_code, is_postable FROM accounting_accounts ORDER BY account_code',
+    'SELECT id, system_key, account_code, is_postable, is_system FROM accounting_accounts ORDER BY account_code',
   ).all() as Array<{
     id: string;
     system_key: string | null;
     account_code: string;
     is_postable: number;
+    is_system: number;
   }>;
+
+  // A required-subset assertion alone can silently permit accidental extra
+  // seeded/system accounts. Keep a complete allowlist for the v105 system
+  // chart while still allowing owners to create their own non-system accounts.
+  const expectedSystemAccountIds = [
+    'acct-assets',
+    'acct-cash-drawer',
+    'acct-bank',
+    'acct-payment-clearing',
+    'acct-receivables',
+    'acct-inventory',
+    'acct-liabilities',
+    'acct-payables',
+    'acct-customer-advances',
+    'acct-equity',
+    'acct-owner-capital',
+    'acct-owner-drawings',
+    'acct-income',
+    'acct-sales-revenue',
+    'acct-sales-discounts',
+    'acct-other-income',
+    'acct-expenses',
+    'acct-cogs',
+    'acct-operating-expenses',
+    'acct-payment-fees',
+    'acct-sales-tax-payable',
+    'acct-sales-returns',
+  ].sort();
+  const actualSystemAccountIds = accounts.filter((account) => account.is_system === 1).map((account) => account.id).sort();
+  equal(
+    actualSystemAccountIds.join(','),
+    expectedSystemAccountIds.join(','),
+    context + ': exact v105 system chart has no missing or unexpected system accounts',
+  );
   const requiredAccounts = [
     { id: 'acct-assets', systemKey: 'assets', accountCode: '1000', isPostable: 0 },
     { id: 'acct-cash-drawer', systemKey: 'cash_drawer', accountCode: '1010', isPostable: 1 },
