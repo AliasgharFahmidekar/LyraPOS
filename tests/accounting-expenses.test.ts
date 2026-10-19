@@ -28,7 +28,7 @@ function resetDb(): any {
 }
 try {
   const db = resetDb();
-  equal(getCurrentSchemaVersion(), 105, 'fresh install reaches schema v105');
+  equal(getCurrentSchemaVersion(), 106, 'fresh install reaches schema v106');
   for (const table of ['accounting_expense_categories','accounting_payment_method_mappings','accounting_expenses']) {
     ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'migration creates ' + table);
   }
