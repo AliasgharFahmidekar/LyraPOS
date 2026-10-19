@@ -223,7 +223,6 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
   const activeAssets = accounts.filter((a) => a.account_type === 'asset' && a.is_active === 1 && a.is_postable === 1);
   const activeLiquidAssets = activeAssets.filter((a) => a.is_liquid === true);
   const activeOpeningAccounts = accounts.filter((a) => ['asset', 'liability', 'equity'].includes(a.account_type) && a.is_active === 1 && a.is_postable === 1 && !['inventory', 'opening_balance_equity'].includes(a.system_key || ''));
-  const selectedOpeningAccount = activeOpeningAccounts.find((a) => a.id === openingAccount);
   const activeExpenses = accounts.filter((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1);
   const activeCategories = categories.filter((c) => c.is_active === 1);
   if (!isAdmin) return null;
