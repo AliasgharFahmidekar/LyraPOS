@@ -14,7 +14,7 @@ import { calculateOrderTotals } from '../services/orders';
 import { adjustProductStock, resolveInventoryDeduction } from '../services/inventory';
 import { applyRecipeSnapshot, buildRecipeSnapshot, parseRecipeSnapshot } from '../services/recipes';
 import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
-import { assertOrderCancellationAccountingSafe } from '../accounting/sales';
+import { assertOrderCancellationAccountingSafe, hasAccountingRecordedMonetaryReceipt } from '../accounting/sales';
 import { cloudSync } from '../services/cloud-sync';
 import { validateOrderNotes, validateItemNotes, validateProductQuantity } from './orders-validation';
 import { requireRole } from '../middleware/security';
@@ -976,8 +976,8 @@ router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales)
 
       // BUG #4 FIX: Sync bill if it exists (add-items didn't update the bill)
       const existingBill = db.prepare("SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'").get(req.params.id) as any;
-      if (existingBill?.accounting_finalized_at) {
-        throw Object.assign(new Error('This order has a financially finalized bill. Item or order changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      if (existingBill && (existingBill.accounting_finalized_at || hasAccountingRecordedMonetaryReceipt(db, existingBill.id))) {
+        throw Object.assign(new Error('This order has a financially finalized bill or a posted monetary receipt. Item or order changes require an accounting adjustment workflow.'), { statusCode: 409 });
       }
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
@@ -1289,8 +1289,8 @@ router.patch('/:id/convert-to-takeaway', orderWriteRateLimit, requireRole(...ROL
       const openBills = db.prepare(
         "SELECT * FROM bills WHERE order_id = ? AND payment_status != 'paid'",
       ).all(req.params.id) as any[];
-      if (openBills.some((bill) => bill.accounting_finalized_at)) {
-        throw Object.assign(new Error('This order has a financially finalized bill. Charge changes require an accounting adjustment workflow.'), { statusCode: 409 });
+      if (openBills.some((bill) => bill.accounting_finalized_at || hasAccountingRecordedMonetaryReceipt(db, bill.id))) {
+        throw Object.assign(new Error('This order has a financially finalized bill or a posted monetary receipt. Charge changes require an accounting adjustment workflow.'), { statusCode: 409 });
       }
       if (openBills.length > 0) {
         const pack = getActiveCountryPack(getSettingValue('country') || '');
@@ -1505,6 +1505,9 @@ router.patch('/:id/discount', orderWriteRateLimit, requireRole(...ROLE_ACCESS.ow
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(newTotal, pack, currency);
+        if (Math.round(billTotal * minorFactor) < Math.round(Number(existingBill.paid_amount || 0) * minorFactor)) {
+          throw Object.assign(new Error('The discounted total cannot be lower than money already received. Process a refund before reducing the bill further.'), { statusCode: 409 });
+        }
         const newBillBalance = Math.max(0, billTotal - (existingBill.paid_amount || 0));
         db.prepare(`
           UPDATE bills SET discount_amount = ?, discount_type = ?, discount_value = ?,
@@ -1731,6 +1734,9 @@ router.patch('/:id/items/:itemId/discount', orderWriteRateLimit, requireRole(...
       if (existingBill) {
         const pack = getActiveCountryPack(tenantInfo.country);
         const { total: billTotal, adjustment: billRoundOff } = applyPayableRounding(orderTotal, pack, currency);
+        if (Math.round(billTotal * minorFactor) < Math.round(Number(existingBill.paid_amount || 0) * minorFactor)) {
+          throw Object.assign(new Error('The discounted total cannot be lower than money already received. Process a refund before reducing the bill further.'), { statusCode: 409 });
+        }
         const newBillBalance = Math.max(0, billTotal - (existingBill.paid_amount || 0));
         db.prepare(`UPDATE bills SET subtotal = ?, total = ?, balance = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, service_charge = ?, table_charge = ?, takeaway_charge = ?, round_off = ?, updated_at = ? WHERE id = ?`)
           .run(orderSubtotal, billTotal, newBillBalance, taxRollup.taxAmount, JSON.stringify(taxRollup.breakdowns), taxRollup.snapshotJson, newOrderDiscount, order.service_charge || 0, order.table_charge || 0, order.takeaway_charge || 0, billRoundOff, now(), existingBill.id);
