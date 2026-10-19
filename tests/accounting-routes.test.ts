@@ -382,6 +382,25 @@ async function main(): Promise<void> {
       'reconciliation surfaces the actual runtime audit exception for the legacy receipt');
     equal(legacyOverview.body.audit_exceptions?.filter((row: any) => row.action === 'skipped_pre_cutover_refund').length, 1,
       'reconciliation surfaces the actual runtime audit exception for the legacy refund');
+    // POS legacy cash/refund records use getCurrencyMinorUnitFactor, while the accounting ledger
+    // uses getAccountingMinorUnitFactor (notably: stored IRR is whole rials, but legacy cents use x100).
+    const savedRegionalRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country','currency','timezone')").all() as Array<{key:string;value:string|null}>;
+    const savedRegional = new Map(savedRegionalRows.map((row) => [row.key, row.value]));
+    const setRegionalSetting = (key: string, value: string) => {
+      db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES (?,?,?)").run(key, value, now());
+    };
+    setRegionalSetting('country', 'IR');
+    setRegionalSetting('currency', 'IRR');
+    setRegionalSetting('timezone', 'Asia/Tehran');
+    const rialOverview = await request(app).get('/api/accounting/reconciliation?limit=50').set(manager);
+    equal(rialOverview.status, 200, 'legacy reconciliation supports Iranian rial settings');
+    equal(rialOverview.body.legacy?.payment_total_minor, 30, 'legacy received cash is reported as whole rial ledger units');
+    equal(rialOverview.body.legacy?.refund_total_minor, 5, 'legacy refund cents are converted to whole rials for accounting reports');
+    for (const key of ['country','currency','timezone']) {
+      if (savedRegional.has(key)) setRegionalSetting(key, String(savedRegional.get(key) ?? ''));
+      else db.prepare('DELETE FROM settings WHERE key=?').run(key);
+    }
+
     const afterCutoverAdjustment = await request(app).post('/api/accounting/reconciliation/adjustments')
       .set(manager).set('Idempotency-Key', 'api-recon-adjustment-after-cutover')
       .send({ account_id: 'acct-cash-drawer', adjustment_date: '2099-01-01', verified_balance_minor: 1,
