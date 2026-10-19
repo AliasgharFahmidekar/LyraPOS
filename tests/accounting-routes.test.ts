@@ -451,6 +451,24 @@ async function main(): Promise<void> {
       JOIN accounting_accounts account ON account.id=line.account_id
       WHERE line.journal_entry_id=? AND account.account_type IN ('revenue','expense')
     `).get(adjustmentJournalId) as any).count, 0, 'reconciliation adjustment never posts to income or expense');
+    const liabilityBefore = db.prepare(`
+      SELECT COALESCE(SUM(line.credit_minor-line.debit_minor),0) AS balance_minor
+      FROM accounting_journal_lines line
+      JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id
+      WHERE line.account_id='acct-payables' AND entry.status='posted' AND entry.entry_date <= ?
+    `).get(adjustmentDate) as any;
+    const liabilityAdjustment = await request(app).post('/api/accounting/reconciliation/adjustments')
+      .set(manager).set('Idempotency-Key', 'api-recon-adjustment-payable')
+      .send({ ...adjustmentPayload, account_id: 'acct-payables',
+        verified_balance_minor: Number(liabilityBefore.balance_minor) + 250,
+        reason: 'Supplier statement verified against payable opening balance', source_reference: 'SUPPLIER-RECON-001' });
+    equal(liabilityAdjustment.status, 201, 'liability balance differences can be reconciled through the same controlled service');
+    equal(liabilityAdjustment.body.adjustment?.difference_minor, 250, 'liability adjustment records a positive credit-side difference');
+    const liabilityTargetLine = db.prepare('SELECT debit_minor,credit_minor FROM accounting_journal_lines WHERE journal_entry_id=? AND account_id=?')
+      .get(liabilityAdjustment.body.adjustment?.journal_entry_id, 'acct-payables') as any;
+    equal(liabilityTargetLine.debit_minor, 0, 'increased payable adjustment does not debit the liability account');
+    equal(liabilityTargetLine.credit_minor, 250, 'increased payable adjustment credits the liability account');
+
 
     const adjustmentRetry = await request(app).post('/api/accounting/reconciliation/adjustments')
       .set(manager).set('Idempotency-Key', 'api-recon-adjustment-001').send(adjustmentPayload);
@@ -496,7 +514,7 @@ async function main(): Promise<void> {
       'cash drawer pay-outs force manual review before interpreting the GL difference');
     equal(drawerMovementOverview.body.cash_checkpoints?.[0]?.unclassified_drawer_movement_count, 1,
       'reconciliation identifies unclassified cash drawer movements');
-    equal(drawerMovementOverview.body.adjustments?.length, 1, 'reconciliation lists a posted, traceable adjustment');
+    equal(drawerMovementOverview.body.adjustments?.length, 2, 'reconciliation lists both posted, traceable asset and liability adjustments');
 
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
