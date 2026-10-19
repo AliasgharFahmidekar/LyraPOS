@@ -352,9 +352,10 @@ async function main(): Promise<void> {
          delivery_charge,packaging_charge,service_charge,table_charge,takeaway_charge,round_off,
          total,paid_amount,balance,payment_status,payment_details,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run('ACCT-BILL-LEGACY-RECON-1', Number(legacyOrder.lastInsertRowid), 50, 0, '[]', '{}', 0,
-      0, 0, 0, 0, 0, 0, 50, 30, 20, 'partial', JSON.stringify([legacyPayment,
-        { payment_event_id: 'legacy-recon-wallet-1', method: 'wallet', amount: 20, timestamp: '2024-01-01T10:06:00.000Z' }]),
+    `).run('ACCT-BILL-LEGACY-RECON-1', Number(legacyOrder.lastInsertRowid), 55, 0, '[]', '{}', 0,
+      0, 0, 0, 0, 0, 0, 55, 55, 0, 'paid', JSON.stringify([legacyPayment,
+        { payment_event_id: 'legacy-recon-wallet-1', method: 'wallet', amount: 20, timestamp: '2024-01-01T10:06:00.000Z' },
+        { payment_event_id: 'legacy-recon-store-credit-1', method: 'store_credit', amount: 5, timestamp: '2024-01-01T10:07:00.000Z' }]),
       legacyStamp, legacyStamp);
     const sales = require('../main/accounting/sales');
     db.transaction(() => sales.postCollectionPaymentLines(db, Number(legacyBill.lastInsertRowid), [legacyPayment], 'accounting-api-manager'))();
