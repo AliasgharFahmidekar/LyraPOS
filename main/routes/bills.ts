@@ -29,7 +29,7 @@ import {
 import { applyPayableRounding } from '../services/tax-engine';
 import { calculateOrderTotals } from '../services/orders';
 import { sendEvent } from '../services/telemetry';
-import { finalizeBillSale, postCollectionPaymentLines } from '../accounting/sales';
+import { finalizeBillSale, hasAccountingRecordedMonetaryReceipt, postCollectionPaymentLines } from '../accounting/sales';
 import {
   getCurrencyFractionDigits,
   getCurrencyMinorUnitFactor,
@@ -516,7 +516,7 @@ router.post('/generate', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: 
       if (existingBill) {
         if (existingBill.split_group_id) return { bill: parseRowJson(existingBill), isNew: false };
         // Once an accounting snapshot exists, the bill is immutable financially.
-        if (existingBill.accounting_finalized_at) return { bill: parseRowJson(existingBill), isNew: false };
+        if (existingBill.accounting_finalized_at || hasAccountingRecordedMonetaryReceipt(db, existingBill.id)) return { bill: parseRowJson(existingBill), isNew: false };
         // Re-sync unpaid bill totals from order in case discount/adjustments changed.
         const orderSubtotal      = order.subtotal        || 0;
         const orderTaxAmount     = order.tax_amount      || 0;
@@ -1407,8 +1407,8 @@ export function syncUnpaidBillsForOrder(
   }
   const unpaidBills = bills.filter((bill) => bill.payment_status !== 'paid' || Number(bill.paid_amount || 0) === 0);
   if (unpaidBills.length === 0) return;
-  if (unpaidBills.some((bill) => bill.accounting_finalized_at)) {
-    throw Object.assign(new Error('This order has a financially finalized bill; reconcile an accounting adjustment before changing its commercial lines.'), { statusCode: 409 });
+  if (unpaidBills.some((bill) => bill.accounting_finalized_at || hasAccountingRecordedMonetaryReceipt(db, bill.id))) {
+    throw Object.assign(new Error('This order has a financially finalized bill or a posted monetary receipt; reconcile an accounting adjustment before changing its commercial lines.'), { statusCode: 409 });
   }
 
   const tenantCurrency = getTenantCurrency();
@@ -2311,6 +2311,9 @@ router.post('/:id/applyDiscount', requireRole(...ROLE_ACCESS.ownerManager), (req
     const exactTotal = Number(preRoundTotal.toFixed(decimals));
     const pack = getActiveCountryPack(tenantInfo.country);
     const { total: newTotal, adjustment: newRoundOff } = applyPayableRounding(exactTotal, pack, currency);
+    if (Math.round(newTotal * minorFactor) < Math.round(Number(bill.paid_amount || 0) * minorFactor)) {
+      return res.status(409).json({ error: 'The discounted total cannot be lower than money already received. Process a refund before reducing the bill further.' });
+    }
     const newBalance = Math.max(0, newTotal - (bill.paid_amount || 0));
 
     const updatedBill = withTxn(() => {
