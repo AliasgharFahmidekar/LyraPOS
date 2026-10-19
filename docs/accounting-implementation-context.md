@@ -1,6 +1,6 @@
 # LyraPOS accounting implementation context for AI contributors
 
-**Status on PR #19:** Phases 0–3 are implemented on the branch. Phase 4 Stage 1 adds manager-only manual other income, owner contributions and owner drawings using the existing double-entry ledger; current-head CI is the verification gate. Schema migration v105 provides an immutable bill snapshot, payment-account defaults and historical cutover marker. The authoritative rules and worked examples are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md). Only actual cash/card/custom money receipts post Dr mapped asset / Cr Sales Revenue; actual monetary refunds post Dr contra-revenue / Cr payout asset. Bill finalization itself creates no revenue journal. Loyalty wallet awards/redemptions/balance changes, wallet refunds, discounts and cashback create no accounting entries. Do not call the PR release-ready until the final-head workflow passes. Opening balances, owner contributions/drawings, manual other income and management reports are next phases. COGS/inventory valuation is deliberately out of the present scope; future result reports must be labelled “before COGS / excluding inventory cost.”
+**Status on PR #19:** Phases 0–3 and Phase 4 Stages 1–2 are implemented on the branch; final-head GitHub Actions are the verification/merge gate. Stage 1 adds manager-only manual other income, owner contributions and owner drawings through the existing double-entry ledger. Stage 2 adds a v106 opening-balance setup record, dedicated opening-equity balancing account, and read-only account transaction history/running balances. The authoritative sales/refund rules and worked examples are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md). Only actual cash/card/custom money receipts post Dr mapped liquid asset / Cr Sales Revenue; actual monetary refunds post Dr contra-revenue / Cr payout asset. Bill finalization itself creates no revenue journal. Loyalty wallet awards/redemptions/balance changes, wallet refunds, discounts and cashback create no accounting entries. Do not call the PR release-ready until the final-head workflow passes. Phase 4 Stage 3 (pre-cutover reconciliation) remains next. Inventory valuation/COGS is deliberately out of scope; reports must not claim net profit while it is missing.
 
 ## Read first
 
@@ -17,6 +17,19 @@ Before implementation, read:
 ### Phase 4 Stage 1 implementation contract
 
 Manual accounting activities reuse `accounting_journal_entries` and `accounting_journal_lines`; no second money ledger/table is introduced. `main/accounting/manual-activities.ts` supports three explicit event types: `other_income`, `owner_contribution`, and `owner_drawing`. Other income may credit only an active postable revenue account other than POS sales/returns/discount accounts. Owner contributions always credit `acct-owner-capital`; drawings always debit `acct-owner-drawings`. Both use an active liquid asset account on the other side. Every request requires a caller-provided idempotency key and posts the journal transactionally. Owner contributions are equity, never revenue; drawings are equity, never expense.
+
+### Phase 4 Stage 2 implementation contract
+
+Opening balances and account history reuse the existing ledger; the setup table is metadata for one opening balance per posting account, not a second movement ledger. Migration v106 is append-only and adds `acct-opening-balance-equity`, `accounting_opening_balances`, a unique account/source/idempotency relation, payload hash and database guards that reject updates/deletes. `main/accounting/opening-balances.ts` provides the opening-balance create/list operations and account transaction history.
+
+- API: `POST /api/accounting/opening-balances` requires manager/owner role, valid date, positive safe integer minor units, matching store currency and `Idempotency-Key`; `GET /api/accounting/opening-balances` lists recorded setup balances; `GET /api/accounting/accounts/:accountId/transactions` returns posted account movements, current balance and running balances. These are read/write through the existing manager-only accounting route group.
+- Each opening balance posts a balanced journal with the target asset/liability/equity account and the dedicated opening-balance equity offset. A retry with the same key and identical canonical payload returns the original; changed-payload retries conflict. A second opening balance for the same account is rejected; posted setup records are not editable in place.
+- Source classification is required and type/system-key validated. The existing inventory system account is rejected because inventory value cannot be inferred from quantity while valuation/COGS is deferred. Historical POS cash/payment/refund records are not backfilled automatically by this stage.
+- Regression coverage: fresh-install/legacy upgrade to v106, exact system account allowlist, table and immutability triggers; cash/payable/owner-equity journal sides; no income/expense from opening cash; mismatched classifications, deferred inventory, invalid accounts and duplicate requests; manager-only access; account-history filters/running balance; non-liquid asset rejection for manual activities/transfers/payment mappings.
+
+### Next stage
+
+Phase 4 Stage 3 is controlled pre-cutover reconciliation: show legacy audit exceptions, compare starting balances to existing operational history, and use traceable adjustment journals for differences. Do not silently rewrite historical POS events or mark balances fully reconciled until the exception path is visible.
 
 ## 1. Product boundary and verified Phase 0 discoveries
 
@@ -40,21 +53,21 @@ Phase 3 choices are resolved for this PR in [accounting-phase-3-policy-proposal.
 3. Each accepted cash/card/custom payment line posts the actual applied money as debit to its mapped asset and credit to Sales Revenue; actual monetary refunds debit contra-revenue and credit the payout asset. Loyalty and discounts are completely excluded.
 4. Store-specific integer minor units and source timestamps plus regional timezone/business-day rules govern amounts and dates.
 5. Migration v105 marks automatic cutover; no historical monetary receipt/refund is silently backfilled.
-6. Phase 4 Stage 1 implements manual other income and owner capital/drawings. Opening balances, account-level history, full source reconciliation and reports remain future work. COGS and inventory valuation are explicitly out of the requested basic scope.
+6. Phase 4 Stage 1 implements manual other income and owner capital/drawings. Pre-cutover reconciliation and reports remain future work. COGS and inventory valuation are explicitly out of the requested basic scope.
 
 Do not infer statutory compliance or claim full net profit when cost of goods has not been recorded.
 
 ## 2. Current architecture and migration rules
 
 - Database: `main/db.ts`, using the active `better-sqlite3` connection.
-- Migration registry: `MIGRATIONS` in `main/db.ts`; migrations 100–104 provide the ledger, expense lifecycle, audit and transfer foundation; migration 105 adds the sale-finalization fields/SQL guards, internal tax liability, payment-method defaults and `accounting_cutover_at`. Historical/merged migrations remain immutable.
+- Migration registry: `MIGRATIONS` in `main/db.ts`; migrations 100–104 provide the ledger, expense lifecycle, audit and transfer foundation; migration 105 adds the sale-finalization fields/SQL guards, internal tax liability, payment-method defaults and `accounting_cutover_at`; migration 106 adds opening-balance setup and its balancing equity account. Historical/merged migrations remain immutable.
 - Ledger domain service: `main/accounting/ledger.ts`. It receives the caller's database connection; do not open a second connection.
 - Automated coverage: `tests/accounting-ledger.test.ts` (`npm run test:accounting-ledger`), `tests/accounting-expenses.test.ts` (`npm run test:accounting-expenses`), and manager-route authorization/idempotency coverage in `tests/accounting-routes.test.ts` (`npm run test:accounting-routes`).
 - Test harness: `tests/run-electron-node-test.cjs`.
 - Default suite: root `package.json` includes the focused ledger suite.
 - Existing frontend: `frontend/src/`, Next.js/React, shared components/styles, localization, and RTL support.
 
-Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, existing supported upgrade paths through v105, and populated pre-cutover databases, preserving operational records and ensuring old bills are not silently journaled. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard; migration 103 adds idempotency columns/indexes/triggers and migration 104 adds reversal columns/indexes/triggers without rewriting old expense records.
+Migrations are append-only. Never edit historical migrations, drop customer data, reset a live database, or bypass the built-in pre-migration backup. Tests must cover a fresh install, existing supported upgrade paths through v106, and populated pre-cutover databases, preserving operational records and ensuring old bills are not silently journaled. Migration 100 is additive: it does not rewrite sales, payments, stock, cash or recipe tables; migration 101 updates only the system-account identity guard; migration 103 adds idempotency columns/indexes/triggers and migration 104 adds reversal columns/indexes/triggers without rewriting old expense records.
 
 ## 3. Schema delivered by migration 100
 
