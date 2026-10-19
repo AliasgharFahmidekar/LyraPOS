@@ -1,6 +1,6 @@
 # Accounting foundation: architecture and implementation roadmap
 
-**Status:** Phases 0–3 are implemented on PR #19. Phase 4 Stage 1 is now implemented on the same branch: manager-only manual other income, owner contributions and owner drawings, all posted through the existing double-entry ledger with idempotency and activity history. CI for the current head must pass before this stage is considered verified or merge-ready. Accounting records only actual money received/refunded through cash, card or custom payment methods; loyalty-wallet activity and discounts are excluded. The authoritative current rules and worked scenarios are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md); [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md) records the resolved policy rather than an unanswered proposal.
+**Status on PR #19:** Phases 0–3 are implemented. Phase 4 Stage 1 (manual other income, owner contributions and owner drawings) and Stage 2 (opening balances and account-level transaction history) are implemented on the branch and awaiting current-head CI verification. Stage 2 uses the existing double-entry ledger, an append-only migration v106, idempotency, SQL immutability guards and audit logging. Only actual money received/refunded through cash, card or custom payment methods is recorded as POS financial activity; loyalty-wallet activity, discounts and cashback are excluded. Opening balances and owner capital never post as sales income; inventory valuation/COGS remains deferred. The authoritative rules and worked examples are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md); [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md) records resolved policy.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -207,12 +207,25 @@ Acceptance criteria:
 - Historical records at/before cutover are not backfilled. Migration/restore and all regression tests must pass.
 - The default suite must cover cash, card, custom method, wallet-only payment, mixed wallet plus real payment, discounts, refunds, idempotency and pre-cutover exceptions.
 
-### Phase 4 — Manual income, capital and opening balances (next priority)
-- Add a manager-friendly manual other-income flow mapped to an income account, distinct from automatic POS sales.
-- Add owner contribution and owner drawing flows with equity accounts; these can never post to income/expense by default.
-- Add validated opening balances for cash, bank, receivables, liabilities and equity. Require a source classification and balancing opening-equity/appropriate-counter-account; do not treat starting cash as a sale.
-- Add account-level transaction history and controlled reconciliation of pre-cutover audit exceptions before balances are described as complete.
-- Acceptance: every operation creates one balanced journal; opening cash and owner capital do not change income or profit; account balances reconcile to opening balances plus posted movements.
+### Phase 4 — Manual activities, opening balances and account history
+
+**Stage 1 — manual income and owner equity (implemented):**
+- Manager-only manual other income uses an eligible revenue account distinct from POS sales revenue/returns/discounts.
+- Owner contributions credit the Owner Capital equity account; owner drawings debit Owner Drawings equity. Neither is income or operating expense.
+- All activities post immediately through the existing double-entry ledger, with valid dates, configured currency, idempotency, immutable posted journals and audit history.
+
+**Stage 2 — opening balances and account transaction history (implemented; current-head CI gate pending):**
+- Add opening balances for active postable asset, liability and equity accounts using integer currency-minor units and the store's configured currency. Source classification must match the account; one opening record is allowed per account and an identical idempotency retry returns the original record.
+- Post each opening record as a balanced journal on its opening date, offset through a dedicated Opening balance equity account. This is a setup/balancing account, not sales income or owner contributions. Existing historical events are not backfilled.
+- Do not derive inventory value from quantity: opening inventory valuation remains deferred until a costing policy is chosen.
+- Expose the opening-balance list and a read-only account transaction history with posted movements, date filters, account balance and running balance. Reuse existing journal headers/lines; do not create a parallel transaction ledger.
+- Migration v106 adds the opening-equity account, the opening-balance setup table, unique/idempotency constraints and update/delete guards. Tests cover fresh/legacy migration upgrades, balanced opening journals, non-income treatment, source/account validation, idempotency, duplicate prevention, role authorization, and running balances.
+
+**Stage 3 — pre-cutover reconciliation (next):**
+- Surface pre-cutover audit exceptions and unmatched legacy cash/bank activity; provide controlled adjustments instead of silently backfilling historical POS events.
+- Reconcile opening balances and the post-cutover ledger before describing the accounting balance as complete.
+
+**Phase 4 acceptance:** every recorded activity or opening balance creates one balanced posted journal; rejected requests leave the ledger unchanged; opening cash and owner capital never count as sales or profit; account balances reconcile to posted movements; corrections to posted/opening records use reviewed adjustment journals, never silent edits.
 
 ### Phase 5 — Basic management reports (without COGS)
 - Report POS Sales Revenue net of stored tax, manual other income, recorded/posted expenses, refunds, cash/bank balances and ledger movements by date/business day.
