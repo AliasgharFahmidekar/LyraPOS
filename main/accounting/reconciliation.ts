@@ -191,6 +191,8 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
   const cashOpening = db.prepare(`
     SELECT opening_date, created_at FROM accounting_opening_balances WHERE account_id='acct-cash-drawer' LIMIT 1
   `).get() as { opening_date: string; created_at: string } | undefined;
+  const cashMapping = db.prepare("SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key='cash'").get() as { account_id: string } | undefined;
+  const cashMappingMatchesDrawer = cashMapping?.account_id === 'acct-cash-drawer';
   const closures = db.prepare(`
     SELECT id, scope, business_date, period_start, period_end, opening_float_cents,
       expected_cash_cents, counted_cash_cents, variance_cents, gross_collected_cents,
@@ -235,7 +237,8 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
       : !openingPredatesClose ? 'close_before_opening_balance'
         : !canCompare ? 'balance_not_comparable'
           : drawerMovementCount! > 0 ? 'requires_review_drawer_movements'
-            : difference === 0 ? 'matched' : 'difference';
+            : !cashMappingMatchesDrawer ? 'requires_review_cash_mapping'
+              : difference === 0 ? 'matched' : 'difference';
     return {
       ...closure,
       ledger_balance_minor: canCompare ? ledgerBalanceMinor : null,
@@ -265,6 +268,8 @@ export function getAccountingReconciliationOverview(db: DB, input: { limit?: unk
     },
     audit_exceptions: auditExceptions,
     cash_checkpoints: cashCheckpoints,
+    cash_mapping_account_id: cashMapping?.account_id ?? null,
+    cash_mapping_matches_drawer: cashMappingMatchesDrawer,
     adjustments: adjustmentRows,
     adjustment_account_available: !!db.prepare("SELECT 1 FROM accounting_accounts WHERE system_key='reconciliation_adjustment_equity' AND is_active=1 AND is_postable=1 AND account_type='equity'").get(),
   };
