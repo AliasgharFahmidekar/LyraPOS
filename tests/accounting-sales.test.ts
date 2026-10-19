@@ -180,6 +180,13 @@ try {
     const ignored = sales.postCommittedRefund(db, Number(walletRefund.lastInsertRowid), 'test-owner-accounting');
     equal(ignored.posted, false, 'wallet refund is ignored');
     equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='refund'").get().n, 1, 'wallet refund creates no journal');
+    const storeCreditRefund = db.prepare(
+      'INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(billId, 2500, 'store_credit', 'non-monetary store credit refund', 'test-owner-accounting', 'test-owner-accounting', now());
+    const ignoredStoreCredit = sales.postCommittedRefund(db, Number(storeCreditRefund.lastInsertRowid), 'test-owner-accounting');
+    equal(ignoredStoreCredit.posted, false, 'store-credit refund is ignored as non-monetary');
+    equal(ignoredStoreCredit.reason, 'non_monetary_refund_ignored', 'store-credit refund returns the explicit non-monetary result');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='refund'").get().n, 1, 'store-credit refund creates no journal');
     closeDatabase();
   }
 
