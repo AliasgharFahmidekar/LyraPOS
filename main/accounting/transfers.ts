@@ -31,7 +31,7 @@ function transferAccount(db: DB, value: unknown): string {
   if (!row) fail('account_not_found', 'Accounting account was not found.', 404);
   if (row.account_type !== 'asset') fail('invalid_transfer_account_type', 'Transfers can only use asset accounts.');
   if (!['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(row.system_key ?? '')) {
-    fail('invalid_transfer_account_type', 'Transfers can only use cash, bank, payment-clearing, or custom liquid-asset accounts.');
+    fail('invalid_transfer_account_type', 'Transfers can only use configured cash, bank, or payment-clearing accounts; unclassified custom assets are not eligible.');
   }
   if (row.is_active !== 1) fail('account_inactive', 'Choose an active accounting account.', 409);
   if (row.is_postable !== 1) fail('account_not_postable', 'Choose a posting account, not a grouping account.', 409);
