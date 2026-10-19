@@ -138,6 +138,18 @@ async function main(): Promise<void> {
     equal((db.prepare("SELECT status FROM accounting_journal_entries WHERE id=?").get(openingCash.body.opening_balance?.journal_entry_id) as any).status,
       'posted', 'opening balance is posted through the existing ledger');
     const openingCashJournalId = openingCash.body.opening_balance?.journal_entry_id;
+    require('node:assert/strict').throws(
+      () => db.prepare('UPDATE accounting_opening_balances SET amount_minor=? WHERE id=?').run(125001, openingCash.body.opening_balance?.id),
+      /ACCOUNTING_OPENING_BALANCE_IMMUTABLE/,
+      'opening-balance setup records cannot be silently edited',
+    ); assertions++;
+    require('node:assert/strict').throws(
+      () => db.prepare('DELETE FROM accounting_opening_balances WHERE id=?').run(openingCash.body.opening_balance?.id),
+      /ACCOUNTING_OPENING_BALANCE_IMMUTABLE/,
+      'opening-balance setup records cannot be deleted',
+    ); assertions++;
+    equal((db.prepare('SELECT amount_minor FROM accounting_opening_balances WHERE id=?').get(openingCash.body.opening_balance?.id) as any).amount_minor,
+      125000, 'rejected direct mutations preserve the recorded opening amount');
     const openingCashTotals = db.prepare("SELECT SUM(debit_minor) AS debit, SUM(credit_minor) AS credit FROM accounting_journal_lines WHERE journal_entry_id=?")
       .get(openingCashJournalId) as any;
     equal(openingCashTotals.debit, 125000, 'cash opening journal debits the exact amount');
