@@ -646,6 +646,14 @@ async function main(): Promise<void> {
     equal((await request(app).post('/api/accounting/periods/close').set(manager).send({
       period_start: '2020-01-01', period_end: '2020-01-01', reason: 'Changed reason',
     })).status, 409, 'a changed close retry cannot silently reuse the existing close record');
+    const sameCloseRetry = await request(app).post('/api/accounting/periods/close').set(manager).send({
+      period_start: '2020-01-01', period_end: '2020-01-01', reason: 'Automated period-close regression test',
+    });
+    equal(sameCloseRetry.status, 201, 'identical period-close retries are accepted idempotently');
+    equal(sameCloseRetry.body.period.duplicate, true, 'identical period-close retry is identified as duplicate');
+    equal((await request(app).post('/api/accounting/periods/close').set(manager).send({
+      period_start: '2019-12-31', period_end: '2020-01-02', reason: 'Overlapping period',
+    })).status, 409, 'overlapping closed periods are rejected');
     let directUpdateBlocked = false;
     db.prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, status) VALUES (?, ?, ?, ?, ?, 'draft')")
       .run('closed-period-direct-update', 'JE-CLOSED-DIRECT', '2020-01-01', 'Bypass attempt', 'INR');
