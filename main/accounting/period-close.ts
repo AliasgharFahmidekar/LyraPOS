@@ -42,6 +42,9 @@ export function closeAccountingPeriod(db: DB, input: any, actorId: string | null
       if (existing.close_reason !== reason) fail('period_close_conflict', 'This period is already closed with a different reason.', 409);
       return { ...existing, duplicate: true };
     }
+    const overlap = db.prepare("SELECT id FROM accounting_period_closures WHERE status='closed' AND period_start <= ? AND period_end >= ? AND id != ? LIMIT 1")
+      .get(end, start, existing?.id ?? '') as { id: string } | undefined;
+    if (overlap) fail('period_overlap', 'This date range overlaps another closed accounting period.', 409);
     if (existing?.status === 'reopened') {
       const draftsBeforeReclose = db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE status='draft' AND entry_date BETWEEN ? AND ?")
         .get(start, end) as { count: number };
