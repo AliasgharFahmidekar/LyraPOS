@@ -82,8 +82,8 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
   const cutoff = cutoffRow?.value || null;
   const isPreCutover = (createdAt: string | null): boolean => {
     if (!cutoff || !createdAt) return false;
-    const cutoffMs = Date.parse(cutoff.replace(' ', 'T') + (cutoff.includes('Z') || /[+-]\\d\\d:\\d\\d$/.test(cutoff) ? '' : 'Z'));
-    const createdMs = Date.parse(createdAt.replace(' ', 'T') + (createdAt.includes('Z') || /[+-]\\d\\d:\\d\\d$/.test(createdAt) ? '' : 'Z'));
+    const cutoffMs = Date.parse(cutoff.replace(' ', 'T') + (cutoff.includes('Z') || /[+-]\d\d:\d\d$/.test(cutoff) ? '' : 'Z'));
+    const createdMs = Date.parse(createdAt.replace(' ', 'T') + (createdAt.includes('Z') || /[+-]\d\d:\d\d$/.test(createdAt) ? '' : 'Z'));
     return Number.isFinite(cutoffMs) && Number.isFinite(createdMs) && createdMs <= cutoffMs;
   };
   const events: SourceEvent[] = [];
