@@ -65,11 +65,11 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
     'SELECT id, account_code, name, account_type, normal_balance, is_active, is_postable FROM accounting_accounts ORDER BY account_code, id',
   ).all() as Array<{ id: string; account_code: string; name: string; account_type: string; normal_balance: string; is_active: number; is_postable: number }>;
 
-  const openingQuery = db.prepare(
+  const openingQuery = from ? db.prepare(
     "SELECT COALESCE(SUM(CASE WHEN account.normal_balance='debit' THEN line.debit_minor-line.credit_minor ELSE line.credit_minor-line.debit_minor END),0) AS balance_minor " +
     "FROM accounting_journal_lines line JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id " +
-    "JOIN accounting_accounts account ON account.id=line.account_id WHERE entry.status='posted' AND line.account_id=? AND (? IS NULL OR entry.entry_date < ?)",
-  );
+    "JOIN accounting_accounts account ON account.id=line.account_id WHERE entry.status='posted' AND line.account_id=? AND entry.entry_date < ?",
+  ) : null;
   const periodQuery = db.prepare(
     "SELECT COALESCE(SUM(line.debit_minor),0) AS debit_minor, COALESCE(SUM(line.credit_minor),0) AS credit_minor " +
     "FROM accounting_journal_lines line JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id " +
@@ -82,7 +82,7 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
   );
 
   const resultAccounts = accounts.map((account) => {
-    const opening = safeTotal((openingQuery.get(account.id, from, from) as { balance_minor: number }).balance_minor, 'opening balance');
+    const opening = from ? safeTotal((openingQuery!.get(account.id, from) as { balance_minor: number }).balance_minor, 'opening balance') : 0;
     const movement = periodQuery.get(account.id, from, from, to, to) as { debit_minor: number; credit_minor: number };
     const debit = safeTotal(movement.debit_minor, 'period debits');
     const credit = safeTotal(movement.credit_minor, 'period credits');
@@ -107,13 +107,15 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
   const integrityParams: unknown[] = [];
   if (from) { integrityWhere.push('entry.entry_date >= ?'); integrityParams.push(from); }
   if (to) { integrityWhere.push('entry.entry_date <= ?'); integrityParams.push(to); }
+  const integrityBase = ' FROM accounting_journal_entries entry LEFT JOIN accounting_journal_lines line ON line.journal_entry_id=entry.id WHERE ' +
+    integrityWhere.join(' AND ') + ' GROUP BY entry.id, entry.entry_number, entry.entry_date HAVING ' +
+    'COALESCE(SUM(line.debit_minor),0) <> COALESCE(SUM(line.credit_minor),0) OR COUNT(line.id) < 2';
+  const integrityCountSql = 'SELECT COUNT(*) AS count FROM (SELECT entry.id' + integrityBase + ')';
+  const integrityCount = Number((db.prepare(integrityCountSql).get(...integrityParams) as { count: number }).count);
   const integrityRows = db.prepare(
     'SELECT entry.id, entry.entry_number, entry.entry_date, COALESCE(SUM(line.debit_minor),0) AS debit_minor, ' +
     'COALESCE(SUM(line.credit_minor),0) AS credit_minor, COUNT(line.id) AS line_count ' +
-    'FROM accounting_journal_entries entry LEFT JOIN accounting_journal_lines line ON line.journal_entry_id=entry.id ' +
-    'WHERE ' + integrityWhere.join(' AND ') + ' GROUP BY entry.id, entry.entry_number, entry.entry_date ' +
-    'HAVING COALESCE(SUM(line.debit_minor),0) <> COALESCE(SUM(line.credit_minor),0) OR COUNT(line.id) < 2 ' +
-    'ORDER BY entry.entry_date, entry.entry_number LIMIT 100',
+    integrityBase + ' ORDER BY entry.entry_date, entry.entry_number LIMIT 100',
   ).all(...integrityParams) as Array<{ id: string; entry_number: string; entry_date: string; debit_minor: number; credit_minor: number; line_count: number }>;
   const countQuery = db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries entry WHERE entry.status='posted'" +
     (from ? ' AND entry.entry_date >= ?' : '') + (to ? ' AND entry.entry_date <= ?' : ''));
@@ -138,7 +140,7 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
     integrity: {
       balanced: integrityRows.length === 0,
       posted_journal_count: journalCount,
-      unbalanced_journal_count: integrityRows.length,
+      unbalanced_journal_count: integrityCount,
       unbalanced_journals: integrityRows.map((row) => ({
         ...row,
         debit_minor: safeTotal(row.debit_minor, 'journal debit'),
