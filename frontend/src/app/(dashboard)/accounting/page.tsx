@@ -1,12 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import { useLocale } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import { hasRole, ROLE_ACCESS } from '@shared/role-permissions';
 import { AccountingSettings } from '@/components/settings/AccountingSettings';
+import { AccountingReports } from '@/components/settings/AccountingReports';
 
 export default function AccountingPage() {
   const locale = useLocale();
+  const [view, setView] = useState<'operations' | 'reports'>('operations');
+  const isPersian = locale.toLowerCase().startsWith('fa');
   const role = useAuthStore((state) => state.currentTenant?.role);
   const isAdmin = hasRole(role, ROLE_ACCESS.ownerManager);
 
@@ -23,7 +27,15 @@ export default function AccountingPage() {
 
   return (
     <div className="min-h-0 w-full overflow-y-auto">
-      <AccountingSettings isAdmin={isAdmin} mode="operations" />
+      <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label={isPersian ? 'بخش‌های حسابداری' : 'Accounting sections'} dir={isPersian ? 'rtl' : 'ltr'}>
+        <button type="button" role="tab" aria-selected={view === 'operations'} onClick={() => setView('operations')} className={view === 'operations' ? 'rounded-lg border border-brand bg-brand/10 px-4 py-2 text-sm text-brand' : 'rounded-lg border border-border px-4 py-2 text-sm'}>
+          {isPersian ? 'عملیات حسابداری' : 'Accounting operations'}
+        </button>
+        <button type="button" role="tab" aria-selected={view === 'reports'} onClick={() => setView('reports')} className={view === 'reports' ? 'rounded-lg border border-brand bg-brand/10 px-4 py-2 text-sm text-brand' : 'rounded-lg border border-border px-4 py-2 text-sm'}>
+          {isPersian ? 'گزارش‌های مالی' : 'Financial reports'}
+        </button>
+      </div>
+      {view === 'reports' ? <AccountingReports /> : <AccountingSettings isAdmin={isAdmin} mode="operations" />}
     </div>
   );
 }
