@@ -216,14 +216,14 @@ export function createDraftJournalEntry(
   input: CreateDraftJournalEntryInput,
 ): AccountingJournalEntryResult {
   const normalized = normalizeAndValidate(input);
-  const closedPeriod = db.prepare("SELECT 1 FROM accounting_period_closures WHERE status='closed' AND ? BETWEEN period_start AND period_end LIMIT 1").get(normalized.entryDate);
-  if (closedPeriod) fail('period_closed', 'Accounting period is closed; reopen it with a reason before recording or posting entries.');
   return db.transaction((): AccountingJournalEntryResult => {
     const existing = findExistingEntry(db, normalized);
     if (existing) {
       return { id: existing.id, entryNumber: existing.entry_number, status: existing.status, duplicate: true };
     }
 
+    const closedPeriod = db.prepare("SELECT 1 FROM accounting_period_closures WHERE status='closed' AND ? BETWEEN period_start AND period_end LIMIT 1").get(normalized.entryDate);
+    if (closedPeriod) fail('period_closed', 'Accounting period is closed; reopen it with a reason before recording or posting entries.');
     assertAccountsCanBePosted(db, normalized.lines);
     db.prepare("INSERT OR IGNORE INTO accounting_sequences (name, value) VALUES ('journal-entry', 0)").run();
     db.prepare('UPDATE accounting_sequences SET value = value + 1 WHERE name = ?').run('journal-entry');
