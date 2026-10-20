@@ -79,7 +79,13 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
   }
 
   const cutoffRow = db.prepare("SELECT value FROM settings WHERE key='accounting_cutover_at'").get() as { value: string | null } | undefined;
-  const cutoff = cutoffRow?.value ? cutoffRow.value.slice(0, 10) : null;
+  const cutoff = cutoffRow?.value || null;
+  const isPreCutover = (createdAt: string | null): boolean => {
+    if (!cutoff || !createdAt) return false;
+    const cutoffMs = Date.parse(cutoff.replace(' ', 'T') + (cutoff.includes('Z') || /[+-]\\d\\d:\\d\\d$/.test(cutoff) ? '' : 'Z'));
+    const createdMs = Date.parse(createdAt.replace(' ', 'T') + (createdAt.includes('Z') || /[+-]\\d\\d:\\d\\d$/.test(createdAt) ? '' : 'Z'));
+    return Number.isFinite(cutoffMs) && Number.isFinite(createdMs) && createdMs <= cutoffMs;
+  };
   const events: SourceEvent[] = [];
 
   const bills = db.prepare(
@@ -109,7 +115,7 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
         events.push({ event_type: 'receipt', source_id: 'bill:' + String(bill.id), event_date: eventDate, amount, method, status: 'missing_source_identity', journal_entry_ids: [], reason: 'Monetary payment line has no stable payment_event_id; no automatic posting or repair was attempted.' });
         continue;
       }
-      if (cutoff && bill.created_at && bill.created_at.slice(0, 10) <= cutoff) {
+      if (isPreCutover(bill.created_at)) {
         events.push({ event_type: 'receipt', source_id: String(bill.id) + ':' + eventId, event_date: eventDate, amount, method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Historical source event predates or falls on the accounting cutover date and is not automatically backfilled.' });
         continue;
       }
@@ -124,7 +130,7 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
   for (const refund of refunds) {
     if (isWallet(refund.method)) continue;
     if (!inDateRange(refund.created_at, from, to)) continue;
-    if (cutoff && refund.bill_created_at && refund.bill_created_at.slice(0, 10) <= cutoff) {
+    if (isPreCutover(refund.bill_created_at)) {
       events.push({ event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at, amount: Number(refund.amount_cents), method: refund.method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Refund belongs to a pre-cutover bill; historical refunds are not automatically backfilled.' });
       continue;
     }
