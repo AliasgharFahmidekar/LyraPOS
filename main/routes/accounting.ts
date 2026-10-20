@@ -9,6 +9,7 @@ import { resolveTenantCurrency } from '../countries';
 import { createManualAccountingActivity, listManualAccountingActivities } from '../accounting/manual-activities';
 import { createOpeningBalance, listAccountTransactionHistory, listOpeningBalances } from '../accounting/opening-balances';
 import { createReconciliationAdjustment, getAccountingReconciliationOverview } from '../accounting/reconciliation';
+import { getAccountingManagementReport } from '../accounting/reports';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -58,6 +59,10 @@ router.post('/opening-balances', managerOnly, (req, res) => {
 });
 router.get('/accounts/:accountId/transactions', managerOnly, (req, res) => {
   try { res.json(listAccountTransactionHistory(getDatabase(), String(req.params.accountId), req.query)); }
+  catch (error) { respondError(res, error); }
+});
+router.get('/reports', managerOnly, (req, res) => {
+  try { res.json(getAccountingManagementReport(getDatabase(), req.query)); }
   catch (error) { respondError(res, error); }
 });
 router.get('/reconciliation', managerOnly, (req, res) => {
