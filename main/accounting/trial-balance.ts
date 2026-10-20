@@ -43,7 +43,7 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
   accounts: Array<{
     id: string; account_code: string; name: string; account_type: string;
     normal_balance: string; is_active: number; is_postable: number;
-    opening_balance_minor: number; period_debit_minor: number; period_credit_minor: number;
+    opening_balance_minor: number; opening_debit_minor: number; opening_credit_minor: number; period_debit_minor: number; period_credit_minor: number;
     closing_balance_minor: number; closing_debit_minor: number; closing_credit_minor: number;
   }>;
   totals: {
@@ -94,6 +94,8 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
     return {
       ...account,
       opening_balance_minor: openingDebit - openingCredit,
+      opening_debit_minor: openingDebit,
+      opening_credit_minor: openingCredit,
       period_debit_minor: debit,
       period_credit_minor: credit,
       closing_balance_minor: closing,
@@ -125,8 +127,8 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
   const journalCount = Number((countQuery.get(...countParams) as { count: number }).count);
 
   const totals = resultAccounts.reduce((acc, account) => ({
-    opening_debit_minor: acc.opening_debit_minor + Math.max(0, account.opening_balance_minor),
-    opening_credit_minor: acc.opening_credit_minor + Math.max(0, -account.opening_balance_minor),
+    opening_debit_minor: acc.opening_debit_minor + account.opening_debit_minor,
+    opening_credit_minor: acc.opening_credit_minor + account.opening_credit_minor,
     period_debit_minor: acc.period_debit_minor + account.period_debit_minor,
     period_credit_minor: acc.period_credit_minor + account.period_credit_minor,
     closing_debit_minor: acc.closing_debit_minor + account.closing_debit_minor,
