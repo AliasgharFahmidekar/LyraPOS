@@ -6297,8 +6297,27 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 108,
+    name: 'accounting_tax_payment_expense_account',
+    up: () => {
+      // Under LyraPOS's cash-received bookkeeping policy, sales receipts are
+      // recognized from actual money received. When tax is later paid, that
+      // payment is explicitly recorded as an expense rather than retroactively
+      // reallocating bill-level tax snapshots out of earlier receipts.
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable, description) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1, ?)',
+      ).run(
+        'acct-tax-expenses', 'tax_expenses', '5040', 'Taxes paid', 'expense', 'debit', 'acct-expenses',
+        'Cash-basis management expense for tax payments actually made. This is not a statutory tax-liability calculation.',
+      );
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_expense_categories (id, name, expense_account_id, is_active) VALUES (?, ?, ?, 1)',
+      ).run('expense-category-tax-payments', 'Taxes paid', 'acct-tax-expenses');
+    },
+  },
 ];
- 
+
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
   if (buildingIdealSchema) return;
   let targetPath = '';
