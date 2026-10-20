@@ -41,13 +41,17 @@ type ManagementReport = {
     sales_revenue_less_refunds_minor: number;
     other_income_minor: number;
     posted_expenses_minor: number;
+    tax_payments_expense_minor: number;
     result_before_cogs_minor: number;
+  };
+  reporting_policy: {
+    sales_revenue_basis: 'actual_monetary_receipts';
+    tax_treatment: 'tax_payments_are_expenses_when_paid';
+    message: string;
   };
   profit_limitations: {
     cogs_available: boolean;
     net_profit_available: boolean;
-    tax_allocated_to_money_receipts: boolean;
-    net_of_stored_tax_available: boolean;
     message: string;
   };
   liquid_accounts: LiquidAccount[];
@@ -79,10 +83,11 @@ export function AccountingReports() {
     netSales: 'درآمد فروش پس از برگشت',
     otherIncome: 'سایر درآمدهای ثبت‌شده',
     expenses: 'هزینه‌های ثبت‌شده در دفتر کل',
+    taxPayments: 'مالیات پرداخت‌شده (هزینه)',
     result: 'نتیجه پیش از بهای تمام‌شده',
     notNetProfit: 'این عدد سود خالص نیست.',
     cogsWarning: 'بهای تمام‌شده و ارزش مالی موجودی کالا هنوز محاسبه نمی‌شود؛ بنابراین سود خالص نمایش داده نمی‌شود.',
-    taxWarning: 'مالیات ذخیره‌شده در صورتحساب‌ها در دفتر کل به دریافت‌های واقعی تخصیص داده نمی‌شود. به همین دلیل محاسبه درآمد پس از مالیات فعلاً در دسترس نیست؛ این مبلغ را از درآمد فروش کم نکنید.',
+    taxPolicy: 'درآمد فروش بر اساس پول واقعی دریافت‌شده محاسبه می‌شود. مالیات زمانی که واقعاً پرداخت شود، به‌عنوان هزینه ثبت می‌شود و دوباره از درآمد فروش کم نمی‌شود.',
     excluded: 'آورده و برداشت مالک، مانده افتتاحیه و انتقال بین حساب‌ها در درآمد یا هزینه محاسبه نشده‌اند.',
     liquidAccounts: 'مانده حساب‌های نقدی، بانکی و واسط',
     account: 'حساب',
@@ -115,10 +120,11 @@ export function AccountingReports() {
     netSales: 'Sales revenue after refunds',
     otherIncome: 'Posted other income',
     expenses: 'Posted ledger expenses',
+    taxPayments: 'Taxes paid (expense)',
     result: 'Result before cost of goods sold',
     notNetProfit: 'This is not net profit.',
     cogsWarning: 'Inventory valuation and cost of goods sold (COGS) are not calculated yet, so net profit is unavailable.',
-    taxWarning: 'Stored bill tax is not allocated to actual cash-received journal events. Revenue after tax is therefore unavailable; do not subtract the snapshot tax from ledger revenue.',
+    taxPolicy: 'Sales revenue is based on actual money received. Tax is recorded as an expense when it is actually paid and is not deducted from sales revenue a second time.',
     excluded: 'Owner contributions/drawings, opening balances, and inter-account transfers are excluded from income and expense.',
     liquidAccounts: 'Cash, bank and clearing balances',
     account: 'Account',
@@ -200,6 +206,7 @@ export function AccountingReports() {
           [t.netSales, report.summary.sales_revenue_less_refunds_minor],
           [t.otherIncome, report.summary.other_income_minor],
           [t.expenses, report.summary.posted_expenses_minor],
+          [t.taxPayments, report.summary.tax_payments_expense_minor],
           [t.result, report.summary.result_before_cogs_minor],
         ].map(([label, value]) => <div key={String(label)} className={cardClass}>
           <p className="text-sm text-muted-foreground">{label}</p>
@@ -211,7 +218,7 @@ export function AccountingReports() {
       <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
         <p className="font-semibold">{t.notNetProfit}</p>
         <p className="mt-1">{t.cogsWarning}</p>
-        <p className="mt-1">{t.taxWarning}</p>
+        <p className="mt-1">{t.taxPolicy}</p>
         <p className="mt-1">{t.excluded}</p>
       </div>
 
