@@ -32,7 +32,8 @@ function configuredCurrency(db: DB): { currencyCode: string; fractionDigits: num
 
 /**
  * Read-only trial balance computed only from posted journal lines.
- * Opening and closing values use each account's configured normal balance.
+ * Signed balances use the conventional trial-balance sign: debit positive, credit negative;
+ * normal_balance remains account metadata and must not flip the ledger's debit/credit arithmetic.
  * It checks journal integrity but never mutates or repairs ledger data.
  */
 export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?: unknown } = {}): {
@@ -66,7 +67,7 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
   ).all() as Array<{ id: string; account_code: string; name: string; account_type: string; normal_balance: string; is_active: number; is_postable: number }>;
 
   const openingQuery = from ? db.prepare(
-    "SELECT COALESCE(SUM(CASE WHEN account.normal_balance='debit' THEN line.debit_minor-line.credit_minor ELSE line.credit_minor-line.debit_minor END),0) AS balance_minor " +
+    "SELECT COALESCE(SUM(line.debit_minor-line.credit_minor),0) AS balance_minor " +
     "FROM accounting_journal_lines line JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id " +
     "JOIN accounting_accounts account ON account.id=line.account_id WHERE entry.status='posted' AND line.account_id=? AND entry.entry_date < ?",
   ) : null;
@@ -76,7 +77,7 @@ export function getAccountingTrialBalance(db: DB, filters: { from?: unknown; to?
     "WHERE entry.status='posted' AND line.account_id=? AND (? IS NULL OR entry.entry_date >= ?) AND (? IS NULL OR entry.entry_date <= ?)",
   );
   const closingQuery = db.prepare(
-    "SELECT COALESCE(SUM(CASE WHEN account.normal_balance='debit' THEN line.debit_minor-line.credit_minor ELSE line.credit_minor-line.debit_minor END),0) AS balance_minor " +
+    "SELECT COALESCE(SUM(line.debit_minor-line.credit_minor),0) AS balance_minor " +
     "FROM accounting_journal_lines line JOIN accounting_journal_entries entry ON entry.id=line.journal_entry_id " +
     "JOIN accounting_accounts account ON account.id=line.account_id WHERE entry.status='posted' AND line.account_id=? AND (? IS NULL OR entry.entry_date <= ?)",
   );
