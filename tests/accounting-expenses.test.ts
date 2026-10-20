@@ -28,10 +28,13 @@ function resetDb(): any {
 }
 try {
   const db = resetDb();
-  equal(getCurrentSchemaVersion(), 107, 'fresh install reaches schema v107');
+  equal(getCurrentSchemaVersion(), 108, 'fresh install reaches schema v108');
   for (const table of ['accounting_expense_categories','accounting_payment_method_mappings','accounting_expenses']) {
     ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'migration creates ' + table);
   }
+  const seededCategories = expenses.listExpenseCategories(db);
+  ok(seededCategories.some((category: any) => category.id === 'expense-category-general' && category.expense_account_id === 'acct-operating-expenses'), 'general expenses is available as the safe default category');
+  ok(seededCategories.some((category: any) => category.id === 'expense-category-tax-payments' && category.expense_account_id === 'acct-tax-expenses'), 'tax payments can be recorded against the dedicated tax expense account');
   const selectableAccounts = expenses.listPostingAccounts(db, ['expense']);
   ok(selectableAccounts.some((account: any) => account.id === 'acct-operating-expenses'), 'account API source lists active posting expense accounts');
   ok(!selectableAccounts.some((account: any) => account.id === 'acct-expenses'), 'account selection excludes non-postable group accounts');
