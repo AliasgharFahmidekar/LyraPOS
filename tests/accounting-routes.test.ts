@@ -584,6 +584,14 @@ async function main(): Promise<void> {
         { accountId: 'acct-cash-drawer', debitMinor: 0, creditMinor: 3000, description: 'Cash withdrawn for deposit' },
       ],
     });
+    postReportJournal({
+      description: 'Report test COGS journal must not enter the pre-COGS result', sourceType: 'test_cogs', sourceId: 'report-cogs-1',
+      sourceEvent: 'cost_of_goods_sold', idempotencyKey: 'report-test-cogs-1',
+      lines: [
+        { accountId: 'acct-cogs', debitMinor: 900, creditMinor: 0, description: 'COGS' },
+        { accountId: 'acct-cash-drawer', debitMinor: 0, creditMinor: 900, description: 'Cost settlement for test' },
+      ],
+    });
     const periodReport = await request(app).get('/api/accounting/reports?from=2026-10-15&to=2026-10-15').set(manager);
     equal(periodReport.status, 200, 'manager can read the Phase 5 management report for a date range');
     equal(periodReport.body.currency_code, 'INR', 'management report uses the configured store currency');
@@ -593,6 +601,7 @@ async function main(): Promise<void> {
     equal(periodReport.body.summary.sales_revenue_less_refunds_minor, 8000, 'sales revenue after refunds reconciles to posted revenue and returns');
     equal(periodReport.body.summary.other_income_minor, 12500, 'report counts manual other income but excludes owner contributions and drawings');
     equal(periodReport.body.summary.posted_expenses_minor, 1500, 'expense totals include posted expense-account movements');
+    equal(periodReport.body.summary.posted_expenses_minor, 1500, 'the pre-COGS report excludes any posted COGS account lines');
     equal(periodReport.body.summary.result_before_cogs_minor, 19000, 'pre-COGS result reconciles to sales less refunds plus other income less posted expenses');
     equal(periodReport.body.summary.result_before_cogs_minor, periodReport.body.summary.pos_sales_revenue_minor - periodReport.body.summary.monetary_refunds_minor + periodReport.body.summary.other_income_minor - periodReport.body.summary.posted_expenses_minor, 'asset transfers do not change report income or expense totals');
     equal(periodReport.body.profit_limitations.net_profit_available, false, 'report never claims net profit while COGS is unavailable');
