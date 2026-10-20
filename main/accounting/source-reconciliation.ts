@@ -111,12 +111,12 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       const eventDate = typeof payment?.timestamp === 'string' ? payment.timestamp : bill.created_at;
       if (!inDateRange(eventDate, from, to)) continue;
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
-      if (!eventId) {
-        events.push({ event_type: 'receipt', source_id: 'bill:' + String(bill.id), event_date: eventDate, amount, method, status: 'missing_source_identity', journal_entry_ids: [], reason: 'Monetary payment line has no stable payment_event_id; no automatic posting or repair was attempted.' });
+      if (isPreCutover(bill.created_at)) {
+        events.push({ event_type: 'receipt', source_id: eventId ? String(bill.id) + ':' + eventId : 'bill:' + String(bill.id), event_date: eventDate, amount, method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Historical source event predates the accounting cutover and is not automatically backfilled.' });
         continue;
       }
-      if (isPreCutover(bill.created_at)) {
-        events.push({ event_type: 'receipt', source_id: String(bill.id) + ':' + eventId, event_date: eventDate, amount, method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Historical source event predates or falls on the accounting cutover date and is not automatically backfilled.' });
+      if (!eventId) {
+        events.push({ event_type: 'receipt', source_id: 'bill:' + String(bill.id), event_date: eventDate, amount, method, status: 'missing_source_identity', journal_entry_ids: [], reason: 'Monetary payment line has no stable payment_event_id; no automatic posting or repair was attempted.' });
         continue;
       }
       const match = statusFor(journalMatches(db, 'bill_payment', String(bill.id) + ':' + eventId, 'money_received'));
