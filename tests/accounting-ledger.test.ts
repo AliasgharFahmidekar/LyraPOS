@@ -134,7 +134,7 @@ function freshInstallChecks(): void {
   equal(getCurrentSchemaVersion(), 109, 'fresh install reaches schema version 109');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
-    'accounting_journal_lines', 'accounting_audit_log', 'accounting_opening_balances', 'accounting_reconciliation_adjustments',
+    'accounting_journal_lines', 'accounting_audit_log', 'accounting_opening_balances', 'accounting_reconciliation_adjustments', 'accounting_period_closures',
   ]) check(tableExists(db, table), 'fresh install creates ' + table);
   const billColumns = (db.pragma('table_info(bills)') as Array<{ name: string }>).map((column) => column.name);
   check(billColumns.includes('accounting_finalized_at'), 'migration v105 adds bill accounting finalization field');
@@ -173,6 +173,9 @@ function freshInstallChecks(): void {
   const taxExpenseCategory = db.prepare("SELECT id, expense_account_id FROM accounting_expense_categories WHERE id='expense-category-tax-payments'").get() as any;
   check(!!taxExpenseCategory, 'migration v108 seeds a tax payment expense category');
   equal(taxExpenseCategory.expense_account_id, 'acct-tax-expenses', 'tax payment category maps to the dedicated expense account');
+  for (const trigger of ['accounting_journal_entries_closed_period_insert_guard', 'accounting_journal_entries_closed_period_guard', 'accounting_period_closures_no_delete']) {
+    check(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger), 'migration v109 creates ' + trigger);
+  }
   for (const trigger of ['accounting_reconciliation_adjustments_immutable_update', 'accounting_reconciliation_adjustments_immutable_delete']) {
     check(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger), 'migration v107 creates ' + trigger);
   }
