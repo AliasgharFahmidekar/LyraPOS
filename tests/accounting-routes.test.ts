@@ -535,6 +535,25 @@ async function main(): Promise<void> {
       'reconciliation identifies unclassified cash drawer movements');
     equal(drawerMovementOverview.body.adjustments?.length, 2, 'reconciliation lists both posted, traceable asset and liability adjustments');
 
+    equal((await request(app).get('/api/accounting/reports')).status, 401, 'unauthenticated management reports are denied');
+    equal((await request(app).get('/api/accounting/reports').set(cashier)).status, 403, 'cashier cannot read financial management reports');
+    const periodReport = await request(app).get('/api/accounting/reports?from=2026-10-15&to=2026-10-15').set(manager);
+    equal(periodReport.status, 200, 'manager can read the Phase 5 management report for a date range');
+    equal(periodReport.body.currency_code, 'INR', 'management report uses the configured store currency');
+    equal(periodReport.body.accounting_fraction_digits, 2, 'non-IRR reporting uses configured accounting minor-unit precision');
+    equal(periodReport.body.summary.pos_sales_revenue_minor, 0, 'no sale revenue is invented from bill snapshots or owner activity');
+    equal(periodReport.body.summary.monetary_refunds_minor, 0, 'no refunds are invented when the period has no posted monetary refund');
+    equal(periodReport.body.summary.other_income_minor, 12500, 'report counts the one posted manual other-income journal and not owner equity movements');
+    equal(periodReport.body.summary.result_before_cogs_minor, 12500, 'pre-COGS result reconciles to posted income less expenses for the selected day');
+    equal(periodReport.body.profit_limitations.net_profit_available, false, 'report never claims net profit while COGS is unavailable');
+    equal(periodReport.body.profit_limitations.net_of_stored_tax_available, false, 'report does not invent after-tax revenue when tax allocation is not part of the posting contract');
+    ok(Array.isArray(periodReport.body.liquid_accounts), 'management report returns cash, bank and clearing account balances');
+    ok(Array.isArray(periodReport.body.movements?.lines), 'management report returns posted ledger movement lines');
+    equal((await request(app).get('/api/accounting/reports?from=2026-10-16&to=2026-10-15').set(manager)).status, 400,
+      'management report rejects a reversed date range');
+    equal((await request(app).get('/api/accounting/reports?limit=101').set(manager)).status, 400,
+      'management report rejects movement limits above the supported maximum');
+
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
     try { closeDatabase(); } catch {}
