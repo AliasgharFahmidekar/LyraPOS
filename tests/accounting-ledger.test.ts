@@ -167,6 +167,9 @@ function freshInstallChecks(): void {
   equal(taxExpenseAccount.account_type, 'expense', 'tax-payment account is an expense account');
   equal(taxExpenseAccount.system_key, 'tax_expenses', 'tax-payment account has a stable system key');
   equal(taxExpenseAccount.is_postable, 1, 'tax-payment account accepts posted expenses');
+  const generalExpenseCategory = db.prepare("SELECT id, expense_account_id FROM accounting_expense_categories WHERE id='expense-category-general'").get() as any;
+  check(!!generalExpenseCategory, 'migration v108 seeds a general expense category for ordinary expenses');
+  equal(generalExpenseCategory.expense_account_id, 'acct-operating-expenses', 'general expense category maps to operating expenses');
   const taxExpenseCategory = db.prepare("SELECT id, expense_account_id FROM accounting_expense_categories WHERE id='expense-category-tax-payments'").get() as any;
   check(!!taxExpenseCategory, 'migration v108 seeds a tax payment expense category');
   equal(taxExpenseCategory.expense_account_id, 'acct-tax-expenses', 'tax payment category maps to the dedicated expense account');
