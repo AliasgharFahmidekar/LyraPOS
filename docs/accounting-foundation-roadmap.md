@@ -1,6 +1,4 @@
-# Accounting foundation: architecture and implementation roadmap
-
-**Status on PR #19:** Phases 0–3 are implemented. Phase 4 Stages 1–3 are implemented on the branch. Phase 5 now has a read-only management-report API and bilingual Persian/English report screen. CI run #494 passed for the initial report slice; the follow-up cash-received/tax-expense policy changes and migration v108 must pass CI on the latest head before being considered verified. Reports read posted ledger lines for POS monetary receipts, refunds, manual other income and posted expenses; they also show cash/bank/clearing balances, journal movements and recorded pre-cutover receipt/refund exceptions. Sales revenue follows the cash-received model: actual money received is income, and tax is recorded as an expense when actually paid rather than being retroactively deducted from earlier sales receipts. Migration v108 seeds a dedicated tax-expense account and expense category. Inventory valuation/COGS remains deferred. Historical receipts/refunds are never silently backfilled. Only actual cash/card/custom monetary receipts/refunds are POS money events; loyalty-wallet activity, discounts and cashback are excluded. Opening balances, owner capital and reconciliation offsets never post as sales income. The authoritative rules and worked examples are in [accounting-phase-3-operating-rules.md](accounting-phase-3-operating-rules.md); [accounting-phase-3-policy-proposal.md](accounting-phase-3-policy-proposal.md) records resolved policy.
+**Status on PR #19:** Phases 0–4 are implemented. Phase 5 management reports and the owner-confirmed cash-received/tax-as-paid-expense policy are implemented and verified on the latest head by CI run #508 (head `366eadb9ab641b2e52335129365edacd5f8871f7`). Phase 6 is now in progress and will be delivered in small, test-gated increments. The existing Phase 4 cutover reconciliation remains intact; Phase 6 extends this into ongoing source-event reconciliation, account/trial-balance checks, controlled period close, audit export, and backup/restore verification. No phase is considered complete until the exact PR head passes focused tests, full regression, build, and lint.
 
 **Purpose:** Establish a safe, incremental path to basic café accounting without rebuilding capabilities LyraPOS already has.
 
@@ -245,10 +243,38 @@ Acceptance criteria:
 **Resolved reporting policy — cash received is sales income; tax is an expense when paid:** the report uses the actual monetary receipts already posted by the POS as sales revenue. It does not subtract stored bill-tax snapshots from that income. When the business later pays tax, the owner records that payment as a paid expense using the seeded “Taxes paid” category, which posts to the dedicated tax-expense account and reduces the report's result for the payment's accounting date. This is the requested internal cash-received bookkeeping model, not a statutory tax-liability calculation or tax-compliance claim.
 
 
-### Phase 6 — Reconciliation, backup and close controls
-- Add a reconciliation view for source bills/payment lines/refunds versus journal sources, including skipped pre-cutover events and failed/retryable events.
-- Add audit export, verified backup/restore for accounting data, and controlled period lock/adjustment workflows.
-- Acceptance: every post-cutover source event is posted exactly once or appears as a visible exception; trial balance matches journal lines; period/date filters respect tenant timezone and business-day policy.
+### Phase 6 — Reconciliation, backup and close controls (in progress on PR #19)
+
+This phase must be implemented in separate increments so that reconciliation never silently repairs or rewrites the ledger.
+
+#### Stage 6.1 — reconciliation contracts and source-event audit
+- Inventory every post-cutover source event currently eligible for accounting: real-money POS receipts, monetary refunds, and paid expenses; preserve the strict exclusion of loyalty wallet activity, discounts/cashback, bill finalization, unpaid expense drafts, owner equity, opening balances, and transfers from sales-income totals.
+- Add a manager-only source-event reconciliation view/API that pairs operational source IDs with their journal source triple and reports exactly one of: posted once, missing journal, duplicate/mismatched journal, or intentionally skipped pre-cutover/unclassified event.
+- Treat source records as read-only evidence. Do not auto-post historical/pre-cutover events, silently repair ledger rows, or turn a failed/missing posting into a success status. Any supported repair must be an explicit, idempotent, audited action with a reason.
+- Add focused tests for one-to-one source/journal matching, missing and duplicate source journals, excluded event types, manager-only access, date filters, and stable pagination.
+
+#### Stage 6.2 — account reconciliation and trial-balance integrity
+- Provide account-level opening, period debit/credit, and closing balances from posted journal lines; verify total debits equal total credits in integer minor units for the selected currency and date boundary.
+- Clearly distinguish ledger-to-ledger integrity checks from reconciliation to an external bank/card statement or counted cash. Never imply an external statement was reconciled when no statement data was supplied.
+- Reuse the existing Phase 4 cash-closure/cutover reconciliation; do not duplicate its adjustment workflow or use reconciliation offsets as income/expense.
+
+#### Stage 6.3 — controlled period close
+- Add a persisted, auditable period-close record and manager/owner-only close/reopen rules. A close must reject or explicitly enumerate unresolved source-event exceptions and unposted/invalid accounting items for the period.
+- Block backdated posting/editing into a closed period at the backend service boundary, not only in the UI. Corrections to closed periods must use a separately authorized, reasoned adjustment/reversal workflow and preserve original journals.
+- Use the existing business-date/timezone policy and validate calendar dates; do not infer a date from the user's machine timezone.
+- Migration must be additive and safe for populated customer databases. Test closed-period enforcement against every relevant posting path.
+
+#### Stage 6.4 — audit export and backup/restore verification
+- Export filtered journal headers/lines and audit events in a stable, documented UTF-8 format, with role checks and CSV-formula-injection protection. Export is read-only and must not alter posting state.
+- Verify backup/restore preserves posted journals, source/idempotency keys, audit history, reconciliation metadata, period-close records and database guards. A restore is not considered verified solely because the file exists; run integrity checks and compare key counts/balances before accepting it.
+- Keep all backup operations local/offline. Never transmit accounting data to a cloud service or silently overwrite the only backup.
+
+#### Phase 6 acceptance gate
+- Every eligible post-cutover source event is posted exactly once or appears as a visible, actionable exception; excluded events remain excluded.
+- Posted journal totals balance, account balances and trial balance reconcile exactly in integer minor units, and no report claims external reconciliation without external evidence.
+- Closed periods cannot receive ordinary backdated postings; authorized corrections retain a reason and immutable history.
+- Export is deterministic and safe; backup/restore tests verify accounting data, invariants and triggers.
+- Focused accounting tests, full regression, TypeScript build, lint and migration upgrade tests pass on the exact PR head before any stage is marked complete.
 
 ### Optional later scope — Purchases/payables and inventory valuation/COGS
 - Supplier purchases, payable balances, stock valuation, recipe-backed COGS, wastage and stock-count variance are deferred until explicitly selected by the owner.
