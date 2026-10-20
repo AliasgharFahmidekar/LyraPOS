@@ -592,6 +592,14 @@ async function main(): Promise<void> {
         { accountId: 'acct-cash-drawer', debitMinor: 0, creditMinor: 900, description: 'Cost settlement for test' },
       ],
     });
+    postReportJournal({
+      description: 'Report test tax payment recorded as an expense', sourceType: 'expense', sourceId: 'report-tax-payment-1',
+      sourceEvent: 'expense_paid', idempotencyKey: 'report-test-tax-payment-1',
+      lines: [
+        { accountId: 'acct-tax-expenses', debitMinor: 700, creditMinor: 0, description: 'Tax paid to authority' },
+        { accountId: 'acct-cash-drawer', debitMinor: 0, creditMinor: 700, description: 'Tax payment from cash' },
+      ],
+    });
     const periodReport = await request(app).get('/api/accounting/reports?from=2026-10-15&to=2026-10-15').set(manager);
     equal(periodReport.status, 200, 'manager can read the Phase 5 management report for a date range');
     equal(periodReport.body.currency_code, 'INR', 'management report uses the configured store currency');
@@ -600,12 +608,14 @@ async function main(): Promise<void> {
     equal(periodReport.body.summary.monetary_refunds_minor, 2000, 'monetary refunds are reported from the posted contra-revenue account');
     equal(periodReport.body.summary.sales_revenue_less_refunds_minor, 8000, 'sales revenue after refunds reconciles to posted revenue and returns');
     equal(periodReport.body.summary.other_income_minor, 12500, 'report counts manual other income but excludes owner contributions and drawings');
-    equal(periodReport.body.summary.posted_expenses_minor, 1500, 'expense totals include posted expense-account movements');
-    equal(periodReport.body.summary.posted_expenses_minor, 1500, 'the pre-COGS report excludes any posted COGS account lines');
-    equal(periodReport.body.summary.result_before_cogs_minor, 19000, 'pre-COGS result reconciles to sales less refunds plus other income less posted expenses');
+    equal(periodReport.body.summary.posted_expenses_minor, 2200, 'expense totals include posted operating expenses and tax payments');
+    equal(periodReport.body.summary.posted_expenses_minor, 2200, 'the pre-COGS report excludes COGS while including tax paid as an expense');
+    equal(periodReport.body.summary.tax_payments_expense_minor, 700, 'tax paid is separately visible as an expense');
+    equal(periodReport.body.summary.result_before_cogs_minor, 18300, 'pre-COGS result subtracts tax paid as an expense without netting it from sales revenue');
     equal(periodReport.body.summary.result_before_cogs_minor, periodReport.body.summary.pos_sales_revenue_minor - periodReport.body.summary.monetary_refunds_minor + periodReport.body.summary.other_income_minor - periodReport.body.summary.posted_expenses_minor, 'asset transfers do not change report income or expense totals');
     equal(periodReport.body.profit_limitations.net_profit_available, false, 'report never claims net profit while COGS is unavailable');
-    equal(periodReport.body.profit_limitations.net_of_stored_tax_available, false, 'report does not invent after-tax revenue when tax allocation is not part of the posting contract');
+    equal(periodReport.body.reporting_policy.sales_revenue_basis, 'actual_monetary_receipts', 'report defines sales revenue by actual monetary receipts');
+    equal(periodReport.body.reporting_policy.tax_treatment, 'tax_payments_are_expenses_when_paid', 'report follows the policy that taxes are expenses when paid');
     ok(Array.isArray(periodReport.body.liquid_accounts), 'management report returns cash, bank and clearing account balances');
     ok(Array.isArray(periodReport.body.movements?.lines), 'management report returns posted ledger movement lines');
     equal((await request(app).get('/api/accounting/reports?from=2026-10-16&to=2026-10-15').set(manager)).status, 400,
