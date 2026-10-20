@@ -657,6 +657,10 @@ async function main(): Promise<void> {
     let directUpdateBlocked = false;
     db.prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, status) VALUES (?, ?, ?, ?, ?, 'draft')")
       .run('closed-period-direct-update', 'JE-CLOSED-DIRECT', '2020-01-01', 'Bypass attempt', 'INR');
+    db.prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, description, debit_minor, credit_minor) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run('closed-period-line-debit', 'closed-period-direct-update', 1, 'acct-bank', 'bypass', 100, 0);
+    db.prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, description, debit_minor, credit_minor) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run('closed-period-line-credit', 'closed-period-direct-update', 2, 'acct-sales-revenue', 'bypass', 0, 100);
     try {
       db.prepare("UPDATE accounting_journal_entries SET status='posted' WHERE id=?").run('closed-period-direct-update');
     } catch (error: any) { directUpdateBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSED'); }
