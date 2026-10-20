@@ -11,6 +11,7 @@ import { createOpeningBalance, listAccountTransactionHistory, listOpeningBalance
 import { createReconciliationAdjustment, getAccountingReconciliationOverview } from '../accounting/reconciliation';
 import { getAccountingManagementReport } from '../accounting/reports';
 import { getAccountingSourceEventReconciliation } from '../accounting/source-reconciliation';
+import { getAccountingTrialBalance } from '../accounting/trial-balance';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -64,6 +65,10 @@ router.get('/accounts/:accountId/transactions', managerOnly, (req, res) => {
 });
 router.get('/reports', managerOnly, (req, res) => {
   try { res.json(getAccountingManagementReport(getDatabase(), req.query)); }
+  catch (error) { respondError(res, error); }
+});
+router.get('/trial-balance', managerOnly, (req, res) => {
+  try { res.json(getAccountingTrialBalance(getDatabase(), req.query)); }
   catch (error) { respondError(res, error); }
 });
 router.get('/source-events', managerOnly, (req, res) => {
