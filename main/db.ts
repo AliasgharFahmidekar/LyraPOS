@@ -6344,6 +6344,17 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         );
         CREATE INDEX accounting_period_closures_range_status
           ON accounting_period_closures(status, period_start, period_end);
+        CREATE TRIGGER accounting_journal_entries_closed_period_insert_guard
+          BEFORE INSERT ON accounting_journal_entries
+          WHEN NEW.status = 'posted'
+            AND EXISTS (
+              SELECT 1 FROM accounting_period_closures AS period
+              WHERE period.status = 'closed'
+                AND NEW.entry_date BETWEEN period.period_start AND period.period_end
+            )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED');
+          END;
         CREATE TRIGGER accounting_journal_entries_closed_period_guard
           BEFORE UPDATE OF status ON accounting_journal_entries
           WHEN NEW.status = 'posted' AND OLD.status != 'posted'
