@@ -158,7 +158,7 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
     range,
   );
   const postedExpensesMinor = sumLedgerLines(
-    db, 'line.debit_minor - line.credit_minor', "account.account_type='expense'", range,
+    db, 'line.debit_minor - line.credit_minor', "account.account_type='expense' AND COALESCE(account.system_key, '') <> 'cost_of_goods_sold'", range,
   );
 
   // Every figure is a movement on posted journal lines. No operational bill total,
