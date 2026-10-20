@@ -25,7 +25,7 @@ function respondError(res: Response, error: any): void {
     res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
   }
   if (error instanceof AccountingLedgerError) {
-    const status = error.code === 'entry_not_found' || error.code === 'period_not_found' ? 404 : ['idempotency_conflict', 'period_closed', 'period_has_draft_journals', 'period_has_unposted_expenses', 'period_has_source_exceptions', 'period_reopen_conflict', 'period_close_conflict', 'period_reclose_requires_new_record'].includes(error.code) ? 409 : 400;
+    const status = error.code === 'entry_not_found' || error.code === 'period_not_found' ? 404 : ['idempotency_conflict', 'period_closed', 'period_has_draft_journals', 'period_has_unposted_expenses', 'period_has_source_exceptions', 'period_overlap', 'period_reopen_conflict', 'period_close_conflict', 'period_reclose_requires_new_record'].includes(error.code) ? 409 : 400;
     res.status(status).json({ error: error.message, code: error.code }); return;
   }
   if (String(error?.message || '').includes('UNIQUE constraint')) {
