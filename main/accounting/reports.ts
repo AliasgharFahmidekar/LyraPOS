@@ -138,9 +138,8 @@ function preCutoverExceptions(db: DB): { count: number; samples: any[] } {
 /**
  * Read-only Phase 5 management report.
  *
- * All financial totals are derived from posted journal lines. Tax is deliberately
- * surfaced as unavailable for netting: Phase 3's active posting contract does not
- * allocate tax from immutable bill snapshots to individual cash-received events.
+ * All financial totals are derived from posted journal lines. Sales revenue uses
+ * actual monetary receipts; tax payments are recorded as expenses when paid.
  */
 export function getAccountingManagementReport(db: DB, filters: ReportFilters = {}): any {
   const range = dateRange(filters);
