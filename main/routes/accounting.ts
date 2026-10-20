@@ -12,6 +12,7 @@ import { createReconciliationAdjustment, getAccountingReconciliationOverview } f
 import { getAccountingManagementReport } from '../accounting/reports';
 import { getAccountingSourceEventReconciliation } from '../accounting/source-reconciliation';
 import { getAccountingTrialBalance } from '../accounting/trial-balance';
+import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } from '../accounting/period-close';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -24,7 +25,7 @@ function respondError(res: Response, error: any): void {
     res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
   }
   if (error instanceof AccountingLedgerError) {
-    const status = error.code === 'entry_not_found' ? 404 : error.code === 'idempotency_conflict' ? 409 : 400;
+    const status = error.code === 'entry_not_found' || error.code === 'period_not_found' ? 404 : ['idempotency_conflict', 'period_closed', 'period_has_draft_journals', 'period_has_unposted_expenses', 'period_has_source_exceptions', 'period_reopen_conflict', 'period_reclose_requires_new_record'].includes(error.code) ? 409 : 400;
     res.status(status).json({ error: error.message, code: error.code }); return;
   }
   if (String(error?.message || '').includes('UNIQUE constraint')) {
@@ -69,6 +70,18 @@ router.get('/reports', managerOnly, (req, res) => {
 });
 router.get('/trial-balance', managerOnly, (req, res) => {
   try { res.json(getAccountingTrialBalance(getDatabase(), req.query)); }
+  catch (error) { respondError(res, error); }
+});
+router.get('/periods', managerOnly, (_req, res) => {
+  try { res.json({ periods: listAccountingPeriods(getDatabase()) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/periods/close', managerOnly, (req, res) => {
+  try { res.status(201).json({ period: closeAccountingPeriod(getDatabase(), req.body, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/periods/:id/reopen', managerOnly, (req, res) => {
+  try { res.json({ period: reopenAccountingPeriod(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.get('/source-events', managerOnly, (req, res) => {
