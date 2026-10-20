@@ -216,6 +216,8 @@ export function createDraftJournalEntry(
   input: CreateDraftJournalEntryInput,
 ): AccountingJournalEntryResult {
   const normalized = normalizeAndValidate(input);
+  const closedPeriod = db.prepare("SELECT 1 FROM accounting_period_closures WHERE status='closed' AND ? BETWEEN period_start AND period_end LIMIT 1").get(normalized.entryDate);
+  if (closedPeriod) fail('period_closed', 'Accounting period is closed; reopen it with a reason before recording or posting entries.');
   return db.transaction((): AccountingJournalEntryResult => {
     const existing = findExistingEntry(db, normalized);
     if (existing) {
@@ -274,6 +276,10 @@ export function postJournalEntry(
     } | undefined;
 
     if (!entry) fail('entry_not_found', 'Accounting journal entry was not found: ' + entryId);
+    if (entry.status !== 'posted') {
+      const closedPeriod = db.prepare("SELECT 1 FROM accounting_period_closures WHERE status='closed' AND ? BETWEEN period_start AND period_end LIMIT 1").get(entry.entry_date);
+      if (closedPeriod) fail('period_closed', 'Accounting period is closed; reopen it with a reason before recording or posting entries.');
+    }
     if (entry.status === 'posted') {
       return { id: entry.id, entryNumber: entry.entry_number, status: 'posted', duplicate: true };
     }
