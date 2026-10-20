@@ -509,8 +509,8 @@ function upgradeFromVersion102Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 108, 'v102 database upgrades to schema version 108');
-  assertAccountingSeedAccounts(db, 'schema v102 to v108 upgrade');
+  equal(getCurrentSchemaVersion(), 109, 'v102 database upgrades to schema version 109');
+  assertAccountingSeedAccounts(db, 'schema v102 to v109 upgrade');
   const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key,reversal_journal_entry_id,reversal_reason FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
   equal(preserved.id, 'expense-v102-preserve', 'upgrade preserves existing expense records');
   equal(preserved.amount_minor, 2500, 'upgrade preserves existing expense amount');
@@ -526,7 +526,7 @@ function upgradeFromVersion102Checks(): void {
     !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='accounting_expense_state_transition_guard'").get(),
     'v104 installs expense lifecycle guards on upgrade',
   );
-  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v108 upgrade passes integrity_check');
+  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v109 upgrade passes integrity_check');
 
   closeDatabase();
   fs.rmSync(activeTestDir, { recursive: true, force: true });
@@ -549,8 +549,8 @@ function upgradeFromVersion101Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 108, 'v101 database upgrades through schema version 108');
-  assertAccountingSeedAccounts(db, 'schema v101 to v108 upgrade');
+  equal(getCurrentSchemaVersion(), 109, 'v101 database upgrades through schema version 109');
+  assertAccountingSeedAccounts(db, 'schema v101 to v109 upgrade');
   check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
   check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
   check(tableExists(db, 'accounting_expenses'), 'expense migration creates expenses');
