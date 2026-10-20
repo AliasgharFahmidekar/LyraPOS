@@ -646,12 +646,13 @@ async function main(): Promise<void> {
     equal((await request(app).post('/api/accounting/periods/close').set(manager).send({
       period_start: '2020-01-01', period_end: '2020-01-01', reason: 'Changed reason',
     })).status, 409, 'a changed close retry cannot silently reuse the existing close record');
-    let directInsertBlocked = false;
+    let directUpdateBlocked = false;
+    db.prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, status) VALUES (?, ?, ?, ?, ?, 'draft')")
+      .run('closed-period-direct-update', 'JE-CLOSED-DIRECT', '2020-01-01', 'Bypass attempt', 'INR');
     try {
-      db.prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, status) VALUES (?, ?, ?, ?, ?, 'posted')")
-        .run('closed-period-direct-insert', 'JE-CLOSED-DIRECT', '2020-01-01', 'Bypass attempt', 'INR');
-    } catch (error: any) { directInsertBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSED'); }
-    equal(directInsertBlocked, true, 'database trigger blocks direct posted-journal inserts into a closed period');
+      db.prepare("UPDATE accounting_journal_entries SET status='posted' WHERE id=?").run('closed-period-direct-update');
+    } catch (error: any) { directUpdateBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSED'); }
+    equal(directUpdateBlocked, true, 'database trigger blocks direct draft-to-posted updates in a closed period');
     const closedPeriodList = await request(app).get('/api/accounting/periods').set(manager);
     equal(closedPeriodList.status, 200, 'manager can list period close history');
     ok(closedPeriodList.body.periods.some((period: any) => period.id === closedPeriod.body.period.id), 'period list includes the newly closed period');
