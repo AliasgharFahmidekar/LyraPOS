@@ -537,14 +537,64 @@ async function main(): Promise<void> {
 
     equal((await request(app).get('/api/accounting/reports')).status, 401, 'unauthenticated management reports are denied');
     equal((await request(app).get('/api/accounting/reports').set(cashier)).status, 403, 'cashier cannot read financial management reports');
+    const reportLedger = require('../main/accounting/ledger');
+    const postReportJournal = (input: any) => {
+      const draft = reportLedger.createDraftJournalEntry(db, {
+        entryDate: '2026-10-15',
+        description: input.description,
+        currencyCode: 'INR',
+        lines: input.lines,
+        createdBy: 'accounting-api-manager',
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+        sourceEvent: input.sourceEvent,
+        idempotencyKey: input.idempotencyKey,
+      });
+      reportLedger.postJournalEntry(db, draft.id, 'accounting-api-manager');
+    };
+    postReportJournal({
+      description: 'Report test monetary sale', sourceType: 'bill_payment', sourceId: 'report-bill-1:report-payment-1',
+      sourceEvent: 'money_received', idempotencyKey: 'report-test-payment-1',
+      lines: [
+        { accountId: 'acct-cash-drawer', debitMinor: 10000, creditMinor: 0, description: 'Cash received' },
+        { accountId: 'acct-sales-revenue', debitMinor: 0, creditMinor: 10000, description: 'POS revenue' },
+      ],
+    });
+    postReportJournal({
+      description: 'Report test monetary refund', sourceType: 'refund', sourceId: 'report-refund-1',
+      sourceEvent: 'money_refunded', idempotencyKey: 'report-test-refund-1',
+      lines: [
+        { accountId: 'acct-sales-returns', debitMinor: 2000, creditMinor: 0, description: 'Sales return' },
+        { accountId: 'acct-cash-drawer', debitMinor: 0, creditMinor: 2000, description: 'Refund paid out' },
+      ],
+    });
+    postReportJournal({
+      description: 'Report test posted expense', sourceType: 'expense', sourceId: 'report-expense-1',
+      sourceEvent: 'expense_paid', idempotencyKey: 'report-test-expense-1',
+      lines: [
+        { accountId: 'acct-operating-expenses', debitMinor: 1500, creditMinor: 0, description: 'Operating expense' },
+        { accountId: 'acct-cash-drawer', debitMinor: 0, creditMinor: 1500, description: 'Expense paid' },
+      ],
+    });
+    postReportJournal({
+      description: 'Report test asset transfer', sourceType: 'cash_bank_transfer', sourceId: 'report-transfer-1',
+      sourceEvent: 'transfer', idempotencyKey: 'report-test-transfer-1',
+      lines: [
+        { accountId: 'acct-bank', debitMinor: 3000, creditMinor: 0, description: 'Bank deposit' },
+        { accountId: 'acct-cash-drawer', debitMinor: 0, creditMinor: 3000, description: 'Cash withdrawn for deposit' },
+      ],
+    });
     const periodReport = await request(app).get('/api/accounting/reports?from=2026-10-15&to=2026-10-15').set(manager);
     equal(periodReport.status, 200, 'manager can read the Phase 5 management report for a date range');
     equal(periodReport.body.currency_code, 'INR', 'management report uses the configured store currency');
     equal(periodReport.body.accounting_fraction_digits, 2, 'non-IRR reporting uses configured accounting minor-unit precision');
-    equal(periodReport.body.summary.pos_sales_revenue_minor, 0, 'no sale revenue is invented from bill snapshots or owner activity');
-    equal(periodReport.body.summary.monetary_refunds_minor, 0, 'no refunds are invented when the period has no posted monetary refund');
-    equal(periodReport.body.summary.other_income_minor, 12500, 'report counts the one posted manual other-income journal and not owner equity movements');
-    equal(periodReport.body.summary.result_before_cogs_minor, 12500, 'pre-COGS result reconciles to posted income less expenses for the selected day');
+    equal(periodReport.body.summary.pos_sales_revenue_minor, 10000, 'POS sales revenue equals the posted revenue-account credit');
+    equal(periodReport.body.summary.monetary_refunds_minor, 2000, 'monetary refunds are reported from the posted contra-revenue account');
+    equal(periodReport.body.summary.sales_revenue_less_refunds_minor, 8000, 'sales revenue after refunds reconciles to posted revenue and returns');
+    equal(periodReport.body.summary.other_income_minor, 12500, 'report counts manual other income but excludes owner contributions and drawings');
+    equal(periodReport.body.summary.posted_expenses_minor, 1500, 'expense totals include posted expense-account movements');
+    equal(periodReport.body.summary.result_before_cogs_minor, 19000, 'pre-COGS result reconciles to sales less refunds plus other income less posted expenses');
+    equal(periodReport.body.summary.result_before_cogs_minor, periodReport.body.summary.pos_sales_revenue_minor - periodReport.body.summary.monetary_refunds_minor + periodReport.body.summary.other_income_minor - periodReport.body.summary.posted_expenses_minor, 'asset transfers do not change report income or expense totals');
     equal(periodReport.body.profit_limitations.net_profit_available, false, 'report never claims net profit while COGS is unavailable');
     equal(periodReport.body.profit_limitations.net_of_stored_tax_available, false, 'report does not invent after-tax revenue when tax allocation is not part of the posting contract');
     ok(Array.isArray(periodReport.body.liquid_accounts), 'management report returns cash, bank and clearing account balances');
