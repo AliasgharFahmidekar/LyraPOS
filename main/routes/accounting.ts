@@ -10,6 +10,7 @@ import { createManualAccountingActivity, listManualAccountingActivities } from '
 import { createOpeningBalance, listAccountTransactionHistory, listOpeningBalances } from '../accounting/opening-balances';
 import { createReconciliationAdjustment, getAccountingReconciliationOverview } from '../accounting/reconciliation';
 import { getAccountingManagementReport } from '../accounting/reports';
+import { getAccountingSourceEventReconciliation } from '../accounting/source-reconciliation';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -64,6 +65,17 @@ router.get('/accounts/:accountId/transactions', managerOnly, (req, res) => {
 router.get('/reports', managerOnly, (req, res) => {
   try { res.json(getAccountingManagementReport(getDatabase(), req.query)); }
   catch (error) { respondError(res, error); }
+});
+router.get('/source-events', managerOnly, (req, res) => {
+  try {
+    res.json(getAccountingSourceEventReconciliation(getDatabase(), req.query));
+  } catch (error: any) {
+    if (error?.statusCode && error?.code) {
+      res.status(Number(error.statusCode)).json({ error: String(error.message || 'Invalid reconciliation request.'), code: String(error.code) });
+      return;
+    }
+    respondError(res, error);
+  }
 });
 router.get('/reconciliation', managerOnly, (req, res) => {
   try { res.json(getAccountingReconciliationOverview(getDatabase(), req.query)); }
