@@ -39,7 +39,11 @@ export function closeAccountingPeriod(db: DB, input: any, actorId: string | null
     const existing = db.prepare('SELECT * FROM accounting_period_closures WHERE period_start=? AND period_end=?')
       .get(start, end) as PeriodRow | undefined;
     if (existing?.status === 'closed') return { ...existing, duplicate: true };
-    if (existing?.status === 'reopened') fail('period_reclose_requires_new_record', 'A reopened period cannot be closed again using the same period record; create a new close record after review.', 409);
+    if (existing?.status === 'reopened') {
+      const draftsBeforeReclose = db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE status='draft' AND entry_date BETWEEN ? AND ?")
+        .get(start, end) as { count: number };
+      if (draftsBeforeReclose.count > 0) fail('period_has_draft_journals', 'Resolve draft journal entries before closing this period again.', 409);
+    }
 
     const drafts = db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE status='draft' AND entry_date BETWEEN ? AND ?")
       .get(start, end) as { count: number };
@@ -55,6 +59,13 @@ export function closeAccountingPeriod(db: DB, input: any, actorId: string | null
       fail('period_has_source_exceptions', 'Resolve source-event reconciliation exceptions before closing this period (' + unresolved.length + ' unresolved).', 409);
     }
 
+    if (existing?.status === 'reopened') {
+      db.prepare("UPDATE accounting_period_closures SET status='closed', close_reason=?, closed_by=?, closed_at=CURRENT_TIMESTAMP, reopen_reason=NULL, reopened_by=NULL, reopened_at=NULL WHERE id=? AND status='reopened'")
+        .run(reason, actorId, existing.id);
+      const saved = db.prepare('SELECT * FROM accounting_period_closures WHERE id=?').get(existing.id) as PeriodRow;
+      audit(db, existing.id, 'reclosed', actorId, snapshot(existing), snapshot(saved));
+      return { ...saved, duplicate: false };
+    }
     const id = randomUUID();
     db.prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES (?, ?, ?, 'closed', ?, ?)")
       .run(id, start, end, reason, actorId);
