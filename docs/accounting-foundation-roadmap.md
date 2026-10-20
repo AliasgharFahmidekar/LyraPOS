@@ -254,13 +254,13 @@ This phase must be implemented in separate increments so that reconciliation nev
 - Treat source records as read-only evidence. Do not auto-post historical/pre-cutover events, silently repair ledger rows, or turn a failed/missing posting into a success status. Any supported repair must be an explicit, idempotent, audited action with a reason.
 - Add focused tests for one-to-one source/journal matching, missing and duplicate source journals, excluded event types, manager-only access, date filters, and stable pagination.
 
-#### Stage 6.2 — account reconciliation and trial-balance integrity (implementation started; latest CI pending)
-- Implemented initial manager-only, read-only `GET /api/accounting/trial-balance` with account-level opening balances, period debit/credit movements, closing balances, debit/credit totals, and per-posted-journal integrity checks; supports validated date boundaries and configured currency precision. Route-level tests cover authorization, balanced totals, journal integrity status, currency, invalid calendar dates and reversed ranges. Verification remains pending on the current PR head.
+#### Stage 6.2 — account reconciliation and trial-balance integrity (implemented; CI passed on head `176024649c02510064d74349d2b832d31153b3be`)
+- Implemented manager-only, read-only `GET /api/accounting/trial-balance` with account-level opening balances, period debit/credit movements, closing balances, debit/credit totals, and per-posted-journal integrity checks; supports validated date boundaries and configured currency precision. Route-level tests cover authorization, balanced totals, journal integrity status, currency, invalid calendar dates and reversed ranges. The first run exposed an incorrect sign inversion for credit-normal accounts; fixed the calculation to use conventional debit-minus-credit balances. CI run #523 failed before the fix; the corrected current head passed the Original test suite at [run 39511074284](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/39511074284).
 - Provide account-level opening, period debit/credit, and closing balances from posted journal lines; verify total debits equal total credits in integer minor units for the selected currency and date boundary.
 - Clearly distinguish ledger-to-ledger integrity checks from reconciliation to an external bank/card statement or counted cash. Never imply an external statement was reconciled when no statement data was supplied.
 - Reuse the existing Phase 4 cash-closure/cutover reconciliation; do not duplicate its adjustment workflow or use reconciliation offsets as income/expense.
 
-#### Stage 6.3 — controlled period close
+#### Stage 6.3 — controlled period close (next implementation stage)
 - Add a persisted, auditable period-close record and manager/owner-only close/reopen rules. A close must reject or explicitly enumerate unresolved source-event exceptions and unposted/invalid accounting items for the period.
 - Block backdated posting/editing into a closed period at the backend service boundary, not only in the UI. Corrections to closed periods must use a separately authorized, reasoned adjustment/reversal workflow and preserve original journals.
 - Use the existing business-date/timezone policy and validate calendar dates; do not infer a date from the user's machine timezone.
