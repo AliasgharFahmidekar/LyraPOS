@@ -24,6 +24,7 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const { initTestDb, createApp, closeDatabase, now } = require('./helpers/test-setup');
 const { accountingRoutes } = require('../main/routes/accounting');
+const { createDraftJournalEntry } = require('../main/accounting/ledger');
 const { getJWTSecret } = require('../main/routes/auth');
 
 let assertions = 0;
@@ -635,6 +636,42 @@ async function main(): Promise<void> {
     ok(trialBalance.body.accounts.some((account: any) => account.id === 'acct-sales-revenue'), 'trial balance includes revenue accounts');
     equal((await request(app).get('/api/accounting/trial-balance?from=2026-02-30').set(manager)).status, 400, 'trial balance rejects impossible calendar dates');
     equal((await request(app).get('/api/accounting/trial-balance?from=2026-10-16&to=2026-10-15').set(manager)).status, 400, 'trial balance rejects reversed date ranges');
+    equal((await request(app).get('/api/accounting/periods').set(cashier)).status, 403, 'cashier cannot read accounting periods');
+    equal((await request(app).post('/api/accounting/periods/close').set(cashier).send({})).status, 403, 'cashier cannot close accounting periods');
+    const closedPeriod = await request(app).post('/api/accounting/periods/close').set(manager).send({
+      period_start: '2020-01-01', period_end: '2020-01-01', reason: 'Automated period-close regression test',
+    });
+    equal(closedPeriod.status, 201, 'manager can close a clean accounting period');
+    equal(closedPeriod.body.period.status, 'closed', 'period close persists closed status');
+    const closedPeriodList = await request(app).get('/api/accounting/periods').set(manager);
+    equal(closedPeriodList.status, 200, 'manager can list period close history');
+    ok(closedPeriodList.body.periods.some((period: any) => period.id === closedPeriod.body.period.id), 'period list includes the newly closed period');
+    let closedPeriodRejected = false;
+    try {
+      createDraftJournalEntry(db, {
+        entryDate: '2020-01-01', description: 'Should be blocked by closed period', currencyCode: 'INR',
+        lines: [
+          { accountId: 'acct-bank', debitMinor: 100, creditMinor: 0 },
+          { accountId: 'acct-sales-revenue', debitMinor: 0, creditMinor: 100 },
+        ],
+      });
+    } catch (error: any) { closedPeriodRejected = error?.code === 'period_closed'; }
+    equal(closedPeriodRejected, true, 'central ledger rejects new journals dated inside a closed period');
+    const reopenedPeriod = await request(app).post('/api/accounting/periods/' + closedPeriod.body.period.id + '/reopen')
+      .set(manager).send({ reason: 'Correction required after review' });
+    equal(reopenedPeriod.status, 200, 'manager can reopen a period with a reason');
+    equal(reopenedPeriod.body.period.status, 'reopened', 'period reopen is persisted');
+    ok(reopenedPeriod.body.period.reopen_reason === 'Correction required after review', 'period reopen reason is persisted');
+    const reopenedDraft = createDraftJournalEntry(db, {
+      entryDate: '2020-01-01', description: 'Allowed after audited reopen', currencyCode: 'INR',
+      lines: [
+        { accountId: 'acct-bank', debitMinor: 100, creditMinor: 0 },
+        { accountId: 'acct-sales-revenue', debitMinor: 0, creditMinor: 100 },
+      ],
+    });
+    equal(reopenedDraft.status, 'draft', 'ledger permits a draft after period is explicitly reopened');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=?").get(closedPeriod.body.period.id) as any).count, 2,
+      'period close and reopen each leave an audit record');
 
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
