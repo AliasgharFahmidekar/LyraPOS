@@ -56,10 +56,12 @@ export function closeAccountingPeriod(db: DB, input: any, actorId: string | null
     if (expenses.count > 0) fail('period_has_unposted_expenses', 'Post or resolve draft expenses in this period before closing it.', 409);
 
     const reconciliation = getAccountingSourceEventReconciliation(db, { from: start, to: end, limit: 2000 });
-    const unresolved = reconciliation.events.filter((event) =>
-      !['posted_once', 'skipped_pre_cutover', 'excluded_non_monetary'].includes(event.status));
-    if (unresolved.length > 0) {
-      fail('period_has_source_exceptions', 'Resolve source-event reconciliation exceptions before closing this period (' + unresolved.length + ' unresolved).', 409);
+    const allowedStatuses = new Set(['posted_once', 'skipped_pre_cutover', 'excluded_non_monetary']);
+    const unresolvedCount = Object.entries(reconciliation.summary)
+      .filter(([status, count]) => !allowedStatuses.has(status) && count > 0)
+      .reduce((total, [, count]) => total + count, 0);
+    if (unresolvedCount > 0) {
+      fail('period_has_source_exceptions', 'Resolve source-event reconciliation exceptions before closing this period (' + unresolvedCount + ' unresolved).', 409);
     }
 
     if (existing?.status === 'reopened') {
