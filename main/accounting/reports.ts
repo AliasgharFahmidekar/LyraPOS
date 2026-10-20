@@ -160,9 +160,13 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
   const postedExpensesMinor = sumLedgerLines(
     db, 'line.debit_minor - line.credit_minor', "account.account_type='expense' AND COALESCE(account.system_key, '') <> 'cost_of_goods_sold'", range,
   );
+  const taxPaymentsExpenseMinor = sumLedgerLines(
+    db, 'line.debit_minor - line.credit_minor', "account.system_key='tax_expenses'", range,
+  );
 
-  // Every figure is a movement on posted journal lines. No operational bill total,
-  // owner-equity movement, opening balance, or asset-to-asset transfer is counted as income.
+  // POS sales revenue is based on actual monetary receipts posted by the POS.
+  // Tax paid later is an ordinary, separately posted expense; it is not deducted
+  // from the receipt again. Owner equity, opening balances and transfers are excluded.
   const netSalesAfterRefundsMinor = safeTotal(salesRevenueMinor - refundsMinor, 'net sales after refunds');
   const resultBeforeCogsMinor = safeTotal(
     netSalesAfterRefundsMinor + otherIncomeMinor - postedExpensesMinor,
@@ -194,14 +198,18 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
       sales_revenue_less_refunds_minor: netSalesAfterRefundsMinor,
       other_income_minor: otherIncomeMinor,
       posted_expenses_minor: postedExpensesMinor,
+      tax_payments_expense_minor: taxPaymentsExpenseMinor,
       result_before_cogs_minor: resultBeforeCogsMinor,
+    },
+    reporting_policy: {
+      sales_revenue_basis: 'actual_monetary_receipts',
+      tax_treatment: 'tax_payments_are_expenses_when_paid',
+      message: 'POS sales revenue reflects actual monetary receipts. Tax is recorded as an expense when it is paid and is not deducted a second time from sales revenue.',
     },
     profit_limitations: {
       cogs_available: false,
       net_profit_available: false,
-      tax_allocated_to_money_receipts: false,
-      net_of_stored_tax_available: false,
-      message: 'This management result is before inventory cost/COGS. The current POS accounting contract does not allocate stored bill tax to cash-received journal events, so net-of-tax revenue is unavailable and must not be inferred from the bill snapshot.',
+      message: 'This management result is before inventory cost/COGS. Inventory value and cost of goods sold are not calculated yet, so this result is not net profit.',
     },
     liquid_accounts: liquidAccountBalances(db, range),
     movements: {
