@@ -6313,6 +6313,9 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       );
       db.prepare(
         'INSERT OR IGNORE INTO accounting_expense_categories (id, name, expense_account_id, is_active) VALUES (?, ?, ?, 1)',
+      ).run('expense-category-general', 'General expenses', 'acct-operating-expenses');
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_expense_categories (id, name, expense_account_id, is_active) VALUES (?, ?, ?, 1)',
       ).run('expense-category-tax-payments', 'Taxes paid', 'acct-tax-expenses');
     },
   },
