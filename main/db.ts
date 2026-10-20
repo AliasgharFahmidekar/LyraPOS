@@ -6319,8 +6319,52 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       ).run('expense-category-tax-payments', 'Taxes paid', 'acct-tax-expenses');
     },
   },
+  {
+    version: 109,
+    name: 'accounting_period_close_controls',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_period_closures (
+          id TEXT PRIMARY KEY,
+          period_start TEXT NOT NULL,
+          period_end TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('closed', 'reopened')),
+          close_reason TEXT NOT NULL,
+          closed_by TEXT,
+          closed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          reopen_reason TEXT,
+          reopened_by TEXT,
+          reopened_at TEXT,
+          CHECK (period_start <= period_end),
+          CHECK (
+            (status = 'closed' AND reopen_reason IS NULL AND reopened_by IS NULL AND reopened_at IS NULL)
+            OR
+            (status = 'reopened' AND reopen_reason IS NOT NULL AND reopened_by IS NOT NULL AND reopened_at IS NOT NULL)
+          )
+        );
+        CREATE INDEX accounting_period_closures_range_status
+          ON accounting_period_closures(status, period_start, period_end);
+        CREATE TRIGGER accounting_journal_entries_closed_period_guard
+          BEFORE UPDATE OF status ON accounting_journal_entries
+          WHEN NEW.status = 'posted' AND OLD.status != 'posted'
+            AND EXISTS (
+              SELECT 1 FROM accounting_period_closures AS period
+              WHERE period.status = 'closed'
+                AND NEW.entry_date BETWEEN period.period_start AND period.period_end
+            )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED');
+          END;
+        CREATE TRIGGER accounting_period_closures_no_delete
+          BEFORE DELETE ON accounting_period_closures
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_IMMUTABLE');
+          END;
+      `);
+    },
+  },
 ];
-
+ 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
   if (buildingIdealSchema) return;
   let targetPath = '';
