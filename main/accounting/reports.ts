@@ -145,10 +145,10 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
   const range = dateRange(filters);
   const { currencyCode, fractionDigits } = configuredRegion(db);
   const salesRevenueMinor = sumLedgerLines(
-    db, 'line.credit_minor - line.debit_minor', "account.system_key='sales_revenue'", range,
+    db, 'line.credit_minor - line.debit_minor', "account.system_key='sales_revenue' AND entry.source_type='bill_payment' AND entry.source_event='money_received'", range,
   );
   const refundsMinor = sumLedgerLines(
-    db, 'line.debit_minor - line.credit_minor', "account.system_key='sales_returns'", range,
+    db, 'line.debit_minor - line.credit_minor', "account.system_key='sales_returns' AND entry.source_type='refund' AND entry.source_event='money_refunded'", range,
   );
   const otherIncomeMinor = sumLedgerLines(
     db,
