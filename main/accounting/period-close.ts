@@ -38,7 +38,10 @@ export function closeAccountingPeriod(db: DB, input: any, actorId: string | null
   return db.transaction(() => {
     const existing = db.prepare('SELECT * FROM accounting_period_closures WHERE period_start=? AND period_end=?')
       .get(start, end) as PeriodRow | undefined;
-    if (existing?.status === 'closed') return { ...existing, duplicate: true };
+    if (existing?.status === 'closed') {
+      if (existing.close_reason !== reason) fail('period_close_conflict', 'This period is already closed with a different reason.', 409);
+      return { ...existing, duplicate: true };
+    }
     if (existing?.status === 'reopened') {
       const draftsBeforeReclose = db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE status='draft' AND entry_date BETWEEN ? AND ?")
         .get(start, end) as { count: number };
