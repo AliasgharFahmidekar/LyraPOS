@@ -537,6 +537,8 @@ async function main(): Promise<void> {
 
     equal((await request(app).get('/api/accounting/reports')).status, 401, 'unauthenticated management reports are denied');
     equal((await request(app).get('/api/accounting/reports').set(cashier)).status, 403, 'cashier cannot read financial management reports');
+    equal((await request(app).get('/api/accounting/trial-balance')).status, 401, 'unauthenticated trial balance is denied');
+    equal((await request(app).get('/api/accounting/trial-balance').set(cashier)).status, 403, 'cashier cannot read trial balance');
     const reportLedger = require('../main/accounting/ledger');
     const postReportJournal = (input: any) => {
       const draft = reportLedger.createDraftJournalEntry(db, {
@@ -622,6 +624,17 @@ async function main(): Promise<void> {
       'management report rejects a reversed date range');
     equal((await request(app).get('/api/accounting/reports?limit=101').set(manager)).status, 400,
       'management report rejects movement limits above the supported maximum');
+
+    const trialBalance = await request(app).get('/api/accounting/trial-balance?from=2026-10-15&to=2026-10-15').set(manager);
+    equal(trialBalance.status, 200, 'manager can read the read-only trial balance');
+    equal(trialBalance.body.currency_code, 'INR', 'trial balance uses configured store currency');
+    equal(trialBalance.body.read_only, true, 'trial balance explicitly declares its read-only behavior');
+    equal(trialBalance.body.totals.closing_debit_minor, trialBalance.body.totals.closing_credit_minor, 'trial balance closing debit and credit totals match');
+    equal(trialBalance.body.totals.period_debit_minor, trialBalance.body.totals.period_credit_minor, 'posted period movement debits and credits match');
+    equal(trialBalance.body.integrity.balanced, true, 'all posted journals in the selected period pass per-entry integrity checks');
+    ok(trialBalance.body.accounts.some((account: any) => account.id === 'acct-sales-revenue'), 'trial balance includes revenue accounts');
+    equal((await request(app).get('/api/accounting/trial-balance?from=2026-02-30').set(manager)).status, 400, 'trial balance rejects impossible calendar dates');
+    equal((await request(app).get('/api/accounting/trial-balance?from=2026-10-16&to=2026-10-15').set(manager)).status, 400, 'trial balance rejects reversed date ranges');
 
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
