@@ -443,7 +443,7 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 109, 'existing database upgrades from v99 through schema version 110');
+  equal(getCurrentSchemaVersion(), 110, 'existing database upgrades from v99 through schema version 110');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
@@ -478,7 +478,7 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 109, 'v100 database upgrades through schema version 110');
+  equal(getCurrentSchemaVersion(), 110, 'v100 database upgrades through schema version 110');
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
     /system or posted accounting account definitions are immutable/i,
@@ -521,7 +521,7 @@ function upgradeFromVersion102Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 109, 'v102 database upgrades to schema version 110');
+  equal(getCurrentSchemaVersion(), 110, 'v102 database upgrades to schema version 110');
   assertAccountingSeedAccounts(db, 'schema v102 to v110 upgrade');
   const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key,reversal_journal_entry_id,reversal_reason FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
   equal(preserved.id, 'expense-v102-preserve', 'upgrade preserves existing expense records');
@@ -561,7 +561,7 @@ function upgradeFromVersion101Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 109, 'v101 database upgrades through schema version 110');
+  equal(getCurrentSchemaVersion(), 110, 'v101 database upgrades through schema version 110');
   assertAccountingSeedAccounts(db, 'schema v101 to v110 upgrade');
   check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
   check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
