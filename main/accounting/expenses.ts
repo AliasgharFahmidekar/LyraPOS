@@ -388,15 +388,18 @@ export function reverseExpense(
       fail('expense_not_reversible', 'Only a posted expense can be reversed.', 409);
     }
     const original = db.prepare(
-      'SELECT entry.entry_number, entry.currency_code, entry.status, line.account_id, line.debit_minor, line.credit_minor, line.description ' +
+      'SELECT entry.entry_number, entry.entry_date, entry.currency_code, entry.status, line.account_id, line.debit_minor, line.credit_minor, line.description ' +
       'FROM accounting_journal_entries AS entry JOIN accounting_journal_lines AS line ON line.journal_entry_id = entry.id ' +
       'WHERE entry.id = ? ORDER BY line.line_no',
     ).all(fresh.posted_journal_entry_id) as Array<{
-      entry_number: string; currency_code: string; status: string;
+      entry_number: string; entry_date: string; currency_code: string; status: string;
       account_id: string; debit_minor: number; credit_minor: number; description: string | null;
     }>;
     if (original.length < 2 || original.some((line) => line.status !== 'posted')) {
       fail('expense_journal_invalid', 'The original expense journal is missing, unposted, or incomplete.', 409);
+    }
+    if (reversalDate < original[0].entry_date) {
+      fail('invalid_reversal_date', 'A reversal must be dated on or after the original posted expense. Use an open accounting period and provide a reason to correct a closed-period entry.');
     }
 
     const journal = createDraftJournalEntry(db, {
