@@ -579,8 +579,10 @@ async function run() {
     assert.equal(fs.existsSync(recoveryMarker), false, 'startup removes the consumed recovery marker');
     assert.equal(fs.existsSync(recoveryJournal), false, 'startup removes the consumed recovery journal');
 
-    // Keep the period-close fixture last: subsequent restore tests intentionally
-    // replace tables and assert FK rollback/retry behavior.
+    // Exercise a successful data-only restore immediately before the guards:
+    // this isolates restore-trigger recreation from later rollback/retry fixtures.
+    const periodGuardRestore = restoreBackup(olderBackup, false);
+    assert.equal(periodGuardRestore.success, true, 'period-close guard verification starts from a successful data-only restore');
     const restoredPeriodEntry = 'restore-period-guard-entry';
     getDatabase().prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, payload_hash) VALUES (?, ?, '2026-10-10', 'restore guard test', 'IRR', ?)").run(restoredPeriodEntry, 'JE-RESTORE-PERIOD-001', 'b'.repeat(64));
     getDatabase().prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor) VALUES ('restore-period-line-1', ?, 1, 'acct-cash-drawer', 500, 0), ('restore-period-line-2', ?, 2, 'acct-sales-revenue', 0, 500)").run(restoredPeriodEntry, restoredPeriodEntry);
