@@ -185,6 +185,9 @@ try {
   throws(() => db.prepare("UPDATE accounting_expenses SET status='draft', posted_journal_entry_id=NULL WHERE id=?").run(paid.id),
     /invalid accounting expense state transition|posted expense journal identity is immutable/i, 'SQL guard prevents unposting a posted expense');
 
+  throws(() => expenses.reverseExpense(db, paid.id, 'Backdated correction', '2026-10-10', 'manager-1'),
+    /reversal must be dated on or after the original posted expense/i, 'reversal cannot be backdated before the original posted journal');
+  equal(expenses.getExpense(db, paid.id).status, 'posted', 'rejected backdated reversal leaves the original expense unchanged');
   const reversedPaid = expenses.reverseExpense(db, paid.id, 'Duplicate entry correction', '2026-10-12', 'manager-1');
   equal(reversedPaid.status, 'reversed', 'reversal marks the expense reversed without editing the original journal');
   equal(reversedPaid.reversal_reason, 'Duplicate entry correction', 'reversal reason is recorded on the expense');
