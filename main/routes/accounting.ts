@@ -106,6 +106,39 @@ router.post('/reconciliation/adjustments', managerOnly, (req, res) => {
     });
   } catch (error) { respondError(res, error); }
 });
+router.get('/export', managerOnly, (_req, res) => {
+  try {
+    const db = getDatabase();
+    const accountingTables = (db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'accounting_%' ORDER BY name",
+    ).all() as { name: string }[])
+      .map((row) => row.name)
+      .filter((name) => /^accounting_[a-zA-Z0-9_]+$/.test(name));
+    const tables: Record<string, unknown[]> = {};
+    for (const tableName of accountingTables) {
+      tables[tableName] = db.prepare('SELECT * FROM "' + tableName + '"').all() as unknown[];
+    }
+    const triggers = db.prepare(
+      "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='trigger' AND name LIKE 'accounting_%' ORDER BY name",
+    ).all();
+    const foreignKeyViolations = db.pragma('foreign_key_check') as unknown[];
+    const integrity = db.pragma('integrity_check') as { integrity_check: string }[];
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="lyrapos-accounting-export.json"');
+    res.json({
+      format: 'lyrapos-accounting-export',
+      format_version: 1,
+      exported_at: new Date().toISOString(),
+      database_schema_version: db.pragma('user_version', { simple: true }),
+      integrity_check: integrity.map((row) => row.integrity_check),
+      foreign_key_violations: foreignKeyViolations,
+      accounting_tables: tables,
+      accounting_triggers: triggers,
+    });
+  } catch (error) {
+    respondError(res, error);
+  }
+});
 router.get('/accounts', managerOnly, (req, res) => {
   try {
     const types = typeof req.query.types === 'string' ? req.query.types.split(',') : undefined;
