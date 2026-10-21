@@ -392,6 +392,23 @@ async function run() {
         'data-only restore reinstates Phase 3 trigger ' + trigger,
       );
     }
+    // Restore must reinstate accounting period-close guards, not only ledger guards.
+    for (const trigger of [
+      'accounting_journal_entries_closed_period_insert_guard',
+      'accounting_journal_entries_closed_period_guard',
+      'accounting_period_closures_no_delete',
+      'accounting_closed_period_posted_entry_update_guard',
+      'accounting_closed_period_posted_entry_delete_guard',
+      'accounting_closed_period_posted_line_insert_guard',
+      'accounting_closed_period_posted_line_update_guard',
+      'accounting_closed_period_posted_line_delete_guard',
+    ]) {
+      assert.equal(
+        (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger) as { count: number }).count,
+        1,
+        'data-only restore reinstates period-close trigger ' + trigger,
+      );
+    }
     const postRestoreMethod = getDatabase().prepare(
       'INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES (?, 1, 999, datetime(\'now\'), datetime(\'now\'))',
     ).run('Restore Custom Accounting Method');
