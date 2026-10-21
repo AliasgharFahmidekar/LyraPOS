@@ -429,6 +429,14 @@ async function run() {
       /ACCOUNTING_PERIOD_CLOSE_IMMUTABLE/,
       'restored trigger protects close history from deletion',
     );
+    // Keep this regression fixture isolated: later cases deliberately exercise
+    // rollback/retry with foreign-key checks, so remove only our synthetic rows.
+    getDatabase().prepare("UPDATE accounting_period_closures SET status='reopened', reopen_reason='test cleanup', reopened_by='restore-test', reopened_at=datetime('now') WHERE id=?").run('restore-period-guard-close');
+    getDatabase().prepare("DELETE FROM accounting_journal_lines WHERE journal_entry_id=?").run(restoredPeriodEntry);
+    getDatabase().prepare("DELETE FROM accounting_journal_entries WHERE id=?").run(restoredPeriodEntry);
+    getDatabase().exec('DROP TRIGGER IF EXISTS accounting_period_closures_no_delete');
+    getDatabase().prepare("DELETE FROM accounting_period_closures WHERE id=?").run('restore-period-guard-close');
+    getDatabase().exec("CREATE TRIGGER accounting_period_closures_no_delete BEFORE DELETE ON accounting_period_closures BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_IMMUTABLE'); END");
     const postRestoreMethod = getDatabase().prepare(
       'INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES (?, 1, 999, datetime(\'now\'), datetime(\'now\'))',
     ).run('Restore Custom Accounting Method');
