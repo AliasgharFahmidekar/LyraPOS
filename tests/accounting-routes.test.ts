@@ -24,7 +24,7 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const { initTestDb, createApp, closeDatabase, now } = require('./helpers/test-setup');
 const { accountingRoutes } = require('../main/routes/accounting');
-const { createDraftJournalEntry } = require('../main/accounting/ledger');
+const { createDraftJournalEntry, postJournalEntry } = require('../main/accounting/ledger');
 const { getJWTSecret } = require('../main/routes/auth');
 
 let assertions = 0;
@@ -638,6 +638,14 @@ async function main(): Promise<void> {
     equal((await request(app).get('/api/accounting/trial-balance?from=2026-10-16&to=2026-10-15').set(manager)).status, 400, 'trial balance rejects reversed date ranges');
     equal((await request(app).get('/api/accounting/periods').set(cashier)).status, 403, 'cashier cannot read accounting periods');
     equal((await request(app).post('/api/accounting/periods/close').set(cashier).send({})).status, 403, 'cashier cannot close accounting periods');
+    const journalToProtect = createDraftJournalEntry(db, {
+      entryDate: '2020-01-01', description: 'Posted before period close', currencyCode: 'INR',
+      lines: [
+        { accountId: 'acct-bank', debitMinor: 100, creditMinor: 0 },
+        { accountId: 'acct-sales-revenue', debitMinor: 0, creditMinor: 100 },
+      ],
+    });
+    postJournalEntry(db, journalToProtect.id, 'accounting-api-owner');
     const closedPeriod = await request(app).post('/api/accounting/periods/close').set(manager).send({
       period_start: '2020-01-01', period_end: '2020-01-01', reason: 'Automated period-close regression test',
     });
@@ -665,6 +673,21 @@ async function main(): Promise<void> {
       db.prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=CURRENT_TIMESTAMP WHERE id=?").run('closed-period-direct-update');
     } catch (error: any) { directUpdateBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSED'); }
     equal(directUpdateBlocked, true, 'database trigger blocks direct draft-to-posted updates in a closed period');
+    let postedHeaderMutationBlocked = false;
+    try {
+      db.prepare('UPDATE accounting_journal_entries SET description=? WHERE id=?').run('tampered after close', journalToProtect.id);
+    } catch (error: any) { postedHeaderMutationBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); }
+    equal(postedHeaderMutationBlocked, true, 'database trigger blocks direct edits to a posted journal in a closed period');
+    let postedLineMutationBlocked = false;
+    try {
+      db.prepare('UPDATE accounting_journal_lines SET description=? WHERE journal_entry_id=?').run('tampered line', journalToProtect.id);
+    } catch (error: any) { postedLineMutationBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); }
+    equal(postedLineMutationBlocked, true, 'database trigger blocks direct edits to posted journal lines in a closed period');
+    let postedLineDeleteBlocked = false;
+    try {
+      db.prepare('DELETE FROM accounting_journal_lines WHERE journal_entry_id=? AND line_no=1').run(journalToProtect.id);
+    } catch (error: any) { postedLineDeleteBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); }
+    equal(postedLineDeleteBlocked, true, 'database trigger blocks direct deletion of posted journal lines in a closed period');
     const closedPeriodList = await request(app).get('/api/accounting/periods').set(manager);
     equal(closedPeriodList.status, 200, 'manager can list period close history');
     ok(closedPeriodList.body.periods.some((period: any) => period.id === closedPeriod.body.period.id), 'period list includes the newly closed period');
