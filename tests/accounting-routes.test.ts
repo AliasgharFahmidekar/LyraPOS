@@ -58,6 +58,7 @@ async function main(): Promise<void> {
     const app = createApp({ '/api/accounting': accountingRoutes });
 
     equal((await request(app).get('/api/accounting/expenses')).status, 401, 'unauthenticated expense list is denied');
+    equal((await request(app).get('/api/accounting/export')).status, 401, 'unauthenticated accounting export is denied');
     for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
       equal((await request(app).get('/api/accounting/accounts').set(headers)).status, 403, role + ' cannot read accounting accounts');
       equal((await request(app).get('/api/accounting/transfers').set(headers)).status, 403, role + ' cannot read accounting transfers');
@@ -75,6 +76,17 @@ async function main(): Promise<void> {
     equal((await request(app).get('/api/accounting/accounts/acct-bank/transactions').set(cashier)).status, 403, 'cashier cannot read account history');
     equal((await request(app).get('/api/accounting/accounts').set(owner)).status, 200, 'owner can read posting accounts');
     equal((await request(app).get('/api/accounting/accounts').set(manager)).status, 200, 'manager can read posting accounts');
+    for (const headers of [owner, manager]) {
+      const exportResponse = await request(app).get('/api/accounting/export').set(headers);
+      equal(exportResponse.status, 200, 'owner/manager can export accounting audit data');
+      equal(exportResponse.body.format, 'lyrapos-accounting-export', 'accounting export has an explicit format marker');
+      ok(Array.isArray(exportResponse.body.accounting_tables?.accounting_journal_entries), 'accounting export includes journal headers');
+      ok(Array.isArray(exportResponse.body.accounting_tables?.accounting_journal_lines), 'accounting export includes journal lines');
+      ok(Array.isArray(exportResponse.body.accounting_tables?.accounting_audit_log), 'accounting export includes the audit log');
+      ok(Array.isArray(exportResponse.body.accounting_triggers), 'accounting export includes installed accounting guards');
+      ok(Array.isArray(exportResponse.body.integrity_check), 'accounting export reports SQLite integrity check results');
+      ok(Array.isArray(exportResponse.body.foreign_key_violations), 'accounting export reports foreign-key check results');
+    }
     const accountList = await request(app).get('/api/accounting/accounts').set(manager);
     equal(accountList.body.accounts.find((a: any) => a.id === 'acct-bank')?.is_liquid, true, 'bank is explicitly marked as a liquid asset');
     equal(accountList.body.accounts.find((a: any) => a.id === 'acct-inventory')?.is_liquid, false, 'inventory is explicitly marked as non-liquid');
