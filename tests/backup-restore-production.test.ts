@@ -409,6 +409,26 @@ async function run() {
         'data-only restore reinstates period-close trigger ' + trigger,
       );
     }
+    const restoredPeriodEntry = 'restore-period-guard-entry';
+    getDatabase().prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, payload_hash) VALUES (?, ?, '2026-10-10', 'restore guard test', 'IRR', ?)").run(restoredPeriodEntry, 'JE-RESTORE-PERIOD-001', 'b'.repeat(64));
+    getDatabase().prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor) VALUES ('restore-period-line-1', ?, 1, 'acct-cash-drawer', 500, 0), ('restore-period-line-2', ?, 2, 'acct-sales-revenue', 0, 500)").run(restoredPeriodEntry, restoredPeriodEntry);
+    getDatabase().prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=datetime('now') WHERE id=?").run(restoredPeriodEntry);
+    getDatabase().prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES ('restore-period-guard-close', '2026-10-10', '2026-10-10', 'closed', 'restore regression', 'restore-test')").run();
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_journal_entries SET description=? WHERE id=?').run('changed', restoredPeriodEntry),
+      /ACCOUNTING_PERIOD_CLOSED_IMMUTABLE/,
+      'restored trigger prevents edits to posted journals in closed periods',
+    );
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_journal_lines SET description=? WHERE journal_entry_id=?').run('changed', restoredPeriodEntry),
+      /ACCOUNTING_PERIOD_CLOSED_IMMUTABLE/,
+      'restored trigger prevents edits to posted lines in closed periods',
+    );
+    assert.throws(
+      () => getDatabase().prepare('DELETE FROM accounting_period_closures WHERE id=?').run('restore-period-guard-close'),
+      /ACCOUNTING_PERIOD_CLOSE_IMMUTABLE/,
+      'restored trigger protects close history from deletion',
+    );
     const postRestoreMethod = getDatabase().prepare(
       'INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES (?, 1, 999, datetime(\'now\'), datetime(\'now\'))',
     ).run('Restore Custom Accounting Method');
