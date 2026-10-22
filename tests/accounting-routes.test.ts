@@ -829,6 +829,25 @@ async function main(): Promise<void> {
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=?").get(closedPeriod.body.period.id) as any).count, 2,
       'period close and reopen each leave an audit record');
 
+    // A malformed directly-seeded posted journal must prevent the period from being closed.
+    // Normal app posting validates balance; this regression proves the period-close boundary
+    // also refuses invalid posted data rather than freezing it into a closed period.
+    const unbalancedJournalId = 'period-close-unbalanced-posted-entry';
+    db.prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, status, payload_hash) VALUES (?, ?, '2020-01-02', 'Unbalanced close gate regression', 'INR', 'draft', ?)")
+      .run(unbalancedJournalId, 'JE-CLOSE-UNBALANCED', 'c'.repeat(64));
+    db.prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, description, debit_minor, credit_minor) VALUES (?, ?, 1, 'acct-bank', 'unbalanced debit', 100, 0)")
+      .run('period-close-unbalanced-debit', unbalancedJournalId);
+    db.prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, description, debit_minor, credit_minor) VALUES (?, ?, 2, 'acct-sales-revenue', 'unbalanced credit', 0, 99)")
+      .run('period-close-unbalanced-credit', unbalancedJournalId);
+    db.prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=CURRENT_TIMESTAMP WHERE id=?").run(unbalancedJournalId);
+    const unbalancedClose = await request(app).post('/api/accounting/periods/close').set(manager).send({
+      period_start: '2020-01-02', period_end: '2020-01-02', reason: 'Reject unbalanced posted journal',
+    });
+    equal(unbalancedClose.status, 409, 'period close refuses an unbalanced posted journal');
+    equal(unbalancedClose.body.code, 'period_has_unbalanced_journals', 'period close reports the journal-integrity failure distinctly');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_period_closures WHERE period_start='2020-01-02' AND period_end='2020-01-02' AND status='closed'").get() as any).count, 0,
+      'a period containing an unbalanced posted journal remains open');
+
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
     try { closeDatabase(); } catch {}
