@@ -70,10 +70,41 @@ test('wallet activity is excluded and a missing monetary event identity is visib
 test('pre-cutover receipt is shown as intentionally skipped, not auto-posted', () => {
   const result = getAccountingSourceEventReconciliation(fakeDb({
     cutoff: '2026-10-02T12:00:00Z',
-    bills: [{ id: 12, created_at: '2026-10-02 11:59:00', payment_details: JSON.stringify([{ payment_event_id: 'old-1', method: 'cash', amount: 500 }]) }],
+    bills: [{ id: 12, created_at: '2024-01-01 11:59:00', payment_details: JSON.stringify([{ payment_event_id: 'old-1', method: 'cash', amount: 500, timestamp: '2026-10-02T11:59:00Z' }]) }],
   }));
   assert.equal(result.events[0].status, 'skipped_pre_cutover');
   assert.deepEqual(result.events[0].journal_entry_ids, []);
+});
+
+test('post-cutover receipt on a legacy bill is reconciled by receipt timestamp', () => {
+  const result = getAccountingSourceEventReconciliation(fakeDb({
+    cutoff: '2026-10-02T12:00:00Z',
+    bills: [{ id: 14, created_at: '2024-01-01 10:00:00', payment_details: JSON.stringify([
+      { payment_event_id: 'late-payment-1', method: 'cash', amount: 500, timestamp: '2026-10-02T12:05:00Z' },
+    ]) }],
+  }));
+  assert.equal(result.events[0].status, 'missing_journal', 'a post-cutover receipt is not skipped merely because its bill is old');
+  assert.equal(result.events[0].source_id, '14:late-payment-1');
+});
+
+test('a receipt without its own timestamp remains an unresolved exception', () => {
+  const result = getAccountingSourceEventReconciliation(fakeDb({
+    cutoff: '2026-10-02T12:00:00Z',
+    bills: [{ id: 15, created_at: '2024-01-01 10:00:00', payment_details: JSON.stringify([
+      { payment_event_id: 'timestamp-missing-1', method: 'cash', amount: 500 },
+    ]) }],
+  }));
+  assert.equal(result.events[0].status, 'missing_source_identity');
+  assert.equal(result.events[0].event_date, null);
+});
+
+test('post-cutover refund on a legacy bill is reconciled by refund timestamp', () => {
+  const result = getAccountingSourceEventReconciliation(fakeDb({
+    cutoff: '2026-10-02T12:00:00Z',
+    refunds: [{ id: 16, bill_id: 99, amount_cents: 500, method: 'cash', created_at: '2026-10-02T12:05:00Z', bill_created_at: '2024-01-01T10:00:00Z' }],
+  }));
+  assert.equal(result.events[0].status, 'missing_journal', 'a post-cutover refund is not skipped because its bill was created before cutover');
+  assert.equal(result.events[0].event_date, '2026-10-02T12:05:00Z');
 });
 
 test('date range and limit validation reject invalid filters', () => {
