@@ -280,7 +280,12 @@ export function registerFutureItem(db: DB, idInput: unknown, actorIdInput: unkno
   try {
     return registerFutureItemInternal(db, id, actorIdInput, asOfDateInput);
   } catch (error) {
-    markFutureItemFailed(db, id, actorIdInput, error);
+    // Validation/state failures are not posting failures: a premature click must not
+    // mutate a still-scheduled item into the retry-needed state.
+    const code = typeof (error as any)?.code === 'string' ? String((error as any).code) : '';
+    if (!['future_item_not_due', 'future_item_cancelled', 'future_item_invalid_state', 'future_item_not_found', 'invalid_as_of_date', 'accounting_date_unavailable'].includes(code)) {
+      markFutureItemFailed(db, id, actorIdInput, error);
+    }
     throw error;
   }
 }
