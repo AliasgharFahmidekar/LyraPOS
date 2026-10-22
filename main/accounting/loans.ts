@@ -259,14 +259,20 @@ export function processDueLoanInstallments(db: DB, asOfInput?: unknown): {checke
 export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input: any, actorId: string | null, idempotencyInput: unknown): any {
   const id=text(installmentIdInput,'installment_id',100);
   const settlementDate=date(input?.settlement_date,'settlement_date');
+  const businessDate=accountingDate(db,new Date().toISOString());
+  if(settlementDate>businessDate) fail('settlement_in_future','Actual loan payment date cannot be in the future.');
   const settlementAccountId=text(input?.settlement_account_id,'settlement_account_id',100);
   const idempotencyKey=key(idempotencyInput);
   return db.transaction(()=>{
     const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
     if(!item) fail('installment_not_found','Loan instalment was not found.',404);
     if(item.status==='cancelled') fail('installment_cancelled','Cancelled instalment cannot be settled.',409);
+    const settlementPayloadHash=hash({installmentId:id,settlementDate,settlementAccountId,principalMinor:item.principal_minor,interestMinor:item.interest_minor,feesMinor:item.fees_minor});
     if(item.status==='settled') {
-      if(item.settlement_idempotency_key===idempotencyKey && item.settlement_date===settlementDate && item.settlement_account_id===settlementAccountId) return {...item,duplicate:true};
+      if(item.settlement_idempotency_key===idempotencyKey) {
+        if(item.settlement_payload_hash!==settlementPayloadHash) fail('idempotency_conflict','Settlement idempotency key was reused with different payment details.',409);
+        return {...item,duplicate:true};
+      }
       fail('installment_already_settled','Instalment is already settled.',409);
     }
     if(item.status!=='registered') fail('installment_not_registered','Register the due installment before confirming its actual payment.',409);
@@ -284,8 +290,8 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
       {accountId:cash.id,debitMinor:0,creditMinor:total,description:'Actual loan instalment payment'},
     ];
     const journal=post(db,{entryDate:settlementDate,description:'Loan instalment payment: '+loan.lender,currencyCode:loan.currency_code,lines,actorId,sourceId:id,sourceEvent:'installment_settlement',idempotencyKey:'loan-installment:'+id+':settlement'});
-    db.prepare("UPDATE accounting_loan_installments SET status='settled',settlement_date=?,settlement_account_id=?,settlement_journal_entry_id=?,settled_at=CURRENT_TIMESTAMP,settled_by=?,settlement_idempotency_key=? WHERE id=?")
-      .run(settlementDate,cash.id,journal.id,actor(actorId),idempotencyKey,id);
+    db.prepare("UPDATE accounting_loan_installments SET status='settled',settlement_date=?,settlement_account_id=?,settlement_journal_entry_id=?,settled_at=CURRENT_TIMESTAMP,settled_by=?,settlement_idempotency_key=?,settlement_payload_hash=? WHERE id=?")
+      .run(settlementDate,cash.id,journal.id,actor(actorId),idempotencyKey,settlementPayloadHash,id);
     const updated=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
     const remaining = outstanding(db,loan);
     const pending = db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
