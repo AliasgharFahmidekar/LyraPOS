@@ -556,6 +556,8 @@ async function main(): Promise<void> {
 
     equal((await request(app).get('/api/accounting/reports')).status, 401, 'unauthenticated management reports are denied');
     equal((await request(app).get('/api/accounting/reports').set(cashier)).status, 403, 'cashier cannot read financial management reports');
+    equal((await request(app).get('/api/accounting/forecast')).status, 401, 'unauthenticated forecast access is denied');
+    equal((await request(app).get('/api/accounting/forecast').set(cashier)).status, 403, 'cashier cannot read financial forecasts');
     equal((await request(app).get('/api/accounting/trial-balance')).status, 401, 'unauthenticated trial balance is denied');
     equal((await request(app).get('/api/accounting/trial-balance').set(cashier)).status, 403, 'cashier cannot read trial balance');
     const reportLedger = require('../main/accounting/ledger');
@@ -878,6 +880,17 @@ async function main(): Promise<void> {
     equal(futureIncomingResponse.body.item?.status, 'scheduled', 'creating a future receipt does not post its future event');
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=?").get(futureIncomingId) as any).count, 0,
       'future receipt creation does not create a ledger journal');
+    const journalsBeforeForecast = (db.prepare('SELECT COUNT(*) AS count FROM accounting_journal_entries').get() as any).count;
+    const scheduledForecast = await request(app).get('/api/accounting/forecast?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
+    equal(scheduledForecast.status, 200, 'manager can read the forecast for a valid date range');
+    equal(scheduledForecast.body.summary.expected_inflows_minor, 5000, 'scheduled receipt appears as an expected cash inflow');
+    equal(scheduledForecast.body.summary.projected_income_minor, 5000, 'unregistered future receipt is a projection rather than posted income');
+    equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_journal_entries').get() as any).count, journalsBeforeForecast,
+      'reading the forecast never creates accounting journals');
+    equal((await request(app).get('/api/accounting/forecast?from=2026-02-30').set(manager)).status, 400,
+      'forecast rejects impossible calendar dates');
+    equal((await request(app).get('/api/accounting/forecast?horizon_days=367').set(manager)).status, 400,
+      'forecast rejects horizons longer than 366 days');
     const futureIncomingRetry = await request(app).post('/api/accounting/future-items')
       .set(manager).set('Idempotency-Key', 'future-incoming-001').send(futureIncomingPayload);
     equal(futureIncomingRetry.status, 201, 'identical future receipt retry is idempotent');
@@ -906,6 +919,10 @@ async function main(): Promise<void> {
     equal(autoDuePass.registered, 1, 'automatic mode registers the item when its due date is reached');
     const futureIncomingRow = db.prepare('SELECT * FROM accounting_future_items WHERE id=?').get(futureIncomingId) as any;
     equal(futureIncomingRow.status, 'registered', 'automatic due processing moves the item to registered');
+    const registeredForecast = await request(app).get('/api/accounting/forecast?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
+    equal(registeredForecast.status, 200, 'forecast remains available after due registration');
+    equal(registeredForecast.body.summary.projected_income_minor, 0, 'registered-but-unsettled receipt is not projected as new income');
+    equal(registeredForecast.body.summary.recognized_unpaid_minor, 5000, 'registered-but-unsettled receipt is reported separately as an unpaid obligation');
     const dueJournal = db.prepare('SELECT id, status, entry_date FROM accounting_journal_entries WHERE id=?').get(futureIncomingRow.due_journal_entry_id) as any;
     equal(dueJournal.status, 'posted', 'automatic due registration posts through the normal ledger');
     equal(dueJournal.entry_date, todayAccountingDate, 'due journal uses the stored canonical ISO due date');
