@@ -8,10 +8,11 @@ import { AccountingSettings } from '@/components/settings/AccountingSettings';
 import { AccountingReports } from '@/components/settings/AccountingReports';
 import { AccountingFutureItems } from '@/components/settings/AccountingFutureItems';
 import { AccountingRecurringObligations } from '@/components/settings/AccountingRecurringObligations';
+import { AccountingLoans } from '@/components/settings/AccountingLoans';
 
 export default function AccountingPage() {
   const locale = useLocale();
-  const [view, setView] = useState<'operations' | 'reports' | 'futureItems' | 'recurring'>('operations');
+  const [view, setView] = useState<'operations' | 'reports' | 'futureItems' | 'recurring' | 'loans'>('operations');
   const isPersian = locale.toLowerCase().startsWith('fa');
   const role = useAuthStore((state) => state.currentTenant?.role);
   const isAdmin = hasRole(role, ROLE_ACCESS.ownerManager);
@@ -42,8 +43,11 @@ export default function AccountingPage() {
         <button type="button" role="tab" aria-selected={view === 'recurring'} onClick={() => setView('recurring')} className={view === 'recurring' ? 'rounded-lg border border-brand bg-brand/10 px-4 py-2 text-sm text-brand' : 'rounded-lg border border-border px-4 py-2 text-sm'}>
           {isPersian ? 'تعهدات تکرارشونده' : 'Recurring obligations'}
         </button>
+        <button type="button" role="tab" aria-selected={view === 'loans'} onClick={() => setView('loans')} className={view === 'loans' ? 'rounded-lg border border-brand bg-brand/10 px-4 py-2 text-sm text-brand' : 'rounded-lg border border-border px-4 py-2 text-sm'}>
+          {isPersian ? 'وام‌ها' : 'Loans'}
+        </button>
       </div>
-      {view === 'reports' ? <AccountingReports /> : view === 'futureItems' ? <AccountingFutureItems /> : view === 'recurring' ? <AccountingRecurringObligations /> : <AccountingSettings isAdmin={isAdmin} mode="operations" />}
+      {view === 'reports' ? <AccountingReports /> : view === 'futureItems' ? <AccountingFutureItems /> : view === 'recurring' ? <AccountingRecurringObligations /> : view === 'loans' ? <AccountingLoans /> : <AccountingSettings isAdmin={isAdmin} mode="operations" />}
     </div>
   );
 }
