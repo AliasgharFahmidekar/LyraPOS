@@ -1,4 +1,4 @@
-**Status on PR #19 as of 2026-10-22:** Phases 0–6 are implemented on the branch; Phase 6 passed its acceptance gate before Phase 7 work began. Phase 7.0's shared future-item model/posting contract is implemented with strict route, ledger, migration, idempotency, failure, cancellation, settlement, and closed-period regressions. Phase 7.1's one-off future receipts/cheques UI is now connected to the main Accounting page. These latest changes are not release-accepted until the full regression/build/lint workflow passes on the exact current PR head. Do not merge this PR.
+**Status on PR #19 as of 2026-10-22:** Phases 0–6 passed their acceptance gates. Phase 7.2 recurring obligations passed the full CI workflow on exact head `ce2b0e48f066113a16459dab4277056533097bf1` in run [#39843475494](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/39843475494). Phase 7.3 loan origination/installments is now implemented on the branch with migration v116, ledger-backed new-loan and opening-balance journals, principal/interest/fee separation, due-event processing, actual-payment confirmation, owner/manager routes, Persian/English Accounting UI, backup-restore trigger reinstatement, and focused regressions. The new Phase 7.3 code is **pending exact-head CI verification**; do not claim acceptance until the full suite/build/lint/i18n workflow passes. Do not merge this PR.
 
 **Latest Phase 6 audit and regression work:**
 - Cutover classification now follows the actual receipt/refund event timestamp, not merely the parent bill's creation date. A post-cutover payment/refund on an older bill is therefore recognized correctly without backfilling the historical bill itself. A receipt with no timestamp remains unresolved unless it has the unambiguous legacy shape (pre-cutover bill plus no event ID and no timestamp), which is visibly classified as excluded under the explicit no-backfill policy; inconsistent/newer rows remain unresolved and block close.
@@ -434,7 +434,7 @@ The base one-off model and posting semantics are implemented on this branch. The
 - **Reporting boundary:** unregistered items are projections only. Registered-but-unsettled items have balancing clearing/receivable/payable entries but contribute neither income nor paid expense; they do not change cash/bank. Actual settlement clears those transitional balances, changes the selected liquid account, and recognizes the configured income/expense exactly once. The richer forecast and status breakdown remains Phase 7.4; this phase does not claim that forecast UI exists.
 - **Regression coverage:** fresh install, supported older-schema upgrades, direct v112→current migration, exact system-account allowlist and account-code uniqueness, due-versus-settlement journal lines, no early income/expense recognition, settlement date reporting, idempotent retries and existing audit/closed-period constraints.
 
-This phase establishes the shared data/posting contract and the one-off future-item foundation. The dedicated future-items UI is now implemented in the main Accounting page by the Phase 7.1 slice below. It does **not** yet implement recurring schedules, loan origination/repayment splitting, Jalali date-entry UI, external bank verification, or payment-provider integration. The current database schema target is v114.
+This phase establishes the shared data/posting contract and the one-off future-item foundation. The dedicated future-items UI is now implemented in the main Accounting page by the Phase 7.1 slice below. It does **not** yet implement recurring schedules, loan origination/repayment splitting, Jalali date-entry UI, external bank verification, or payment-provider integration. The shared future-item foundation initially targeted v114; Phase 7.2 extends it to v115 and Phase 7.3 extends the schema to v116.
 
 ### Product decision: three separate workflows, one shared scheduler
 
@@ -491,6 +491,17 @@ For an Iran tenant, monthly recurrence uses the tenant's Jalali month sequence w
 - The main Accounting page now has a bilingual RTL-compatible Recurring obligations tab with schedule creation, occurrence history/status, and schedule cancellation. Each occurrence can be settled through the existing Future receipts & cheques workflow. Remaining before acceptance: exact-head CI, cancellation/partial-posting regression, startup catch-up/restart behavior, and Windows offline verification.
 
 ### 7.3 — Loans (separate loan record and repayment workflow)
+
+**Implementation status on 2026-10-22: implemented on PR #19; exact-head CI pending.** Migration v116 adds immutable loan identity records, installment batches, and auditable installment occurrences. The Accounting page now has a dedicated **«وام‌ها» / “Loans”** tab.
+
+- New borrowing posts the actual cash/bank increase against a liability account; it never credits revenue.
+- An existing loan can be opened at the remaining principal only. Its opening journal uses Opening Balance Equity as the offset and creates no new cash/bank movement.
+- The owner enters/imports the lender's actual principal, interest, fee and due-date schedule. The app does not invent an amortization formula or interest split. Combined scheduled principal is bounded by the outstanding liability, and settled principal is reconciled against the loan subledger.
+- Due processing runs at startup and every 60 seconds with the shared accounting scheduler. Automatic mode moves a due installment to **registered**; manual mode moves it to **awaiting confirmation**. Neither mode records a cash payment or marks the loan paid.
+- Actual settlement is an explicit owner/manager action. One balanced journal debits principal against the loan liability, debits interest/fees to their selected expense accounts, and credits the actual cash/bank/clearing account. A settled retry is idempotent; another payment cannot be posted for the same installment.
+- Schema guards protect loan identity, installment identity/state, cancellation, settled records, and audit history. Loan triggers are reinstated after data-only restore. Focused regressions cover new vs opening loans, no revenue/cash fabrication, split posting, due vs paid state, balance limits, cancellation, idempotency, and SQLite integrity.
+- Scope intentionally deferred: automatic amortization calculation, external bank/payment-provider integration, and Phase 7.4 forecast/report integration. A due event is not an automatic bank payment.
+
 
 The first scope is **loans received by the business**. A loan is borrowing, not sales revenue.
 
