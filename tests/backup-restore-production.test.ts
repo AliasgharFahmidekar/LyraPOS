@@ -604,6 +604,17 @@ async function run() {
       'restored trigger protects close history from deletion',
     );
 
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_period_closures SET close_reason=? WHERE id=?').run('tampered after restore', 'restore-period-guard-close'),
+      /ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION/,
+      'restored trigger blocks direct mutations of period-close records',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=? AND action='closed'").get('restore-period-guard-close') as { count: number }).count,
+      1,
+      'restored trigger recreates automatic period-close audit recording',
+    );
+
     console.log('✅ Production database restore tests passed');
   } finally {
     closeDatabase();
