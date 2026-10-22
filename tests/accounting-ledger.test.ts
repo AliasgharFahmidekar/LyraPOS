@@ -93,6 +93,7 @@ function assertAccountingSeedAccounts(db: any, context: string): void {
     { id: 'acct-bank', systemKey: 'bank_accounts', accountCode: '1020', isPostable: 1 },
     { id: 'acct-payment-clearing', systemKey: 'payment_clearing', accountCode: '1030', isPostable: 1 },
     { id: 'acct-sales-revenue', systemKey: 'sales_revenue', accountCode: '4010', isPostable: 1 },
+    { id: 'acct-loans-payable', systemKey: 'loans_payable', accountCode: '2030', isPostable: 1 },
     { id: 'acct-sales-tax-payable', systemKey: 'sales_tax_payable', accountCode: '2040', isPostable: 1 },
     { id: 'acct-sales-returns', systemKey: 'sales_returns', accountCode: '4040', isPostable: 1 },
     { id: 'acct-tax-expenses', systemKey: 'tax_expenses', accountCode: '5040', isPostable: 1 },
