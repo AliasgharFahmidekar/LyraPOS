@@ -857,9 +857,15 @@ async function main(): Promise<void> {
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_period_closures WHERE period_start='2020-01-02' AND period_end='2020-01-02' AND status='closed'").get() as any).count, 0,
       'a period containing an unbalanced posted journal remains open');
 
-    // Phase 7 Stage 1: future receipts/cheques have separate registration and actual settlement.
+    // Phase 7 Stage 1: due registration is separate from actual settlement.
+    const todayAccountingDate = accountingDate(db, new Date().toISOString());
+    const dayBeforeTodayAccountingDate = (() => {
+      const date = new Date(todayAccountingDate + 'T00:00:00.000Z');
+      date.setUTCDate(date.getUTCDate() - 1);
+      return date.toISOString().slice(0, 10);
+    })();
     const futureIncomingPayload = {
-      record_type: 'receipt', direction: 'incoming', due_date: '2099-10-21',
+      record_type: 'receipt', direction: 'incoming', due_date: todayAccountingDate,
       amount_minor: 5000, currency_code: 'INR', description: 'Future service receipt',
       counterparty: 'Future customer', reference_number: 'RCPT-FUTURE-001',
       classification_account_id: 'acct-other-income', auto_register: true,
@@ -894,15 +900,15 @@ async function main(): Promise<void> {
       .send({ ...futureIncomingPayload, direction: 'outgoing', classification_account_id: 'acct-operating-expenses' })).status, 400,
       'a receipt record cannot represent an outgoing payment; outgoing instruments must use the cheque type');
 
-    const futureNotDuePass = processDueFutureItems(db, '2099-10-20');
+    const futureNotDuePass = processDueFutureItems(db, dayBeforeTodayAccountingDate);
     equal(futureNotDuePass.checked, 0, 'due processor leaves future items untouched before their due date');
-    const autoDuePass = processDueFutureItems(db, '2099-10-21');
+    const autoDuePass = processDueFutureItems(db, todayAccountingDate);
     equal(autoDuePass.registered, 1, 'automatic mode registers the item when its due date is reached');
     const futureIncomingRow = db.prepare('SELECT * FROM accounting_future_items WHERE id=?').get(futureIncomingId) as any;
     equal(futureIncomingRow.status, 'registered', 'automatic due processing moves the item to registered');
     const dueJournal = db.prepare('SELECT id, status, entry_date FROM accounting_journal_entries WHERE id=?').get(futureIncomingRow.due_journal_entry_id) as any;
     equal(dueJournal.status, 'posted', 'automatic due registration posts through the normal ledger');
-    equal(dueJournal.entry_date, '2099-10-21', 'due journal uses the stored canonical ISO due date');
+    equal(dueJournal.entry_date, todayAccountingDate, 'due journal uses the stored canonical ISO due date');
     const dueLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=? ORDER BY line_no').all(dueJournal.id) as any[];
     equal(dueLines.reduce((n, line) => n + line.debit_minor, 0), 5000, 'due registration debits the exact amount');
     equal(dueLines.reduce((n, line) => n + line.credit_minor, 0), 5000, 'due registration credits the exact amount');
@@ -914,16 +920,22 @@ async function main(): Promise<void> {
       'incoming due registration does not recognize income before actual settlement');
     ok(!dueLines.some((line) => line.account_id === 'acct-bank' || line.account_id === 'acct-cash-drawer'),
       'due registration does not change a cash or bank account before actual settlement');
-    const futureIncomeBeforeSettlement = await request(app).get('/api/accounting/reports?from=2099-10-21&to=2099-10-21').set(manager);
+    const futureIncomeBeforeSettlement = await request(app).get('/api/accounting/reports?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
     equal(futureIncomeBeforeSettlement.status, 200, 'manager can inspect the report on a future-item due date');
     equal(futureIncomeBeforeSettlement.body.summary.other_income_minor, 0,
       'future receipt due registration is excluded from reported income until actual settlement');
-    const managerFutureList = await request(app).get('/api/accounting/future-items?from=2099-10-21&to=2099-10-21').set(manager);
+    const managerFutureList = await request(app).get('/api/accounting/future-items?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
     equal(managerFutureList.status, 200, 'manager can filter future items by their due-date range');
     equal(managerFutureList.body.items?.find((item: any) => item.id === futureIncomingId)?.status, 'registered',
       'future-item history reflects the automatic posting state');
 
-    const settlementPayload = { settlement_date: '2099-10-22', settlement_account_id: 'acct-bank' };
+    const futureDatedSettlement = await request(app).post('/api/accounting/future-items/' + futureIncomingId + '/settle')
+      .set(manager).set('Idempotency-Key', 'future-incoming-settlement-future-date')
+      .send({ settlement_date: '2099-10-22', settlement_account_id: 'acct-bank' });
+    equal(futureDatedSettlement.status, 400, 'actual settlement rejects a future calendar date');
+    equal(db.prepare('SELECT status FROM accounting_future_items WHERE id=?').get(futureIncomingId)?.status, 'registered',
+      'rejecting a future-dated settlement leaves the due item registered and cash unchanged');
+    const settlementPayload = { settlement_date: todayAccountingDate, settlement_account_id: 'acct-bank' };
     const settledIncoming = await request(app).post('/api/accounting/future-items/' + futureIncomingId + '/settle')
       .set(manager).set('Idempotency-Key', 'future-incoming-settlement-001').send(settlementPayload);
     equal(settledIncoming.status, 200, 'manager can confirm actual settlement separately from due registration');
@@ -931,7 +943,7 @@ async function main(): Promise<void> {
     const settlementJournal = db.prepare('SELECT id, status, entry_date FROM accounting_journal_entries WHERE id=?')
       .get(settledIncoming.body.item?.settlement_journal_entry_id) as any;
     equal(settlementJournal.status, 'posted', 'actual settlement posts a separate journal');
-    equal(settlementJournal.entry_date, '2099-10-22', 'settlement journal uses the actual settlement date');
+    equal(settlementJournal.entry_date, todayAccountingDate, 'settlement journal uses the actual settlement date');
     const settlementLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?').all(settlementJournal.id) as any[];
     ok(settlementLines.some((line) => line.account_id === 'acct-bank' && line.debit_minor === 5000),
       'actual incoming settlement debits the chosen bank account');
@@ -951,10 +963,9 @@ async function main(): Promise<void> {
     equal(settlementRetry.body.item?.duplicate, true, 'identical actual-settlement retry is marked duplicate');
     equal((await request(app).post('/api/accounting/future-items/' + futureIncomingId + '/settle')
       .set(manager).set('Idempotency-Key', 'future-incoming-settlement-001')
-      .send({ ...settlementPayload, settlement_date: '2099-10-23' })).status, 409,
+       .send({ ...settlementPayload, settlement_account_id: 'acct-cash-drawer' })).status, 409,
       'changed settlement payload cannot reuse its idempotency key');
 
-    const todayAccountingDate = accountingDate(db, new Date().toISOString());
     const manualOutgoingPayload = {
       record_type: 'cheque', direction: 'outgoing', due_date: todayAccountingDate,
       amount_minor: 2500, currency_code: 'INR', description: 'Issued service cheque',
@@ -990,12 +1001,7 @@ async function main(): Promise<void> {
     equal(outgoingDueReportAfter.status, 200, 'expense report remains available after outgoing due registration');
     equal(outgoingDueReportAfter.body.summary.posted_expenses_minor, outgoingDueReportBefore.body.summary.posted_expenses_minor,
       'an unpaid due cheque does not change reported paid expenses');
-    const manualSettlementDate = (() => {
-      if (todayAccountingDate >= '2099-12-01') return '2100-01-01';
-      const date = new Date(todayAccountingDate + 'T00:00:00.000Z');
-      date.setUTCDate(date.getUTCDate() + 1);
-      return date.toISOString().slice(0, 10);
-    })();
+    const manualSettlementDate = todayAccountingDate;
     const outgoingSettlementReportBefore = await request(app)
       .get('/api/accounting/reports?from=' + manualSettlementDate + '&to=' + manualSettlementDate).set(manager);
     equal(outgoingSettlementReportBefore.status, 200, 'baseline report is available for the actual payment date');
