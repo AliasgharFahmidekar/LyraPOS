@@ -2720,7 +2720,6 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_closed_period_posted_line_insert_guard',
   'accounting_closed_period_posted_line_update_guard',
   'accounting_closed_period_posted_line_delete_guard',
-  'accounting_future_items_payload_immutable',
   'accounting_future_items_state_guard',
   'accounting_future_items_no_delete',
   'accounting_future_items_audit_insert',
@@ -3229,37 +3228,34 @@ const ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL = `
 `;
 
 const ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL = `
-  CREATE TRIGGER IF NOT EXISTS accounting_future_items_payload_immutable
-    BEFORE UPDATE ON accounting_future_items
-    WHEN NEW.id IS NOT OLD.id
-      OR NEW.record_type IS NOT OLD.record_type
-      OR NEW.direction IS NOT OLD.direction
-      OR NEW.due_date IS NOT OLD.due_date
-      OR NEW.amount_minor IS NOT OLD.amount_minor
-      OR NEW.currency_code IS NOT OLD.currency_code
-      OR NEW.description IS NOT OLD.description
-      OR NEW.counterparty IS NOT OLD.counterparty
-      OR NEW.reference_number IS NOT OLD.reference_number
-      OR NEW.classification_account_id IS NOT OLD.classification_account_id
-      OR NEW.auto_register IS NOT OLD.auto_register
-      OR NEW.idempotency_key IS NOT OLD.idempotency_key
-      OR NEW.payload_hash IS NOT OLD.payload_hash
-      OR NEW.created_by IS NOT OLD.created_by
-      OR NEW.created_at IS NOT OLD.created_at
-    BEGIN
-      SELECT RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_PAYLOAD_IMMUTABLE');
-    END;
-
   CREATE TRIGGER IF NOT EXISTS accounting_future_items_state_guard
     BEFORE UPDATE ON accounting_future_items
-    WHEN NOT (
-      (OLD.status = 'scheduled' AND NEW.status IN ('awaiting_confirmation', 'registered', 'cancelled', 'failed'))
-      OR (OLD.status = 'awaiting_confirmation' AND NEW.status IN ('registered', 'cancelled', 'failed'))
-      OR (OLD.status = 'failed' AND NEW.status IN ('registered', 'cancelled', 'failed'))
-      OR (OLD.status = 'registered' AND NEW.status = 'settled')
-    )
     BEGIN
-      SELECT RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_INVALID_TRANSITION');
+      -- Check source immutability first and within the same trigger, because SQLite does
+      -- not promise ordering between multiple BEFORE UPDATE triggers on one table.
+      SELECT CASE WHEN
+        NEW.id IS NOT OLD.id
+        OR NEW.record_type IS NOT OLD.record_type
+        OR NEW.direction IS NOT OLD.direction
+        OR NEW.due_date IS NOT OLD.due_date
+        OR NEW.amount_minor IS NOT OLD.amount_minor
+        OR NEW.currency_code IS NOT OLD.currency_code
+        OR NEW.description IS NOT OLD.description
+        OR NEW.counterparty IS NOT OLD.counterparty
+        OR NEW.reference_number IS NOT OLD.reference_number
+        OR NEW.classification_account_id IS NOT OLD.classification_account_id
+        OR NEW.auto_register IS NOT OLD.auto_register
+        OR NEW.idempotency_key IS NOT OLD.idempotency_key
+        OR NEW.payload_hash IS NOT OLD.payload_hash
+        OR NEW.created_by IS NOT OLD.created_by
+        OR NEW.created_at IS NOT OLD.created_at
+        THEN RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_PAYLOAD_IMMUTABLE') END;
+      SELECT CASE WHEN NOT (
+        (OLD.status = 'scheduled' AND NEW.status IN ('awaiting_confirmation', 'registered', 'cancelled', 'failed'))
+        OR (OLD.status = 'awaiting_confirmation' AND NEW.status IN ('registered', 'cancelled', 'failed'))
+        OR (OLD.status = 'failed' AND NEW.status IN ('registered', 'cancelled', 'failed'))
+        OR (OLD.status = 'registered' AND NEW.status = 'settled')
+      ) THEN RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_INVALID_TRANSITION') END;
     END;
 
   CREATE TRIGGER IF NOT EXISTS accounting_future_items_no_delete
