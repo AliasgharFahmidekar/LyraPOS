@@ -60,6 +60,7 @@ function assertAccountingSeedAccounts(db: any, context: string): void {
     'acct-inventory',
     'acct-liabilities',
     'acct-payables',
+    'acct-loans-payable',
     'acct-customer-advances',
     'acct-future-receipt-clearing',
     'acct-future-payment-clearing',
@@ -84,7 +85,7 @@ function assertAccountingSeedAccounts(db: any, context: string): void {
   equal(
     actualSystemAccountIds.join(','),
     expectedSystemAccountIds.join(','),
-    context + ': exact v108 system chart has no missing or unexpected system accounts',
+    context + ': exact v116 system chart has no missing or unexpected system accounts',
   );
   const requiredAccounts = [
     { id: 'acct-assets', systemKey: 'assets', accountCode: '1000', isPostable: 0 },
