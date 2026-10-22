@@ -6632,7 +6632,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     up: () => {
       db.exec(ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL);
     },
-
+  },
 ]; 
  
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
