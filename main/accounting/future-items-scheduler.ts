@@ -1,5 +1,6 @@
 import { getDatabase } from '../db';
 import { processDueFutureItems } from './future-items';
+import { processDueLoanInstallments } from './loans';
 
 const FUTURE_ITEM_POLL_INTERVAL_MS = 60_000;
 let timer: NodeJS.Timeout | null = null;
@@ -21,6 +22,10 @@ export function startAccountingFutureItemScheduler(): void {
       const result = processDueFutureItems(getDatabase());
       if (result.checked > 0) {
         console.info('[Accounting] Future-item due pass:', result);
+      }
+      const loanResult = processDueLoanInstallments(getDatabase());
+      if (loanResult.checked > 0) {
+        console.info('[Accounting] Loan-installment due pass:', loanResult);
       }
     } catch (error) {
       // This must not crash or block POS startup. Due items remain persisted and can be
