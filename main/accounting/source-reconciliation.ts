@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { accountingDate } from './sales';
 
 type DB = Database.Database;
 type ReconciliationStatus = 'posted_once' | 'missing_journal' | 'journal_not_posted' | 'duplicate_journals' | 'missing_source_identity' | 'skipped_pre_cutover' | 'excluded_non_monetary';
@@ -60,6 +61,27 @@ function inDateRange(date: string | null, from?: string, to?: string): boolean {
 }
 
 /**
+ * Source timestamps must be filtered by the same tenant business date used by
+ * the posting path. An unparseable timestamp is included in every filtered
+ * view and surfaced as an exception below; silently dropping it could let a
+ * period close pass without reconciling an event whose date is unknown.
+ */
+function accountingEventDate(db: DB, timestamp: string | null): string | null {
+  if (typeof timestamp !== 'string' || !timestamp.trim()) return null;
+  try {
+    return accountingDate(db, timestamp);
+  } catch {
+    return null;
+  }
+}
+
+function inAccountingDateRange(db: DB, timestamp: string | null, from?: string, to?: string): boolean {
+  const day = accountingEventDate(db, timestamp);
+  if (!day) return true;
+  return (!from || day >= from) && (!to || day <= to);
+}
+
+/**
  * Read-only source-event reconciliation. It reports exceptions; it never posts,
  * repairs, deletes or backfills accounting journals.
  */
@@ -95,7 +117,7 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
     let parsed: any;
     try { parsed = JSON.parse(bill.payment_details); }
     catch {
-      if (inDateRange(bill.created_at, from, to)) events.push({
+      if (inAccountingDateRange(db, bill.created_at, from, to)) events.push({
         event_type: 'receipt', source_id: 'bill:' + String(bill.id), event_date: bill.created_at,
         amount: null, method: null, status: 'missing_source_identity', journal_entry_ids: [],
         reason: 'Bill payment_details is malformed JSON; source events cannot be safely reconciled.',
@@ -109,7 +131,16 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       const amount = Number(payment?.amount);
       if (!Number.isFinite(amount) || amount <= 0) continue;
       const eventDate = typeof payment?.timestamp === 'string' ? payment.timestamp : bill.created_at;
-      if (!inDateRange(eventDate, from, to)) continue;
+      const eventDay = accountingEventDate(db, eventDate);
+      if (!inAccountingDateRange(db, eventDate, from, to)) continue;
+      if (!eventDay) {
+        events.push({
+          event_type: 'receipt', source_id: typeof payment?.payment_event_id === 'string' ? String(bill.id) + ':' + payment.payment_event_id.trim() : 'bill:' + String(bill.id),
+          event_date: eventDate, amount, method, status: 'missing_source_identity', journal_entry_ids: [],
+          reason: 'Receipt timestamp cannot be mapped to the tenant accounting business date; manual review is required.',
+        });
+        continue;
+      }
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
       if (isPreCutover(bill.created_at)) {
         events.push({ event_type: 'receipt', source_id: eventId ? String(bill.id) + ':' + eventId : 'bill:' + String(bill.id), event_date: eventDate, amount, method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Historical source event predates the accounting cutover and is not automatically backfilled.' });
@@ -129,7 +160,16 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
   ).all() as Array<{ id: number; bill_id: number; amount_cents: number; method: string; created_at: string | null; bill_created_at: string | null }>;
   for (const refund of refunds) {
     if (isWallet(refund.method)) continue;
-    if (!inDateRange(refund.created_at, from, to)) continue;
+    const refundAccountingDay = accountingEventDate(db, refund.created_at);
+    if (!inAccountingDateRange(db, refund.created_at, from, to)) continue;
+    if (!refundAccountingDay) {
+      events.push({
+        event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at,
+        amount: Number(refund.amount_cents), method: refund.method, status: 'missing_source_identity',
+        journal_entry_ids: [], reason: 'Refund timestamp cannot be mapped to the tenant accounting business date; manual review is required.',
+      });
+      continue;
+    }
     if (isPreCutover(refund.bill_created_at)) {
       events.push({ event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at, amount: Number(refund.amount_cents), method: refund.method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Refund belongs to a pre-cutover bill; historical refunds are not automatically backfilled.' });
       continue;
