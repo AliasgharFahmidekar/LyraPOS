@@ -25,6 +25,7 @@ const request = require('supertest');
 const { initTestDb, createApp, closeDatabase, now } = require('./helpers/test-setup');
 const { accountingRoutes } = require('../main/routes/accounting');
 const { createDraftJournalEntry, postJournalEntry } = require('../main/accounting/ledger');
+const { getAccountingSourceEventReconciliation } = require('../main/accounting/source-reconciliation');
 const { getJWTSecret } = require('../main/routes/auth');
 
 let assertions = 0;
@@ -650,6 +651,66 @@ async function main(): Promise<void> {
     equal((await request(app).get('/api/accounting/trial-balance?from=2026-10-16&to=2026-10-15').set(manager)).status, 400, 'trial balance rejects reversed date ranges');
     equal((await request(app).get('/api/accounting/periods').set(cashier)).status, 403, 'cashier cannot read accounting periods');
     equal((await request(app).post('/api/accounting/periods/close').set(cashier).send({})).status, 403, 'cashier cannot close accounting periods');
+
+    // Source timestamps must use the tenant's accounting business date, not the UTC date prefix.
+    const boundarySettings = ['timezone', 'business_day_start_time'].map((key) => ({
+      key,
+      row: db.prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string | null } | undefined,
+    }));
+    let boundaryOrderId: number | null = null;
+    let boundaryBillId: number | null = null;
+    try {
+      db.prepare("INSERT INTO settings (key,value,updated_at) VALUES ('timezone','Pacific/Kiritimati',?) ON CONFLICT(key) DO UPDATE SET value='Pacific/Kiritimati',updated_at=excluded.updated_at")
+        .run(now());
+      db.prepare("INSERT INTO settings (key,value,updated_at) VALUES ('business_day_start_time','00:00',?) ON CONFLICT(key) DO UPDATE SET value='00:00',updated_at=excluded.updated_at")
+        .run(now());
+
+      const boundaryTimestamp = '2099-10-20T12:00:00.000Z';
+      const createdAt = '2099-10-20 12:00:00';
+      const orderInsert = db.prepare('INSERT INTO orders (order_number,status,created_at,updated_at) VALUES (?,?,?,?)')
+        .run('ACCT-BUSINESS-DATE-BOUNDARY', 'completed', createdAt, createdAt);
+      boundaryOrderId = Number(orderInsert.lastInsertRowid);
+      const paymentDetails = JSON.stringify([{
+        amount: 10,
+        method: 'cash',
+        payment_event_id: 'date-boundary-payment',
+        timestamp: boundaryTimestamp,
+      }]);
+      const billInsert = db.prepare('INSERT INTO bills (bill_number,order_id,subtotal,total,paid_amount,balance,payment_status,payment_details,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run('ACCT-BUSINESS-DATE-BOUNDARY', boundaryOrderId, 10, 10, 10, 0, 'paid', paymentDetails, createdAt, createdAt);
+      boundaryBillId = Number(billInsert.lastInsertRowid);
+
+      // 12:00 UTC is already 02:00 on the next calendar day in Pacific/Kiritimati.
+      const boundaryReconciliation = getAccountingSourceEventReconciliation(db, {
+        from: '2099-10-21', to: '2099-10-21', limit: 2000,
+      });
+      const boundaryEvent = boundaryReconciliation.events.find(
+        (event: any) => event.source_id === String(boundaryBillId) + ':date-boundary-payment',
+      );
+      equal(boundaryEvent?.status, 'missing_journal',
+        'UTC-boundary payment appears on its tenant accounting business date when its journal is missing');
+
+      const boundaryClose = await request(app).post('/api/accounting/periods/close').set(manager).send({
+        period_start: '2099-10-21',
+        period_end: '2099-10-21',
+        reason: 'Regression: block close for UTC-boundary receipt exception',
+      });
+      equal(boundaryClose.status, 409,
+        'period close refuses unresolved monetary receipts dated by tenant business time');
+      equal(boundaryClose.body.code, 'period_has_source_exceptions',
+        'UTC-boundary receipt is not silently excluded from period-close reconciliation');
+    } finally {
+      if (boundaryBillId !== null) db.prepare('DELETE FROM bills WHERE id=?').run(boundaryBillId);
+      if (boundaryOrderId !== null) db.prepare('DELETE FROM orders WHERE id=?').run(boundaryOrderId);
+      for (const { key, row } of boundarySettings) {
+        if (row) {
+          db.prepare('UPDATE settings SET value=?,updated_at=? WHERE key=?').run(row.value, now(), key);
+        } else {
+          db.prepare('DELETE FROM settings WHERE key=?').run(key);
+        }
+      }
+    }
+
     const journalToProtect = createDraftJournalEntry(db, {
       entryDate: '2020-01-01', description: 'Posted before period close', currencyCode: 'INR',
       lines: [
