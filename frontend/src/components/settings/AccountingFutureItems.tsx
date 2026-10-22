@@ -78,7 +78,7 @@ export function AccountingFutureItems() {
     setSettlementAccount((current) => liquid.some((a) => a.id === current) ? current : (liquid[0]?.id || ''));
     const income = rows.find((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['sales_revenue', 'sales_returns', 'sales_discounts'].includes(a.system_key || ''));
     const expense = rows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1);
-    setClassificationAccount((current) => rows.some((a) => a.id === current && a.account_type === (direction === 'incoming' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1) ? current : (recordType === 'receipt' ? income?.id : expense?.id) || '');
+    setClassificationAccount((current) => rows.some((a) => a.id === current && a.account_type === (direction === 'incoming' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1) ? current : (direction === 'incoming' ? income?.id : expense?.id) || '');
   }, [locale, recordType, direction]);
   useEffect(() => { void Promise.resolve().then(() => load()).catch(() => toast.error(t.failedMessage)); }, [load, t.failedMessage]);
   const money = useMemo(() => (minor: number) => new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: digits }).format(minor / (10 ** digits)), [locale, currency, digits]);
