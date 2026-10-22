@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FormEvent } from 'react';
 import { useLocale } from 'use-intl';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
@@ -13,7 +14,7 @@ type FutureItem = {
   settlement_account_name: string | null; auto_register: number; status: string; last_error_message: string | null;
   due_entry_number: string | null; settlement_entry_number: string | null;
 };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const labels = {
   fa: {
     title: 'دریافت‌ها و چک‌های آتی', add: 'ثبت مورد جدید', type: 'نوع سند', receipt: 'دریافت آتی', cheque: 'چک',
@@ -25,7 +26,7 @@ const labels = {
     awaiting_confirmation: 'در انتظار تأیید ثبت', registered: 'ثبت‌شده؛ تسویه نشده', settled: 'وصول / پرداخت‌شده',
     cancelled: 'لغوشده', failed: 'خطا؛ نیازمند تلاش مجدد', dueEntry: 'سند سررسید', settlementEntry: 'سند تسویه',
     note: 'سررسید به معنی وصول پول یا پرداخت واقعی نیست. درآمد/هزینه و گردش صندوق یا بانک فقط پس از تأیید تسویه واقعی ثبت می‌شود.',
-    settlementDate: 'تاریخ وصول / پرداخت واقعی (YYYY-MM-DD)', cancelReason: 'دلیل لغو', required: 'فیلدهای ضروری و مبلغ معتبر را وارد کنید.',
+    settlementDate: 'تاریخ وصول / پرداخت واقعی', cancelReason: 'دلیل لغو', actions: 'عملیات', required: 'فیلدهای ضروری و مبلغ معتبر را وارد کنید.',
     saved: 'مورد ثبت شد.', failedMessage: 'عملیات انجام نشد؛ اطلاعات و وضعیت حسابداری را بررسی کنید.', account: 'حساب تسویه',
   },
   en: {
@@ -38,7 +39,7 @@ const labels = {
     awaiting_confirmation: 'Awaiting registration confirmation', registered: 'Registered; not settled', settled: 'Settled',
     cancelled: 'Cancelled', failed: 'Failed; retry required', dueEntry: 'Due journal', settlementEntry: 'Settlement journal',
     note: 'A due date does not prove that money was received or paid. Income/expense and cash/bank movement are recorded only after actual settlement is confirmed.',
-    settlementDate: 'Actual settlement date (YYYY-MM-DD)', cancelReason: 'Cancellation reason', required: 'Complete required fields and enter a valid amount.',
+    settlementDate: 'Actual settlement date', cancelReason: 'Cancellation reason', actions: 'Actions', required: 'Complete required fields and enter a valid amount.',
     saved: 'Future item saved.', failedMessage: 'Operation failed. Check the inputs and accounting state.', account: 'Settlement account',
   },
 };
@@ -91,7 +92,7 @@ export function AccountingFutureItems() {
     const result = Number(whole) * (10 ** digits) + Number((fraction + '0'.repeat(digits)).slice(0, digits) || '0');
     return Number.isSafeInteger(result) && result > 0 ? result : null;
   }
-  async function createItem(e: React.FormEvent) {
+  async function createItem(e: FormEvent) {
     e.preventDefault();
     const amountMinor = amountToMinor(amount);
     if (!amountMinor || !dueDate || !description.trim() || !classificationAccount) { toast.error(t.required); return; }
@@ -113,15 +114,11 @@ export function AccountingFutureItems() {
     catch { toast.error(t.failedMessage); } finally { setBusy(false); }
   }
   async function settle(item: FutureItem) {
-    const date = window.prompt(t.settlementDate, today());
-    if (!date) return;
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) { toast.error(t.required); return; }
-    const accountId = window.prompt(t.settlementAccount, settlementAccount);
-    if (!accountId) return;
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(settlementDate) || !settlementAccount) { toast.error(t.required); return; }
     setBusy(true);
     try {
       await api.post('/accounting/future-items/' + encodeURIComponent(item.id) + '/settle', {
-        settlement_date: date, settlement_account_id: accountId,
+        settlement_date: settlementDate, settlement_account_id: settlementAccount,
       }, { headers: { 'Idempotency-Key': token() } });
       await load();
     } catch { toast.error(t.failedMessage); } finally { setBusy(false); }
@@ -153,6 +150,6 @@ export function AccountingFutureItems() {
       </div>
       <button disabled={busy || !classificationAccounts.length} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{t.create}</button>
     </form>
-    <div className={cardClass}><h3 className="font-semibold">{t.list}</h3>{items.length === 0 ? <p className="text-sm text-muted-foreground">{t.empty}</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">{t.due}</th><th className="p-2 text-start">{t.type}</th><th className="p-2 text-start">{t.description}</th><th className="p-2 text-start">{t.counterparty}</th><th className="p-2 text-start">{t.amount}</th><th className="p-2 text-start">{t.classification}</th><th className="p-2 text-start">{t.status}</th><th className="p-2 text-start">{t.dueEntry}</th><th className="p-2 text-start">{t.settlementEntry}</th><th className="p-2 text-start">{t.status}</th></tr></thead><tbody>{items.map(item => <tr key={item.id} className="border-b border-border/60 align-top"><td className="p-2 whitespace-nowrap">{item.due_date}</td><td className="p-2">{item.record_type === 'receipt' ? t.receipt : t.cheque}</td><td className="p-2">{item.description}{item.reference_number ? <span className="block text-xs text-muted-foreground">{item.reference_number}</span> : null}{item.last_error_message ? <span className="block text-xs text-destructive">{item.last_error_message}</span> : null}</td><td className="p-2">{item.counterparty || '—'}</td><td className="p-2 whitespace-nowrap">{money(item.amount_minor)}</td><td className="p-2">{item.classification_account_name}</td><td className="p-2">{statusLabel(item.status)}</td><td className="p-2">{item.due_entry_number || '—'}</td><td className="p-2">{item.settlement_entry_number || '—'}</td><td className="p-2 whitespace-nowrap">{['scheduled','awaiting_confirmation','failed'].includes(item.status) && <><button type="button" disabled={busy || item.due_date > today()} onClick={() => void register(item)} className="me-2 text-brand underline disabled:opacity-40">{t.register}</button><button type="button" disabled={busy} onClick={() => void cancel(item)} className="text-brand underline">{t.cancel}</button></>}{item.status === 'registered' && <button type="button" disabled={busy} onClick={() => void settle(item)} className="text-brand underline">{t.settle}</button>}</td></tr>)}</tbody></table></div>}</div>
+    <div className={cardClass}><h3 className="font-semibold">{t.list}</h3><div className="grid grid-cols-1 gap-3 md:grid-cols-2"><label className="space-y-1 text-sm"><span>{t.settlementDate}</span><input type="date" value={settlementDate} onChange={(e) => setSettlementDate(e.target.value)} className={inputClass} /></label><label className="space-y-1 text-sm"><span>{t.settlementAccount}</span><select value={settlementAccount} onChange={(e) => setSettlementAccount(e.target.value)} className={selectClass}>{settlementAccounts.map(a => <option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label></div>{items.length === 0 ? <p className="text-sm text-muted-foreground">{t.empty}</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">{t.due}</th><th className="p-2 text-start">{t.type}</th><th className="p-2 text-start">{t.description}</th><th className="p-2 text-start">{t.counterparty}</th><th className="p-2 text-start">{t.amount}</th><th className="p-2 text-start">{t.classification}</th><th className="p-2 text-start">{t.status}</th><th className="p-2 text-start">{t.dueEntry}</th><th className="p-2 text-start">{t.settlementEntry}</th><th className="p-2 text-start">{t.actions}</th></tr></thead><tbody>{items.map(item => <tr key={item.id} className="border-b border-border/60 align-top"><td className="p-2 whitespace-nowrap">{item.due_date}</td><td className="p-2">{item.record_type === 'receipt' ? t.receipt : t.cheque}</td><td className="p-2">{item.description}{item.reference_number ? <span className="block text-xs text-muted-foreground">{item.reference_number}</span> : null}{item.last_error_message ? <span className="block text-xs text-destructive">{item.last_error_message}</span> : null}</td><td className="p-2">{item.counterparty || '—'}</td><td className="p-2 whitespace-nowrap">{money(item.amount_minor)}</td><td className="p-2">{item.classification_account_name}</td><td className="p-2">{statusLabel(item.status)}</td><td className="p-2">{item.due_entry_number || '—'}</td><td className="p-2">{item.settlement_entry_number || '—'}</td><td className="p-2 whitespace-nowrap">{['scheduled','awaiting_confirmation','failed'].includes(item.status) && <><button type="button" disabled={busy || item.due_date > today()} onClick={() => void register(item)} className="me-2 text-brand underline disabled:opacity-40">{t.register}</button><button type="button" disabled={busy} onClick={() => void cancel(item)} className="text-brand underline">{t.cancel}</button></>}{item.status === 'registered' && <button type="button" disabled={busy} onClick={() => void settle(item)} className="text-brand underline">{t.settle}</button>}</td></tr>)}</tbody></table></div>}</div>
   </section>;
 }
