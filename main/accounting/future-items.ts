@@ -327,9 +327,16 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
   const settledBy = actor(actorIdInput);
   return db.transaction(() => {
     const item = itemById(db, id);
+    const settlementPayloadHash = createHash('sha256').update(JSON.stringify({
+      futureItemId: id, settlementDate, settlementAccountId, amountMinor: item.amount_minor, currencyCode: item.currency_code,
+    })).digest('hex');
     if (item.status === 'settled') {
-      const existing = db.prepare('SELECT idempotency_key FROM accounting_future_items WHERE id=?').get(id) as any;
-      if (existing.idempotency_key === idempotencyKey) return { ...item, duplicate: true };
+      if (item.settlement_idempotency_key === idempotencyKey) {
+        if (item.settlement_payload_hash !== settlementPayloadHash) {
+          fail('idempotency_conflict', 'The same settlement idempotency key was reused with a different settlement payload.', 409);
+        }
+        return { ...item, duplicate: true };
+      }
       fail('future_item_already_settled', 'This item has already been settled.', 409);
     }
     if (item.status !== 'registered') fail('future_item_not_registered', 'Register the due event before recording its actual settlement.', 409);
@@ -361,8 +368,8 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
     const posted = postJournalEntry(db, draft.id, settledBy);
     if (posted.status !== 'posted') fail('future_item_settlement_failed', 'The settlement journal did not reach posted status.', 409);
     db.prepare(
-      "UPDATE accounting_future_items SET status='settled', settlement_journal_entry_id=?, settlement_account_id=?, settled_at=CURRENT_TIMESTAMP, settled_by=?, status_actor_id=? WHERE id=?",
-    ).run(posted.id, settlementAccountId, settledBy, settledBy, id);
+      "UPDATE accounting_future_items SET status='settled', settlement_journal_entry_id=?, settlement_idempotency_key=?, settlement_payload_hash=?, settlement_account_id=?, settled_at=CURRENT_TIMESTAMP, settled_by=?, status_actor_id=? WHERE id=?",
+    ).run(posted.id, idempotencyKey, settlementPayloadHash, settlementAccountId, settledBy, settledBy, id);
     return { ...itemById(db, id), duplicate: posted.duplicate, settlement_entry_number: posted.entryNumber };
   })();
 }
