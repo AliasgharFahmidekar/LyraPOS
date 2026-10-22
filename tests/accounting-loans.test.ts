@@ -109,7 +109,8 @@ function main(): void {
     const retriedDue=loans.registerLoanInstallment(db,failedInstallment.id,'test-owner','2026-10-22');
     equal(retriedDue.status,'registered','owner can retry a failed due accrual after fixing its account');
     ok(!!retriedDue.due_journal_entry_id,'successful retry links the due accrual journal');
-    throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-23',settlement_account_id:'acct-bank'}, 'test-owner', 'different-key'), 'installment_already_settled', 'settled installment cannot be paid twice');
+    throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'loan-settle-001'), 'idempotency_conflict', 'changed settlement payload under the same key conflicts');
+    throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'different-key'), 'installment_already_settled', 'settled installment cannot be paid twice');
 
     throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
       due_date:'2026-11-10', principal_minor:700, interest_minor:0, fees_minor:0, auto_register:false,
