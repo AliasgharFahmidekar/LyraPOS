@@ -52,6 +52,7 @@ export function AccountingFutureItems() {
   const [currency, setCurrency] = useState('IRR');
   const [digits, setDigits] = useState(0);
   const [recordType, setRecordType] = useState<'receipt' | 'cheque'>('receipt');
+  const [direction, setDirection] = useState<'incoming' | 'outgoing'>('incoming');
   const [dueDate, setDueDate] = useState(today());
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
@@ -77,8 +78,8 @@ export function AccountingFutureItems() {
     setSettlementAccount((current) => liquid.some((a) => a.id === current) ? current : (liquid[0]?.id || ''));
     const income = rows.find((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['sales_revenue', 'sales_returns', 'sales_discounts'].includes(a.system_key || ''));
     const expense = rows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1);
-    setClassificationAccount((current) => rows.some((a) => a.id === current && a.account_type === (recordType === 'receipt' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1) ? current : (recordType === 'receipt' ? income?.id : expense?.id) || '');
-  }, [locale, recordType]);
+    setClassificationAccount((current) => rows.some((a) => a.id === current && a.account_type === (direction === 'incoming' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1) ? current : (recordType === 'receipt' ? income?.id : expense?.id) || '');
+  }, [locale, recordType, direction]);
   useEffect(() => { void Promise.resolve().then(() => load()).catch(() => toast.error(t.failedMessage)); }, [load, t.failedMessage]);
   const money = useMemo(() => (minor: number) => new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: digits }).format(minor / (10 ** digits)), [locale, currency, digits]);
   const selectClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
@@ -99,7 +100,7 @@ export function AccountingFutureItems() {
     setBusy(true);
     try {
       await api.post('/accounting/future-items', {
-        record_type: recordType, direction: recordType === 'receipt' ? 'incoming' : 'outgoing', due_date: dueDate,
+        record_type: recordType, direction, due_date: dueDate,
         amount_minor: amountMinor, currency_code: currency, description: description.trim(),
         counterparty: counterparty.trim() || null, reference_number: reference.trim() || null,
         classification_account_id: classificationAccount, auto_register: autoRegister,
@@ -130,7 +131,7 @@ export function AccountingFutureItems() {
     try { await api.post('/accounting/future-items/' + encodeURIComponent(item.id) + '/cancel', { reason: reason.trim() }); await load(); }
     catch { toast.error(t.failedMessage); } finally { setBusy(false); }
   }
-  const classificationAccounts = accounts.filter((a) => a.account_type === (recordType === 'receipt' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1 && (recordType !== 'receipt' || !['sales_revenue', 'sales_returns', 'sales_discounts'].includes(a.system_key || '')));
+  const classificationAccounts = accounts.filter((a) => a.account_type === (direction === 'incoming' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1 && (direction !== 'incoming' || !['sales_revenue', 'sales_returns', 'sales_discounts'].includes(a.system_key || '')));
   const settlementAccounts = accounts.filter((a) => a.account_type === 'asset' && a.is_active === 1 && a.is_postable === 1 && ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(a.system_key || ''));
   const statusLabel = (status: string) => (t as Record<string, string>)[status] || status;
   return <section dir={fa ? 'rtl' : 'ltr'} className="w-full max-w-6xl space-y-5">
@@ -139,7 +140,7 @@ export function AccountingFutureItems() {
     <form className={cardClass} onSubmit={(e) => void createItem(e)}>
       <h3 className="font-semibold">{t.add}</h3>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <label className="space-y-1 text-sm"><span>{t.type}</span><select value={recordType} onChange={(e) => setRecordType(e.target.value as 'receipt' | 'cheque')} className={selectClass}><option value="receipt">{t.receipt}</option><option value="cheque">{t.cheque}</option></select></label>
+        <label className="space-y-1 text-sm"><span>{t.type}</span><select value={recordType} onChange={(e) => { const next = e.target.value as 'receipt' | 'cheque'; setRecordType(next); if (next === 'receipt') setDirection('incoming'); }} className={selectClass}><option value="receipt">{t.receipt}</option><option value="cheque">{t.cheque}</option></select></label>{recordType === 'cheque' && <label className="space-y-1 text-sm"><span>{t.direction}</span><select value={direction} onChange={(e) => setDirection(e.target.value as 'incoming' | 'outgoing')} className={selectClass}><option value="incoming">{t.incoming}</option><option value="outgoing">{t.outgoing}</option></select></label>}
         <label className="space-y-1 text-sm"><span>{t.due}</span><input required type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputClass} /></label>
         <label className="space-y-1 text-sm"><span>{t.amount} · {currency}</span><input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} /></label>
         <label className="space-y-1 text-sm"><span>{t.description}</span><input required value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass} /></label>
