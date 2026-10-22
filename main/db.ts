@@ -3378,6 +3378,7 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
               AND COALESCE(NEW.registered_at,'')=COALESCE(OLD.registered_at,'')
               AND COALESCE(NEW.registered_by,'')=COALESCE(OLD.registered_by,'')
               AND COALESCE(NEW.settlement_date,'')=COALESCE(OLD.settlement_date,'')
+              AND COALESCE(NEW.due_journal_entry_id,'')=COALESCE(OLD.due_journal_entry_id,'')
               AND COALESCE(NEW.settlement_account_id,'')=COALESCE(OLD.settlement_account_id,'')
               AND COALESCE(NEW.settlement_journal_entry_id,'')=COALESCE(OLD.settlement_journal_entry_id,'')
               AND COALESCE(NEW.settlement_idempotency_key,'')=COALESCE(OLD.settlement_idempotency_key,'')
@@ -7115,9 +7116,10 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           interest_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           fees_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           auto_register INTEGER NOT NULL CHECK (auto_register IN (0,1)),
-          status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled')),
+          status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed')),
           registered_at TEXT,
           registered_by TEXT,
+          due_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
           settlement_date TEXT CHECK (settlement_date IS NULL OR (length(settlement_date)=10 AND settlement_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')),
           settlement_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           settlement_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
@@ -7127,16 +7129,19 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           cancellation_reason TEXT CHECK (cancellation_reason IS NULL OR length(trim(cancellation_reason)) BETWEEN 1 AND 500),
           cancelled_by TEXT,
           cancelled_at TEXT,
+          last_error_code TEXT CHECK (last_error_code IS NULL OR length(trim(last_error_code)) BETWEEN 1 AND 100),
+          last_error_message TEXT CHECK (last_error_message IS NULL OR length(trim(last_error_message)) BETWEEN 1 AND 500),
           created_by TEXT,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CHECK (principal_minor + interest_minor + fees_minor > 0),
           CHECK ((interest_minor=0 AND interest_account_id IS NULL) OR (interest_minor>0 AND interest_account_id IS NOT NULL)),
           CHECK ((fees_minor=0 AND fees_account_id IS NULL) OR (fees_minor>0 AND fees_account_id IS NOT NULL)),
-          CHECK ((status='scheduled' AND registered_at IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL)
-            OR (status='awaiting_confirmation' AND registered_at IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL)
-            OR (status='registered' AND registered_at IS NOT NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL)
-            OR (status='settled' AND settlement_date IS NOT NULL AND settlement_account_id IS NOT NULL AND settlement_journal_entry_id IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL AND cancelled_at IS NULL)
-            OR (status='cancelled' AND cancellation_reason IS NOT NULL AND cancelled_by IS NOT NULL AND cancelled_at IS NOT NULL AND settlement_journal_entry_id IS NULL))
+          CHECK ((status='scheduled' AND registered_at IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='awaiting_confirmation' AND registered_at IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='registered' AND registered_at IS NOT NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='settled' AND settlement_date IS NOT NULL AND settlement_account_id IS NOT NULL AND settlement_journal_entry_id IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='cancelled' AND cancellation_reason IS NOT NULL AND cancelled_by IS NOT NULL AND cancelled_at IS NOT NULL AND settlement_journal_entry_id IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='failed' AND registered_at IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL AND last_error_code IS NOT NULL AND last_error_message IS NOT NULL))
         );
         CREATE INDEX accounting_loans_status_date ON accounting_loans(mode,loan_date);
         CREATE INDEX accounting_loan_installments_due ON accounting_loan_installments(status,due_date,auto_register);
@@ -7170,6 +7175,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
             NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'')
             OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'')
             OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'')
+            OR COALESCE(NEW.due_journal_entry_id,'')<>COALESCE(OLD.due_journal_entry_id,'')
             OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'')
             OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'') OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,'')
           )
@@ -7204,10 +7210,11 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
               json_object('loan_id',NEW.loan_id,'idempotency_key',NEW.idempotency_key)); END;
         CREATE TRIGGER accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
           WHEN NOT (
-            (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled')) OR
-            (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled')) OR
+            (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled','failed')) OR
+            (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled','failed')) OR
+            (OLD.status='failed' AND NEW.status IN ('registered','cancelled')) OR
             (OLD.status='registered' AND NEW.status IN ('settled')) OR
-            (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled')
+            (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed')
         AND COALESCE(NEW.registered_at,'')=COALESCE(OLD.registered_at,'')
         AND COALESCE(NEW.registered_by,'')=COALESCE(OLD.registered_by,'')
         AND COALESCE(NEW.settlement_date,'')=COALESCE(OLD.settlement_date,'')
