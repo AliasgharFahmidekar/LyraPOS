@@ -65,12 +65,13 @@ function postingAccountBySystemKey(db: DB, key: string, expectedType: string): s
 
 function mappedPaymentAccount(db: DB, methodKey: string): { id: string; type: string } {
   const mapping = db.prepare(
-    'SELECT a.id, a.account_type, a.is_active, a.is_postable FROM accounting_payment_method_mappings AS m JOIN accounting_accounts AS a ON a.id = m.account_id WHERE m.payment_method_key = ?',
-  ).get(methodKey) as { id: string; account_type: string; is_active: number; is_postable: number } | undefined;
+    'SELECT a.id, a.account_type, a.system_key, a.is_active, a.is_postable FROM accounting_payment_method_mappings AS m JOIN accounting_accounts AS a ON a.id = m.account_id WHERE m.payment_method_key = ?',
+  ).get(methodKey) as { id: string; account_type: string; system_key: string | null; is_active: number; is_postable: number } | undefined;
   const expectedType = 'asset';
   if (!mapping) fail('payment_mapping_required', 'Map payment method "' + methodKey + '" to an accounting account before recording this financial event.', 409);
-  if (mapping.is_active !== 1 || mapping.is_postable !== 1 || mapping.account_type !== expectedType) {
-    fail('payment_mapping_invalid', 'The accounting mapping for "' + methodKey + '" must target an active postable ' + expectedType + ' account.', 409);
+  if (mapping.is_active !== 1 || mapping.is_postable !== 1 || mapping.account_type !== expectedType
+      || !['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(mapping.system_key ?? '')) {
+    fail('payment_mapping_invalid', 'The accounting mapping for "' + methodKey + '" must target an active postable cash, bank, or payment-clearing account.', 409);
   }
   return { id: mapping.id, type: mapping.account_type };
 }
