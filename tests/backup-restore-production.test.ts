@@ -488,7 +488,7 @@ async function run() {
     );
 
     const direct = restoreBackup(sameSchemaBackup, true);
-    assert.equal(direct.success, true, 'same-schema direct restore still succeeds');
+    assert.equal(direct.success, true, `same-schema direct restore still succeeds: ${direct.error || 'no error details returned'}`);
     assertNoRestoreAttachment();
 
     const recoveryArtifactsBeforeJournalTest = new Set(fs.readdirSync(path.join(testDir, 'backups')).filter((name) => /recovery-/.test(name)));
