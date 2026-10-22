@@ -406,69 +406,117 @@ As of this PR branch, Phase 0 discovery, Phase 1 ledger, Phase 2 expenses/transf
 **CI evidence:** The older run [#316](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/38548162343) validated the earlier payment-event identity slice only. It does not validate this PR's subsequent runtime changes. The latest branch head must have its own green full regression/build/lint result; do not infer success from an older run. Full coverage across all 21 configured locales and an actual Windows installer validation remain separate release gates.
 
 
-## 11. Planned Phase 7 — Future receipts/cheques and recurring payments/loans
+## 11. Planned Phase 7 — Future receipts/cheques, recurring obligations, and loans
 
-**Owner requirement added 2026-10-22.** This is a planned capability on top of the existing ledger, not a parallel accounting system. Do not begin implementation until the exact current PR head passes the existing Phase 6 verification gates. Implement in focused stages with strict regression tests.
+**Owner requirement and recommended design decision updated 2026-10-22.** This is a planned capability on top of the existing ledger, not a parallel accounting system. Do not begin implementation until the exact current PR head passes the existing Phase 6 verification gates. Build three distinct accounting workflows over one shared due-date/occurrence engine.
+
+### Product decision: three separate workflows, one shared scheduler
+
+The accounting sidebar/page should expose three distinct sections:
+
+1. **Future receipts / cheques** — Persian: **«رسیدهای آینده/چک»**. One-off expected receipts/payments and cheque records with a specific due date.
+2. **Recurring obligations** — Persian: **«تعهدات دوره‌ای»**. Repeating rent, payroll, subscriptions, service bills, and similar predictable income/expense obligations.
+3. **Loans** — Persian: **«وام‌ها»**. Loans received by the business, the remaining principal liability, repayment schedule, and the principal/interest/fee split.
+
+These are separate user workflows because their accounting meaning differs. They should share infrastructure for calendar calculations, due occurrences, automatic/manual mode, retry/idempotency, status history, and forecasts. Do not implement loans as generic recurring expenses, and do not make rent/payroll require a fake loan record.
 
 ### 7.1 — Future receipts / cheques
 
-Provide an accounting UI section named **“Future receipts / cheques”** (Persian: **«رسیدهای آینده/چک»**).
+Each record captures at least:
+- Direction and purpose: expected receipt/incoming cheque, or expected payment/issued cheque.
+- Counterparty, reference/cheque number where applicable, amount in configured currency minor units, due date, and notes/evidence.
+- Selected active postable account(s) and posting treatment. Before saving, the UI explains in plain language which account is debited and which is credited, and whether the item affects projected income/expense, cash flow, receivables, or payables.
+- **Automatic accounting registration enabled/disabled.** Creating a future record must not immediately post its future event.
 
-Each record must capture at least:
-- A clear direction: expected receipt / incoming cheque, or expected payment / issued cheque.
-- Description or counterparty, reference/cheque number where applicable, amount in configured currency minor units, first/only due date, notes/evidence where appropriate.
-- The selected accounting posting treatment and active postable account(s), so the resulting journal uses the appropriate debit/credit sides. The application must show the user which side will be posted before saving.
-- **Automatic posting enabled/disabled.** This flag controls only what happens at maturity; creating a future record must not post it immediately.
+When automatic registration is enabled, the due handler processes the configured accounting event at maturity; when disabled, the due item waits for an authorized user to confirm/register it. If LyraPOS was closed at the due time, it processes overdue eligible items after restart and never creates a duplicate on retries. The UI shows upcoming, due-awaiting-confirmation, registered/posted, settled, cancelled, and failed/retry-needed states as relevant.
 
-When automatic posting is enabled, the app posts its balanced journal when the due date is reached. If LyraPOS was closed at the due time, it processes overdue automatic records on the next startup (and while running, if a due-check loop/service is available). It must never create duplicate journals if the due handler retries or the app restarts. If automatic posting is disabled, the item becomes due/pending and remains unposted until an authorized user explicitly confirms/registers it. The UI must show upcoming, due pending approval, posted, cancelled, and failed/retry-needed states as appropriate.
+Important: calendar maturity is not proof that money actually entered or left the bank. Due registration must not silently pretend that a cheque cleared or that a payment was made. Model the scheduled/receivable/payable event separately from settlement of actual cash/bank movement. Settlement must be confirmed by the user unless an explicit, verified payment/bank integration is added in a separate scope. Keep the existing POS policy that sales revenue is based on actual money received; do not count an expected cheque as already collected merely because its date arrived.
 
-### 7.2 — Recurring payments / loans
-
-Provide a second accounting UI section named **“Recurring payments / loans”** (Persian: **«پرداخت‌های دوره‌ای/وام»**).
+### 7.2 — Recurring obligations (rent, salaries, subscriptions, etc.)
 
 Each schedule captures at least:
-- Name/purpose, optional counterparty/reference, amount per due occurrence, configured currency, accounting posting treatment and account mapping.
+- Name/category and description; optional counterparty or reference.
+- Amount per occurrence, configured currency, selected account/category and posting treatment.
 - First due date.
 - Recurrence: **monthly** or **custom interval**.
-- For custom interval, a positive integer interval and the explicit unit **days** (every N days).
-- Total number of due occurrences. Generate only that many occurrences; do not silently create an infinite schedule.
-- The same **automatic posting enabled/disabled** behavior as future cheques.
+- For custom interval: positive integer interval, with the unit explicitly **days** (every N days).
+- Total number of occurrences. Generate exactly that many, then end the schedule; do not silently create an infinite schedule.
+- **Automatic accounting registration enabled/disabled**, separate from any claim that money has physically been paid.
 
-For an Iran tenant, the monthly occurrence calculation must use the tenant's Jalali calendar policy; stored due dates remain canonical Gregorian ISO dates. The monthly algorithm must be anchored to the original first due date and must handle shorter months deterministically (clamp to the last valid day of that month without permanent drift). Custom recurrence advances by the exact selected number of elapsed calendar days under the defined date-only contract. Each generated occurrence gets its own stable identity, due date, status and posting reference.
+The intended accounting distinction is:
+- At a due date, an automatic recurring-expense event may record the expense and the corresponding payable/obligation using the configured accounts. This records the obligation; it does **not** reduce cash/bank or mark the occurrence paid.
+- When the user confirms the actual payment, settle the payable against the actual cash/bank account. Do not book the expense a second time.
+- With automatic registration disabled, the due occurrence waits for authorized confirmation before the configured accounting event is registered.
+- Expected future occurrences appear in forecasts before they become due. Once recognized/registered, they move from projected to recorded values without double counting.
 
-A loan schedule must distinguish loan principal repayment from interest/fees when the user provides that breakdown. Principal repayment posts against the loan liability account and is not automatically treated as a profit-and-loss expense; interest/fees may post to the configured expense account. A user may configure a different valid accounting treatment for other kinds of recurring payment, but LyraPOS must not infer that every cash outflow is an expense.
+The implementation must explicitly reconcile this scheduled-obligation flow with the current cash-received and paid-expense reporting contract. Reports must label recorded expenses/obligations and actual cash payments separately; implementation must not silently redefine existing historical report totals. If the current ledger/report architecture cannot support the required payable-versus-paid distinction safely, make that a named prerequisite/design stage rather than forcing an expense-only journal that misstates bank cash.
 
-### 7.3 — Projection and report semantics
+For an Iran tenant, monthly recurrence uses the tenant's Jalali month sequence while stored dates remain canonical Gregorian ISO. Anchor month navigation to the original first due date and handle shorter months deterministically (for example, a 31st-day schedule falls on the last valid day of a shorter month, then returns to the original day-of-month in subsequent longer months; no permanent drift). The custom N-days interval advances by exactly N calendar days under the documented date-only contract. Each occurrence has a stable ID, due date, amount, status, and posting/settlement references.
 
-Future schedules must be included in date-range projections, with due dates filtered to the selected interval. The report must keep posted actuals and unposted expected items distinct and provide an understandable projected result. As an item is posted, it moves from the pending projection to the posted ledger; it must never be counted in both categories.
+### 7.3 — Loans (separate loan record and repayment workflow)
 
-- Posted entries remain the source of truth for historical/actual accounting reports.
-- Unposted future records contribute only to forecast values, according to their configured journal/account mapping and expected due date.
-- The future projection must use account classification and debit/credit side; it must not treat every debit balance as an expense or every credit balance as income.
-- Show projected income, projected expenses, expected cash movements/obligations, and projected net profit/loss as distinct figures where their accounting meaning differs.
-- The report should explain that a loan's principal affects expected cash and loan liability, not profit/loss; only its interest/fees normally affect profit/loss.
-- Cancelled, already-posted or otherwise ineligible occurrences are excluded from pending forecasts. Due-but-manual items remain visibly pending until confirmed or cancelled.
+The first scope is **loans received by the business**. A loan is borrowing, not sales revenue.
 
-Example contract: if the selected, not-yet-posted occurrences contribute 10 million on the debit side and 20 million on the debit side, while 5 million contributes on the credit side, the report may show **25 million net debit exposure** for those mapped postings. It must label that as projected profit/loss only if the selected accounts actually classify those movements as P&L income/expense; if part of the 20 million is loan principal, show it in forecast obligations/cash flow and liability movement instead of falsely subtracting it from profit.
+#### Registering a new loan
 
-### 7.4 — Posting integrity and controls
+Capture lender, original principal, date funds were received, destination cash/bank account, reference, and available terms such as installment count, maturity, interest/fees, and schedule. Receiving principal creates the correct cash/bank increase and loan-liability increase. It creates **no income and no profit**.
 
-- Use the existing double-entry journal API, source identity and idempotency contracts; every posted occurrence must balance and post exactly once.
-- A recurrence is a schedule plus explicit occurrence records (or an equivalent auditable design), not a single journal silently repeated without traceable due instances.
-- Store the automatic/manual preference explicitly. Manual confirmation must be an authorized, auditable user action.
-- Failed automatic posting must remain visible and retryable, never silently mark the item posted. A retry must re-check closed periods, account state, due-date validity and posting integrity.
-- No posting is allowed inside a closed accounting period unless the current controlled reopen/correction workflow is used. Do not bypass schema v111 period guards.
-- Schedule edits/cancellation must not mutate or erase an already posted journal. For posted items, corrections use the existing controlled reversal/correction pattern with reason and audit trail.
-- Verify current database migration, backup/restore, export, regional settings and authorization conventions before choosing schema/API shapes. Any schema change must be forward-only and tested from a populated prior-version database.
+#### Registering a loan that existed before LyraPOS accounting
 
-### Phase 7 delivery order and acceptance gates
+Offer a specific opening-loan workflow. At the accounting cutover date, record the **remaining principal still owed**, not a new receipt of the historical original principal. This must not increase current cash/bank or revenue again. Preserve original amount/date as informational history if provided; opening liability and current outstanding principal are the figures used by the live ledger/report. Historical expenses may be entered with their real dates only under the existing period-open/reopen and audit rules; the system must never silently inject old cash or double-count an expense. If the business elects only to start reliable books from the current date, historical spend can remain informational rather than changing current-period profit.
 
-1. **Design and schema:** document data model, posting templates, occurrence identity, status transitions, schedule-edit rules, permissions and closed-period behavior. Add migration tests before shipping UI.
-2. **Future receipt/cheque workflow:** one-off due dates, auto/manual maturity handling, status/history, idempotent posting, and exact debit/credit regression tests.
-3. **Recurring schedule engine:** monthly and every-N-days calculation, occurrence generation, finite count, Jalali month-end handling for Iran, restart catch-up and no duplicates.
-4. **Accounting UI and audit history:** the two exact Persian section names, bilingual labels, status/actions, account selection, displayed debit/credit interpretation and due-date presentation.
-5. **Forecast integration:** date-filtered upcoming schedules, distinction between actual posted entries and future projections, exclusion after posting, and loan principal/interest treatment.
-6. **Full verification:** strict focused tests, full regression suite, type-check/build, backend/frontend lint, i18n and print-label checks on the exact final head; verify Windows restart/offline behavior. Do not weaken accounting assertions to obtain green CI.
+#### Record spending funded by a loan
 
-Required regressions include: due item before/on/after selected date range; due-on-startup catch-up; automatic and manual modes; identical retries and changed payload conflicts; simultaneous/repeated due processing without duplicate journals; schedule count exhaustion; monthly schedule starting on the 29th/30th/31st and Jalali Esfand; every-N-days arithmetic; cancellation/edit after partial posting; closed period rejection; inactive/non-postable/invalid accounts; role checks; balanced journal totals; and forecast-to-posted transition without double counting.
+Expenses paid using the loan proceeds are entered as normal expenses against the real account that paid them, with the correct expense category and payment date. Provide an optional informational link to the loan for the owner's “where was this borrowing spent?” review, but that link must not itself post another journal or force an expense category. Cash is fungible, so the report must not claim a precise allocation of borrowed money unless the user supplies an explicit allocation. If the lender paid a supplier directly, record the actual direct-to-supplier event using the appropriate accounts rather than inventing a cash deposit.
+
+#### Record instalments correctly
+
+Every instalment must separate:
+- **Principal** — reduces the loan liability; not a profit-and-loss expense.
+- **Interest** — financial expense.
+- **Fees/charges** — use an explicitly selected suitable expense/account treatment.
+
+The repayment terms or lender's schedule should provide this split. For the first implementation, allow the user to enter/import the amounts from the real loan repayment schedule; do not invent interest or claim a mathematically exact amortization schedule if the actual rate, fee rules, rounding, or lender method is unknown. Automated amortization calculation can be a later, separately tested enhancement.
+
+A loan schedule can generate due instalment occurrences automatically, but a due date alone must not reduce cash or mark a loan paid. Unless LyraPOS has an explicitly integrated and verified payment provider, a user must confirm the actual payment. On confirmation, post principal reduction, interest/fees expense, and the actual cash/bank outflow as one balanced journal. If auto mode is enabled for due processing, it may automatically create/record the due instalment and any well-defined accrued-interest event, but it must not falsely mark the cash payment as completed. The UI labels must say **automatic due registration**, not automatic bank payment.
+
+A loan record must show original principal, principal repaid, current remaining principal, next due date, missed/overdue instalments, and remaining scheduled principal/interest/fees. Principal outstanding is a liability and never income. Forecast views show principal repayments as future cash outflows/liability reduction and interest/fees as projected expenses; never subtract the entire loan instalment from projected net profit.
+
+### 7.4 — Forecast and report semantics
+
+Forecasts must include scheduled occurrences within the selected date range, while keeping these groups distinguishable:
+- Actual posted income/expenses from the existing ledger.
+- Recognized but unpaid obligations/receivables.
+- Future projected income/expenses not yet recognized.
+- Expected cash inflows/outflows.
+- Loan principal liability and principal repayments.
+- Interest and loan fees.
+
+As an occurrence is recognized or settled, move it between the appropriate forecast/recorded/settled categories; never count it simultaneously as a future projection and an actual ledger event. Classification follows configured account type and debit/credit side. Do not treat every debit as an expense or every credit as income.
+
+Illustration: the owner's supplied future items might contain 10 million debit-side obligations, 20 million of debit-side scheduled items, and a 5 million credit-side item. The app may show a 25 million net debit exposure for those specific mapped entries, **but may call it projected net loss only if the relevant accounts truly are profit-and-loss expense/income accounts**. If some part is loan principal, show it in forecast cash flow/liability instead of profit and loss. Make the distinction understandable in Persian without requiring the user to know debit/credit terminology.
+
+### 7.5 — Shared due engine, states, audit, and safety controls
+
+- Use explicit schedule records plus individual occurrence records (or an equivalent fully auditable model). Each occurrence has a stable identity, due date, amount, status, optional linked journal, and settlement reference.
+- Reuse the existing balanced ledger, source identity, idempotency, currency precision, authorization, audit and closed-period controls. Do not create parallel journal or payment tables that bypass the ledger.
+- Automatic processing must be restart-safe, repeatable and transactionally idempotent. A retry must not duplicate journals, cash movements, or occurrence state transitions.
+- A failed automatic event remains visible and retryable; it must not silently appear posted or paid.
+- Manual confirmation is an authorized, attributed, auditable action.
+- Changes/cancellation cannot mutate or erase posted journals. Already-posted corrections use the existing reversal/correction workflow and reason/audit history.
+- Never post into a closed accounting period by bypassing schema v111 guards. Retry must validate due date, account active/postable state, period status, schedule version and posting integrity.
+- A schedule has a finite occurrence count and a clearly defined end state. Editing future occurrences must not alter already-posted occurrences.
+- Migration(s) must be forward-only and tested from a populated prior-version database; backup/restore and accounting export must retain schedules, occurrence status, references, journals, and audit history.
+
+### 7.6 — Delivery order and acceptance gates
+
+1. **Accounting design/data model:** document loan-liability setup, old-loan opening balance, payable-versus-paid recurring obligations, check/receipt settlement, schedule/occurrence states, and report classifications before schema changes.
+2. **Future receipts/cheques:** one-off due dates, direction, due/settled statuses, auto/manual due registration, auditable settlement, and idempotent posting.
+3. **Recurring obligations:** monthly/every-N-days schedules, fixed occurrence count, auto/manual registration, payable versus paid flow, and nonduplicating settlement.
+4. **Loans:** new loan origination, old-loan opening principal, outstanding balance, principal/interest/fee breakup, repayment occurrences, payment confirmation, and correct journal/report treatment.
+5. **Accounting UI:** the three exact Persian section names, user-friendly guidance, account selection, visible meaning of the selected accounts, remaining loan balance, due/overdue states, and history.
+6. **Forecast integration:** actual vs recognized-unpaid vs future projection vs cash-flow obligations, correct date-range calculations, exclusion from forecasts after registration/settlement, and principal excluded from projected profit/loss.
+7. **Verification:** strict focused tests, full regression suite, type-check/build, backend/frontend lint, i18n/print-label checks on the exact final head, and Windows restart/offline verification.
+
+Required regressions include: new loan proceeds never counted as revenue; old-loan setup does not create cash/revenue; principal repayment never hits P&L expense; interest/fees affect P&L only with the correct amount/date; loan paid/remaining-principal reconciliation; historical expense/date and closed-period protections; rent/payroll recurring obligations vs actual payment; check due vs cleared/settled; due-on-startup catch-up; auto/manual mode; retry/restart with no duplicate; changed-payload conflict; monthly occurrences at 29th/30th/31st and Jalali Esfand; every-N-days arithmetic; finite schedule exhaustion; cancellation/edit after partial posting; invalid/inactive accounts; role checks; balanced journals; and transition between forecast, recognized, posted, and settled views without double counting.
 
