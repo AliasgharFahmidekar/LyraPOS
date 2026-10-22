@@ -73,7 +73,8 @@ export function AccountingForecast() {
   }, [data, locale]);
   const card = 'rounded-xl border border-border bg-card p-4 space-y-2';
   const input = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
-  const statusLabels: Record<string, string> = { scheduled: t.scheduled, awaiting_confirmation: t.awaiting_confirmation, registered: t.registered, failed: t.failed };\n  const labelForStatus = (status: string) => status === 'posted' ? t.posted : (statusLabels[status] ?? status);
+  const statusLabels: Record<string, string> = { scheduled: t.scheduled, awaiting_confirmation: t.awaiting_confirmation, registered: t.registered, failed: t.failed };
+  const labelForStatus = (status: string) => status === 'posted' ? t.posted : (statusLabels[status] ?? status);
   const kindLabel = (event: ForecastEvent) => {
     if (event.kind === 'loan_installment') return fa ? 'قسط وام' : 'Loan installment';
     if (event.source === 'ledger') return t.actualMovement;
