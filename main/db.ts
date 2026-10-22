@@ -2724,6 +2724,19 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_future_items_no_delete',
   'accounting_future_items_audit_insert',
   'accounting_future_items_audit_update',
+  'accounting_loans_no_delete',
+  'accounting_loans_identity_guard',
+  'accounting_loan_batch_no_update',
+  'accounting_loan_batch_no_delete',
+  'accounting_loan_installment_no_delete',
+  'accounting_loan_installment_identity_guard',
+  'accounting_loan_installment_state_guard',
+  'accounting_loans_audit_insert',
+  'accounting_loans_audit_update',
+  'accounting_loan_batch_audit_insert',
+  'accounting_loan_installment_audit_insert',
+  'accounting_loan_installment_audit_update',
+  'accounting_loan_installment_settled_immutable',
 ] as const;
 
 /**
@@ -3315,6 +3328,78 @@ const ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL = `
     END;
 `;
 
+const ACCOUNTING_LOAN_TRIGGER_SQL = `
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_no_delete BEFORE DELETE ON accounting_loans
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_identity_guard BEFORE UPDATE ON accounting_loans
+    WHEN NEW.id<>OLD.id OR NEW.mode<>OLD.mode OR NEW.lender<>OLD.lender
+      OR COALESCE(NEW.description,'')<>COALESCE(OLD.description,'')
+      OR COALESCE(NEW.reference_number,'')<>COALESCE(OLD.reference_number,'')
+      OR NEW.loan_date<>OLD.loan_date OR NEW.currency_code<>OLD.currency_code
+      OR NEW.original_principal_minor<>OLD.original_principal_minor
+      OR NEW.initial_outstanding_minor<>OLD.initial_outstanding_minor
+      OR NEW.liability_account_id<>OLD.liability_account_id
+      OR COALESCE(NEW.cash_account_id,'')<>COALESCE(OLD.cash_account_id,'')
+      OR NEW.idempotency_key<>OLD.idempotency_key OR NEW.payload_hash<>OLD.payload_hash
+      OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
+      OR (OLD.initial_journal_entry_id IS NOT NULL AND NEW.initial_journal_entry_id<>OLD.initial_journal_entry_id)
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IDENTITY_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_batch_no_update BEFORE UPDATE ON accounting_loan_installment_batches
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_batch_no_delete BEFORE DELETE ON accounting_loan_installment_batches
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_no_delete BEFORE DELETE ON accounting_loan_installments
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments
+    WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR NEW.due_date<>OLD.due_date
+      OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor
+      OR COALESCE(NEW.interest_account_id,'')<>COALESCE(OLD.interest_account_id,'')
+      OR COALESCE(NEW.fees_account_id,'')<>COALESCE(OLD.fees_account_id,'')
+      OR NEW.auto_register<>OLD.auto_register OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments
+    WHEN OLD.status='settled' AND (
+      NEW.status<>OLD.status OR NEW.settlement_date<>OLD.settlement_date OR NEW.settlement_account_id<>OLD.settlement_account_id
+      OR NEW.settlement_journal_entry_id<>OLD.settlement_journal_entry_id
+      OR NEW.settlement_idempotency_key<>OLD.settlement_idempotency_key OR NEW.settled_at<>OLD.settled_at
+      OR NEW.settled_by<>OLD.settled_by)
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
+    WHEN NOT (
+      (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled')) OR
+      (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled')) OR
+      (OLD.status='registered' AND NEW.status IN ('settled')) OR
+      (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled'))
+    )
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_INVALID_TRANSITION'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_audit_insert AFTER INSERT ON accounting_loans
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan',NEW.id,'created',NEW.created_by,NULL,json_object('mode',NEW.mode,'lender',NEW.lender,
+        'loan_date',NEW.loan_date,'original_principal_minor',NEW.original_principal_minor,
+        'initial_outstanding_minor',NEW.initial_outstanding_minor,'currency_code',NEW.currency_code,
+        'liability_account_id',NEW.liability_account_id,'cash_account_id',NEW.cash_account_id)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_audit_update AFTER UPDATE ON accounting_loans
+    WHEN OLD.initial_journal_entry_id IS NULL AND NEW.initial_journal_entry_id IS NOT NULL
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan',NEW.id,'initial_journal_linked',NEW.created_by,
+        json_object('initial_journal_entry_id',OLD.initial_journal_entry_id),
+        json_object('initial_journal_entry_id',NEW.initial_journal_entry_id)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_batch_audit_insert AFTER INSERT ON accounting_loan_installment_batches
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan_installment_batch',NEW.id,'created',NEW.created_by,NULL,
+        json_object('loan_id',NEW.loan_id,'idempotency_key',NEW.idempotency_key)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_audit_insert AFTER INSERT ON accounting_loan_installments
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan_installment',NEW.id,'scheduled',NEW.created_by,NULL,
+        json_object('loan_id',NEW.loan_id,'due_date',NEW.due_date,'principal_minor',NEW.principal_minor,
+          'interest_minor',NEW.interest_minor,'fees_minor',NEW.fees_minor,'auto_register',NEW.auto_register)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_audit_update AFTER UPDATE ON accounting_loan_installments
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan_installment',NEW.id,NEW.status,COALESCE(NEW.settled_by,NEW.cancelled_by,NEW.registered_by),
+        json_object('status',OLD.status),json_object('status',NEW.status,'settlement_date',NEW.settlement_date,
+          'settlement_journal_entry_id',NEW.settlement_journal_entry_id,'cancellation_reason',NEW.cancellation_reason)); END;
+`;
+
 function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (!getTables(db).includes('accounting_accounts')) return;
   db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
@@ -3343,6 +3428,9 @@ function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   }
   if (getTables(db).includes('accounting_future_items')) {
     db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
+  }
+  if (getTables(db).includes('accounting_loans') && getTables(db).includes('accounting_loan_installments')) {
+    db.exec(ACCOUNTING_LOAN_TRIGGER_SQL);
   }
   recreateAccountingAccountDefinitionGuard(db);
 }
