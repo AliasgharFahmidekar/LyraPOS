@@ -76,6 +76,7 @@ function main(): void {
     equal(beforeSettlementReport.summary.posted_expenses_minor,0,'unpaid loan accrual is excluded from cash-basis paid expenses');
     equal(beforeSettlementReport.summary.loan_interest_fees_paid_minor,0,'unpaid interest and fees are not reported as paid');
 
+    throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-09',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-before-due'), 'settlement_before_due_date', 'actual loan payment cannot precede its due date');
     const settled = loans.settleLoanInstallment(db, installment.id, {
       settlement_date:'2026-10-22', settlement_account_id:'acct-bank',
     }, 'test-owner', 'loan-settle-001');
