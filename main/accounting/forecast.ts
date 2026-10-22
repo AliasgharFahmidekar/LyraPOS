@@ -133,7 +133,7 @@ export function getAccountingForecast(db: DB, filters: ForecastFilters = {}): an
       liability_reduction_minor: principal,
     });
   }
-  events.sort((a,b) => a.date.localeCompare(b.date) || (a.source === 'ledger' ? -1 : b.source === 'ledger' ? 1 : 0) || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id));
+  events.sort((a,b) => a.date.localeCompare(b.date) || (a.source === 'ledger' && b.source !== 'ledger' ? -1 : b.source === 'ledger' && a.source !== 'ledger' ? 1 : 0) || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id));
   let runningBalance = startingLiquidBalance;
   const byDate = new Map<string, any>();
   for (const event of events) {
