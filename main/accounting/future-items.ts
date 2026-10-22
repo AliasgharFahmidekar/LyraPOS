@@ -225,7 +225,11 @@ function postDueJournal(db: DB, item: any, postedBy: string): { id: string; entr
       },
     ]
     : [
-      { accountId: classification.id, debitMinor: amount, creditMinor: 0, description: item.description },
+      {
+        accountId: systemAccount(db, 'future_payment_clearing', 'asset'),
+        debitMinor: amount, creditMinor: 0,
+        description: 'Payment pending actual settlement; not recognized as paid expense yet',
+      },
       { accountId: controlAccount, debitMinor: 0, creditMinor: amount, description: 'Future payment/cheque payable' },
     ];
   const draft = createDraftJournalEntry(db, {
@@ -359,6 +363,12 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
     const incomingClearingAccount = item.direction === 'incoming'
       ? systemAccount(db, 'future_receipt_clearing', 'liability')
       : null;
+    const outgoingClassification = item.direction === 'outgoing'
+      ? assertAccount(db, item.classification_account_id, ['expense'])
+      : null;
+    const outgoingClearingAccount = item.direction === 'outgoing'
+      ? systemAccount(db, 'future_payment_clearing', 'asset')
+      : null;
     const amount = Number(item.amount_minor);
     const lines = item.direction === 'incoming'
       ? [
@@ -370,6 +380,8 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
       : [
         { accountId: controlAccount, debitMinor: amount, creditMinor: 0, description: 'Settle registered payable' },
         { accountId: settlementAccountId, debitMinor: 0, creditMinor: amount, description: 'Actual future payment/cheque settlement' },
+        { accountId: outgoingClassification!.id, debitMinor: amount, creditMinor: 0, description: item.description },
+        { accountId: outgoingClearingAccount!, debitMinor: 0, creditMinor: amount, description: 'Recognize expense only after actual payment' },
       ];
     const draft = createDraftJournalEntry(db, {
       entryDate: settlementDate,
