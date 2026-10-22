@@ -41,6 +41,7 @@ type ManagementReport = {
     sales_revenue_less_refunds_minor: number;
     other_income_minor: number;
     posted_expenses_minor: number;
+    loan_interest_fees_paid_minor: number;
     tax_payments_expense_minor: number;
     result_before_cogs_minor: number;
   };
@@ -83,6 +84,7 @@ export function AccountingReports() {
     netSales: 'درآمد فروش پس از برگشت',
     otherIncome: 'سایر درآمدهای ثبت‌شده',
     expenses: 'هزینه‌های ثبت‌شده در دفتر کل',
+    loanCosts: 'از هزینه‌ها: سود و کارمزد وام پرداخت‌شده',
     taxPayments: 'مالیات پرداخت‌شده (هزینه)',
     result: 'نتیجه پیش از بهای تمام‌شده',
     notNetProfit: 'این عدد سود خالص نیست.',
@@ -120,6 +122,7 @@ export function AccountingReports() {
     netSales: 'Sales revenue after refunds',
     otherIncome: 'Posted other income',
     expenses: 'Posted ledger expenses',
+    loanCosts: 'Included in expenses: loan interest and fees paid',
     taxPayments: 'Taxes paid (expense)',
     result: 'Result before cost of goods sold',
     notNetProfit: 'This is not net profit.',
@@ -206,6 +209,7 @@ export function AccountingReports() {
           [t.netSales, report.summary.sales_revenue_less_refunds_minor],
           [t.otherIncome, report.summary.other_income_minor],
           [t.expenses, report.summary.posted_expenses_minor],
+          [t.loanCosts, report.summary.loan_interest_fees_paid_minor],
           [t.taxPayments, report.summary.tax_payments_expense_minor],
           [t.result, report.summary.result_before_cogs_minor],
         ].map(([label, value]) => <div key={String(label)} className={cardClass}>
