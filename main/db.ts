@@ -3371,8 +3371,8 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
     WHEN NOT (
-      (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled','failed')) OR
-      (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled','failed')) OR
+      (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','cancelled','failed')) OR
+      (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','cancelled','failed')) OR
       (OLD.status='failed' AND NEW.status IN ('registered','cancelled')) OR
       (OLD.status='registered' AND NEW.status IN ('settled')) OR
       (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed')
@@ -7215,8 +7215,8 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
               json_object('loan_id',NEW.loan_id,'idempotency_key',NEW.idempotency_key)); END;
         CREATE TRIGGER accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
           WHEN NOT (
-            (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled','failed')) OR
-            (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled','failed')) OR
+            (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','cancelled','failed')) OR
+            (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','cancelled','failed')) OR
             (OLD.status='failed' AND NEW.status IN ('registered','cancelled')) OR
             (OLD.status='registered' AND NEW.status IN ('settled')) OR
             (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed')
