@@ -735,6 +735,16 @@ async function run() {
     assert.equal(restoredAdjustment?.journal_entry_id, 'restore-reconciliation-adjustment-entry', 'direct restore preserves reconciliation journal link');
     assert.equal(restoredAdjustment?.idempotency_key, 'restore-adjustment-idempotency-key', 'direct restore preserves reconciliation idempotency key');
     assert.equal(restoredAdjustment?.payload_hash, 'd'.repeat(64), 'direct restore preserves reconciliation payload hash');
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_reconciliation_adjustments SET reason=? WHERE id=?').run('tamper after restore', 'restore-reconciliation-adjustment'),
+      /ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE/,
+      'full restore reinstates reconciliation metadata immutability against updates',
+    );
+    assert.throws(
+      () => getDatabase().prepare('DELETE FROM accounting_reconciliation_adjustments WHERE id=?').run('restore-reconciliation-adjustment'),
+      /ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE/,
+      'full restore reinstates reconciliation metadata immutability against deletion',
+    );
     for (const trigger of [
       'accounting_period_closures_insert_guard',
       'accounting_period_closures_update_guard',
@@ -742,6 +752,8 @@ async function run() {
       'accounting_period_closures_no_overlap_update',
       'accounting_period_closures_audit_insert',
       'accounting_period_closures_audit_update',
+      'accounting_reconciliation_adjustments_immutable_update',
+      'accounting_reconciliation_adjustments_immutable_delete',
       'accounting_closed_period_posted_entry_update_guard',
       'accounting_closed_period_posted_entry_delete_guard',
       'accounting_closed_period_posted_line_insert_guard',
