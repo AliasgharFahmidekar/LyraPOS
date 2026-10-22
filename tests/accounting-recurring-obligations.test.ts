@@ -85,21 +85,21 @@ function main() {
     currency_code:'IRR',description:'Startup catch-up regression',classification_account_id:expense.id,auto_register:true,
   },'test-manager','recurring-startup-catchup-001');
   const startupOccurrence=listRecurringObligations(db,{id:startupSchedule.id})[0].occurrences[0];
-  const startupJournalCountBefore=(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_event='due_registered'").get() as any).n;
+  const startupJournalCountBefore=(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_event='due_registration'").get() as any).n;
   try {
     startAccountingFutureItemScheduler();
     equal((db.prepare('SELECT status FROM accounting_future_items WHERE id=?').get(startupOccurrence.future_item_id) as any).status,'registered',
       'scheduler startup catches up the overdue auto-register occurrence');
     const dueJournalId=(db.prepare('SELECT due_journal_entry_id FROM accounting_future_items WHERE id=?').get(startupOccurrence.future_item_id) as any).due_journal_entry_id;
     ok(!!dueJournalId,'startup catch-up records a due journal reference');
-    const startupJournalCountAfter=(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_event='due_registered'").get() as any).n;
+    const startupJournalCountAfter=(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_event='due_registration'").get() as any).n;
     equal(startupJournalCountAfter-startupJournalCountBefore,1,'first scheduler startup creates exactly one due journal');
     stopAccountingFutureItemScheduler();
     startAccountingFutureItemScheduler();
     stopAccountingFutureItemScheduler();
-    equal((db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_event='due_registered' AND id=?").get(dueJournalId) as any).n,1,
+    equal((db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_event='due_registration' AND id=?").get(dueJournalId) as any).n,1,
       'scheduler restart does not duplicate the previously registered journal');
-    equal((db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_event='due_registered'").get() as any).n,startupJournalCountAfter,
+    equal((db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_event='due_registration'").get() as any).n,startupJournalCountAfter,
       'restart does not create an additional due journal for the same occurrence');
   } finally {
     stopAccountingFutureItemScheduler();
