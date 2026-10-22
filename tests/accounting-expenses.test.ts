@@ -270,6 +270,28 @@ try {
     /configured cash, bank, or payment-clearing/i, 'transfer rejects inventory accounts as cash/bank accounts');
   throws(() => transfers.createCashBankTransfer(db, { ...transferInput, amount_minor: 4600 }, 'manager-1', 'transfer-test-001'),
     /different payload/i, 'reusing a transfer idempotency key with a changed amount is rejected');
+  // Phase 6 correction control: a posted expense cannot be reversed into a closed period.
+  // The safe correction is a separate, reasoned reversal in a later open period.
+  const closedCorrectionExpense = expenses.createExpense(db, {
+    category_id: category.id, expense_date: '2030-01-01', amount_minor: 2000,
+    currency_code: 'IRR', description: 'Closed-period reversal gate regression',
+    payment_status: 'paid', payment_method_key: 'cash', payment_date: '2030-01-01',
+  }, 'manager-1', 'phase6-closed-period-reversal');
+  const closedCorrectionPosted = expenses.postExpense(db, closedCorrectionExpense.id, 'manager-1');
+  equal(closedCorrectionPosted.status, 'posted', 'control expense is posted before the period is closed');
+  db.prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES ('expense-reversal-closed-period', '2030-01-01', '2030-01-01', 'closed', 'Phase 6 reversal regression', 'manager-1')").run();
+  throws(() => expenses.reverseExpense(db, closedCorrectionExpense.id, 'Invalid same-period correction', '2030-01-01', 'manager-1'),
+    /Accounting period is closed/i, 'reversal cannot be posted inside a closed accounting period');
+  equal(expenses.getExpense(db, closedCorrectionExpense.id).status, 'posted', 'rejected closed-period reversal leaves the original expense state unchanged');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_reversal'").get(closedCorrectionExpense.id) as any).count, 0,
+    'rejected closed-period reversal creates no reversal journal');
+  const laterCorrection = expenses.reverseExpense(db, closedCorrectionExpense.id, 'Correct in later open period', '2030-01-02', 'manager-1');
+  equal(laterCorrection.status, 'reversed', 'same expense can be corrected with a separately audited later-period reversal');
+  equal((db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(laterCorrection.reversal_journal_entry_id) as any).entry_date, '2030-01-02',
+    'controlled correction is dated in the later open period');
+  equal((db.prepare('SELECT status FROM accounting_journal_entries WHERE id=?').get(closedCorrectionPosted.posted_journal_entry_id) as any).status, 'posted',
+    'controlled correction preserves the immutable original posted journal');
+
   console.log('Accounting expense foundation: ' + checks + ' assertions passed.');
 } catch (error) {
   console.error('Accounting expense foundation failed:', error); process.exitCode = 1;
