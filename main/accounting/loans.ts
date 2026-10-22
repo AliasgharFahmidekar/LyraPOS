@@ -155,7 +155,7 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
   const loan = loanRow(db,loanIdInput);
   if (!Array.isArray(input?.installments) || input.installments.length<1 || input.installments.length>120) fail('invalid_installments','Provide between 1 and 120 instalments.');
   const idempotencyKey=key(idempotencyInput);
-  const normalized=input.installments.map((item:any,index:number)=>{
+  const normalized: Array<{dueDate:string;principal:number;interest:number;fees:number;interestAccountId:string|null;feesAccountId:string|null;auto:boolean;index:number}> = input.installments.map((item:any,index:number)=>{
     const dueDate=date(item?.due_date,'due_date');
     const principal=item?.principal_minor, interest=item?.interest_minor ?? 0, fees=item?.fees_minor ?? 0;
     for(const [field,value] of [['principal_minor',principal],['interest_minor',interest],['fees_minor',fees]] as [string,any][]) {
@@ -226,7 +226,9 @@ export function registerLoanInstallment(db: DB, installmentIdInput: unknown, act
     }
     db.prepare("UPDATE accounting_loan_installments SET status='registered',registered_at=CURRENT_TIMESTAMP,registered_by=?,due_journal_entry_id=?,last_error_code=NULL,last_error_message=NULL WHERE id=?")
       .run(actor(actorId),dueJournal?.id??null,id);
-    return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false,due_entry_number:dueJournal?.entryNumber??null};
+    const updated = db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as Record<string, unknown> | undefined;
+    if (!updated) fail('installment_not_found','Loan instalment disappeared during registration.',500);
+    return {...updated,duplicate:false,due_entry_number:dueJournal?.entryNumber??null};
   })();
 }
 export function processDueLoanInstallments(db: DB, asOfInput?: unknown): {checked:number;registered:number;awaitingConfirmation:number;failed:number} {
@@ -312,6 +314,8 @@ export function cancelLoanInstallment(db: DB, installmentIdInput: unknown, reaso
     const loan=loanRow(db,item.loan_id);
     const pending=db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
     if(outstanding(db,loan)===0 && Number(pending.count)===0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
-    return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false};
+    const updated = db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as Record<string, unknown> | undefined;
+    if (!updated) fail('installment_not_found','Loan instalment disappeared during cancellation.',500);
+    return {...updated,duplicate:false};
   })();
 }
