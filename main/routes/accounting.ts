@@ -10,6 +10,7 @@ import { createManualAccountingActivity, listManualAccountingActivities } from '
 import { createOpeningBalance, listAccountTransactionHistory, listOpeningBalances } from '../accounting/opening-balances';
 import { createReconciliationAdjustment, getAccountingReconciliationOverview } from '../accounting/reconciliation';
 import { getAccountingManagementReport } from '../accounting/reports';
+import { getAccountingForecast } from '../accounting/forecast';
 import { getAccountingSourceEventReconciliation } from '../accounting/source-reconciliation';
 import { getAccountingTrialBalance } from '../accounting/trial-balance';
 import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } from '../accounting/period-close';
@@ -142,6 +143,10 @@ router.get('/accounts/:accountId/transactions', managerOnly, (req, res) => {
 });
 router.get('/reports', managerOnly, (req, res) => {
   try { res.json(getAccountingManagementReport(getDatabase(), req.query)); }
+  catch (error) { respondError(res, error); }
+});
+router.get('/forecast', managerOnly, (req, res) => {
+  try { res.json(getAccountingForecast(getDatabase(), req.query)); }
   catch (error) { respondError(res, error); }
 });
 router.get('/trial-balance', managerOnly, (req, res) => {
