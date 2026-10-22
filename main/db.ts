@@ -7181,6 +7181,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
             OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'')
             OR COALESCE(NEW.due_journal_entry_id,'')<>COALESCE(OLD.due_journal_entry_id,'')
             OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'')
+            OR COALESCE(NEW.settlement_payload_hash,'')<>COALESCE(OLD.settlement_payload_hash,'')
             OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'') OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,'')
           )
           BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
