@@ -7,7 +7,7 @@ import api from '@/lib/api';
 type ForecastEvent = {
   id: string; date: string; kind: string; description: string; counterparty: string | null;
   status: string; source: string; direction: 'incoming' | 'outgoing'; amount_minor: number;
-  cash_in_minor: number; cash_out_minor: number; projected_income_minor: number;
+  cash_in_minor: number; cash_out_minor: number; actual_cash_in_minor?: number; actual_cash_out_minor?: number; projected_income_minor: number;
   projected_expense_minor: number; recognized_unpaid_minor: number; principal_minor?: number;
   interest_minor?: number; fees_minor?: number; liability_reduction_minor?: number;
   projected_liquid_balance_minor: number;
@@ -15,7 +15,7 @@ type ForecastEvent = {
 type Forecast = {
   from: string; to: string; currency_code: string; accounting_fraction_digits: number;
   starting_liquid_balance_minor: number; projected_ending_liquid_balance_minor: number;
-  summary: { expected_inflows_minor: number; expected_outflows_minor: number; projected_income_minor: number;
+  summary: { expected_inflows_minor: number; expected_outflows_minor: number; actual_inflows_minor: number; actual_outflows_minor: number; projected_income_minor: number;
     projected_expense_minor: number; recognized_unpaid_minor: number; loan_principal_due_minor: number };
   events: ForecastEvent[];
   policy: { message: string };
@@ -34,10 +34,10 @@ export function AccountingForecast() {
   const t = fa ? {
     title: 'پیش‌بینی جریان نقدی و تعهدات', from: 'از تاریخ', to: 'تا تاریخ', refresh: 'به‌روزرسانی',
     starting: 'مانده نقد و بانک در ابتدای بازه', ending: 'مانده نقد و بانک پیش‌بینی‌شده در پایان بازه',
-    inflows: 'دریافت‌های مورد انتظار', outflows: 'پرداخت‌های مورد انتظار', income: 'درآمد پیش‌بینی‌شده',
+    inflows: 'دریافت‌های مورد انتظار', outflows: 'پرداخت‌های مورد انتظار', actualInflows: 'دریافت نقدی واقعی در بازه', actualOutflows: 'پرداخت نقدی واقعی در بازه', income: 'درآمد پیش‌بینی‌شده',
     expenses: 'هزینه‌های پیش‌بینی‌شده', unpaid: 'تعهدات ثبت‌شده اما پرداخت‌نشده', principal: 'اصل وام سررسیدشونده',
     events: 'رویدادهای مالی آینده', date: 'سررسید', description: 'شرح', status: 'وضعیت', amount: 'مبلغ',
-    balance: 'مانده نقدی پیش‌بینی‌شده', noEvents: 'در این بازه رویداد آینده‌ای ثبت نشده است.',
+    balance: 'مانده نقدی پیش‌بینی‌شده', noEvents: 'در این بازه رویداد مالی ثبت‌شده یا آینده‌ای وجود ندارد.', posted: 'ثبت‌شده در دفتر کل', actualMovement: 'گردش واقعی نقد و بانک',
     note: 'این گزارش فقط پیش‌بینی است و هیچ سند حسابداری ایجاد یا تغییری در دفتر کل اعمال نمی‌کند. سررسید به معنی پرداخت واقعی نیست؛ اصل قسط وام هزینه سود و زیان محسوب نمی‌شود.',
     error: 'پیش‌بینی بارگذاری نشد. بازه تاریخ و تنظیمات پولی فروشگاه را بررسی کنید.',
     scheduled: 'برنامه‌ریزی‌شده', awaiting_confirmation: 'در انتظار تأیید', registered: 'ثبت تعهد / پرداخت‌نشده', failed: 'نیازمند بررسی',
@@ -47,7 +47,7 @@ export function AccountingForecast() {
     outflows: 'Expected outflows', income: 'Projected income', expenses: 'Projected expenses',
     unpaid: 'Registered but unpaid obligations', principal: 'Loan principal due', events: 'Future financial events',
     date: 'Due date', description: 'Description', status: 'Status', amount: 'Amount',
-    balance: 'Projected liquid balance', noEvents: 'No future events are scheduled in this range.',
+    balance: 'Projected liquid balance', noEvents: 'No posted or future financial events exist in this range.', posted: 'Posted to ledger', actualMovement: 'Actual cash/bank movement',
     note: 'This is a forecast only. It does not create or change ledger entries. A due date is not proof of payment; loan principal is not a profit-and-loss expense.',
     error: 'Forecast could not be loaded. Check the date range and store currency settings.',
     scheduled: 'Scheduled', awaiting_confirmation: 'Awaiting confirmation', registered: 'Registered / unpaid', failed: 'Needs review',
@@ -73,9 +73,10 @@ export function AccountingForecast() {
   }, [data, locale]);
   const card = 'rounded-xl border border-border bg-card p-4 space-y-2';
   const input = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
-  const labelForStatus = (status: string) => (t as any)[status] ?? status;
+  const labelForStatus = (status: string) => status === 'posted' ? t.posted : ((t as any)[status] ?? status);
   const kindLabel = (event: ForecastEvent) => {
     if (event.kind === 'loan_installment') return fa ? 'قسط وام' : 'Loan installment';
+    if (event.source === 'ledger') return t.actualMovement;
     return event.direction === 'incoming' ? (fa ? 'دریافت آینده' : 'Future receipt') : (fa ? 'پرداخت آینده' : 'Future payment');
   };
   return <section className="w-full max-w-6xl space-y-5" dir={fa ? 'rtl' : 'ltr'}>
@@ -92,7 +93,8 @@ export function AccountingForecast() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {[
           [t.starting, data.starting_liquid_balance_minor], [t.inflows, data.summary.expected_inflows_minor],
-          [t.outflows, data.summary.expected_outflows_minor], [t.ending, data.projected_ending_liquid_balance_minor],
+          [t.outflows, data.summary.expected_outflows_minor], [t.actualInflows, data.summary.actual_inflows_minor],
+          [t.actualOutflows, data.summary.actual_outflows_minor], [t.ending, data.projected_ending_liquid_balance_minor],
           [t.income, data.summary.projected_income_minor], [t.expenses, data.summary.projected_expense_minor],
           [t.unpaid, data.summary.recognized_unpaid_minor], [t.principal, data.summary.loan_principal_due_minor],
         ].map(([name, value]) => <div key={String(name)} className={card}><p className="text-sm text-muted-foreground">{name}</p><p className="text-xl font-semibold tabular-nums">{money(Number(value))}</p></div>)}
