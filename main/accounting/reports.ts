@@ -75,6 +75,17 @@ function sumLedgerLines(
   return safeTotal(row?.amount_minor, 'ledger report');
 }
 
+function settledLoanCosts(db: DB, range: { from: string | null; to: string | null }): number {
+  const clauses: string[] = ["status='settled'"];
+  const values: string[] = [];
+  if (range.from) { clauses.push('settlement_date >= ?'); values.push(range.from); }
+  if (range.to) { clauses.push('settlement_date <= ?'); values.push(range.to); }
+  const row = db.prepare(
+    'SELECT COALESCE(SUM(interest_minor + fees_minor),0) AS amount_minor FROM accounting_loan_installments WHERE ' + clauses.join(' AND '),
+  ).get(...values) as { amount_minor: number | null };
+  return safeTotal(row?.amount_minor, 'settled loan interest and fees');
+}
+
 function postedEntryCount(db: DB, range: { from: string | null; to: string | null }): number {
   const dates = periodWhere('entry', range);
   const row = db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries entry WHERE entry.status='posted'" + dates.sql)
@@ -161,9 +172,13 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
     ")",
     range,
   );
-  const postedExpensesMinor = sumLedgerLines(
-    db, 'line.debit_minor - line.credit_minor', "account.account_type='expense' AND COALESCE(account.system_key, '') <> 'cost_of_goods_sold'", range,
+  const ledgerExpensesExcludingLoanAccrualMinor = sumLedgerLines(
+    db, 'line.debit_minor - line.credit_minor',
+    "account.account_type='expense' AND COALESCE(account.system_key, '') <> 'cost_of_goods_sold' AND NOT (entry.source_type='accounting_loan' AND entry.source_event='installment_due_registration')",
+    range,
   );
+  const loanInterestFeesPaidMinor = settledLoanCosts(db, range);
+  const postedExpensesMinor = safeTotal(ledgerExpensesExcludingLoanAccrualMinor + loanInterestFeesPaidMinor, 'paid expenses including settled loan costs');
   const taxPaymentsExpenseMinor = sumLedgerLines(
     db, 'line.debit_minor - line.credit_minor', "account.system_key='tax_expenses'", range,
   );
@@ -202,6 +217,7 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
       sales_revenue_less_refunds_minor: netSalesAfterRefundsMinor,
       other_income_minor: otherIncomeMinor,
       posted_expenses_minor: postedExpensesMinor,
+      loan_interest_fees_paid_minor: loanInterestFeesPaidMinor,
       tax_payments_expense_minor: taxPaymentsExpenseMinor,
       result_before_cogs_minor: resultBeforeCogsMinor,
     },
@@ -209,6 +225,7 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
       sales_revenue_basis: 'actual_monetary_receipts',
       tax_treatment: 'tax_payments_are_expenses_when_paid',
       future_item_recognition: 'future_item_income_and_expense_on_actual_settlement; due_registration_uses_clearing_accounts; cash_and_bank_change_only_on_actual_settlement',
+      loan_cost_recognition: 'loan_interest_and_fees_accrue_to_the_loan_liability_on_due_date; cash-basis expense summary includes them on actual installment settlement date',
       message: 'POS sales and future-item income/expense count only when actual monetary settlement is recorded. A due-but-uncollected incoming item is offset to the future-receipt clearing liability; a due-but-unpaid outgoing item is offset to a pending-payment clearing asset. Neither due-registration journal changes profit/loss or cash. Settlement records the actual cash/bank/clearing movement and recognizes the configured income or expense. Tax is recorded as an expense when paid and is not deducted a second time from sales revenue.',
     },
     profit_limitations: {
