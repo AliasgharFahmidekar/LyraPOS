@@ -1,4 +1,4 @@
-**Status on PR #19 as of 2026-10-22:** Phases 0–5 are implemented. Phase 6's final hardening work is on this branch; the current head must pass its full CI gate before Phase 6 is declared complete or this PR is merged. Earlier green runs (including #588) predate the latest Phase 6 edits and do not validate them.
+**Status on PR #19 as of 2026-10-22:** Phases 0–6 are implemented on the branch; Phase 6 passed its acceptance gate before Phase 7 work began. Phase 7.0's shared future-item model/posting contract is implemented with strict route, ledger, migration, idempotency, failure, cancellation, settlement, and closed-period regressions. Phase 7.1's one-off future receipts/cheques UI is now connected to the main Accounting page. These latest changes are not release-accepted until the full regression/build/lint workflow passes on the exact current PR head. Do not merge this PR.
 
 **Latest Phase 6 audit and regression work:**
 - Cutover classification now follows the actual receipt/refund event timestamp, not merely the parent bill's creation date. A post-cutover payment/refund on an older bill is therefore recognized correctly without backfilling the historical bill itself. A receipt with no timestamp remains unresolved unless it has the unambiguous legacy shape (pre-cutover bill plus no event ID and no timestamp), which is visibly classified as excluded under the explicit no-backfill policy; inconsistent/newer rows remain unresolved and block close.
@@ -418,11 +418,11 @@ As of this PR branch, Phase 0 discovery, Phase 1 ledger, Phase 2 expenses/transf
 
 ## 11. Planned Phase 7 — Future receipts/cheques, recurring obligations, and loans
 
-**Owner requirement and recommended design decision updated 2026-10-22.** **Phase 6 passed CI run #605** on head `c4a41d09e2bbf0067255061fac0fe76590f1ad31`. Phase 7 is now in progress on the same unmerged PR branch. This is a planned capability on top of the existing ledger, not a parallel accounting system. Build three distinct accounting workflows over one shared due-date/occurrence engine.
+**Owner requirement and recommended design decision updated 2026-10-22.** **Phase 6 passed CI run #605** on head `c4a41d09e2bbf0067255061fac0fe76590f1ad31`. Phase 7.0 backend/model and 7.1 one-off UI are implemented on the same unmerged PR branch; the exact final head still requires a green full workflow. This is a planned capability on top of the existing ledger, not a parallel accounting system. Build three distinct accounting workflows over one shared due-date/occurrence engine.
 
-### 7.0 — Shared data model and posting contract (implemented; exact-head CI pending)
+### 7.0 — Shared data model and posting contract (implemented; re-verify on exact final head)
 
-The base one-off model and posting semantics are implemented on this branch. The new `accounting_future_items` table is migration **v112**; migrations **v113–v114** add dedicated, audited-by-ledger clearing accounts for future receipts and future payments. Phase 7.0 is not release-accepted until focused accounting tests and the exact-head regression workflow pass.
+The base one-off model and posting semantics are implemented on this branch. The new `accounting_future_items` table is migration **v112**; migrations **v113–v114** add dedicated, audited-by-ledger clearing accounts for future receipts and future payments. Phase 7.0's focused route tests already exercise creation without premature journals, identical and changed-payload retries, impossible dates, invalid account classifications, automatic due processing, no early revenue/cash/expense recognition, settlement on the actual date, idempotent settlement, manual confirmation, cancellation reason, immutable payload/deletion, failed closed-period posting and no partial journal. The full suite must pass again on the exact final head after the Phase 7.1 UI changes.
 
 - **Definition row:** immutable record purpose/type, direction, integer minor-unit amount, canonical Gregorian ISO due date, configured currency, classification account, automatic-registration choice, source idempotency key, payload hash, counterparty/reference, and creator/time metadata.
 - **Lifecycle:** `scheduled` → `awaiting_confirmation` (manual mode) or `registered` (automatic/confirmed); transient posting failures remain visible as `failed` and can be explicitly retried; `registered` → `settled` only after actual settlement; `cancelled` is terminal and only allowed before registration. Posted journals are immutable.
@@ -434,7 +434,7 @@ The base one-off model and posting semantics are implemented on this branch. The
 - **Reporting boundary:** unregistered items are projections only. Registered-but-unsettled items have balancing clearing/receivable/payable entries but contribute neither income nor paid expense; they do not change cash/bank. Actual settlement clears those transitional balances, changes the selected liquid account, and recognizes the configured income/expense exactly once. The richer forecast and status breakdown remains Phase 7.4; this phase does not claim that forecast UI exists.
 - **Regression coverage:** fresh install, supported older-schema upgrades, direct v112→current migration, exact system-account allowlist and account-code uniqueness, due-versus-settlement journal lines, no early income/expense recognition, settlement date reporting, idempotent retries and existing audit/closed-period constraints.
 
-This phase establishes the shared data/posting contract and the one-off future-item foundation. It does **not** yet implement recurring schedules, loan origination/repayment splitting, Jalali date-entry UI, external bank verification, payment-provider integration, or a dedicated future-items UI. The current database schema target is v114.
+This phase establishes the shared data/posting contract and the one-off future-item foundation. The dedicated future-items UI is now implemented in the main Accounting page by the Phase 7.1 slice below. It does **not** yet implement recurring schedules, loan origination/repayment splitting, Jalali date-entry UI, external bank verification, or payment-provider integration. The current database schema target is v114.
 
 ### Product decision: three separate workflows, one shared scheduler
 
@@ -446,7 +446,9 @@ The accounting sidebar/page should expose three distinct sections:
 
 These are separate user workflows because their accounting meaning differs. They should share infrastructure for calendar calculations, due occurrences, automatic/manual mode, retry/idempotency, status history, and forecasts. Do not implement loans as generic recurring expenses, and do not make rent/payroll require a fake loan record.
 
-### 7.1 — Future receipts / cheques
+### 7.1 — Future receipts / cheques (UI implemented; exact-head CI pending)
+
+Implemented in this slice: a new owner/manager-only section in the existing Accounting page, with Persian/English labels, record creation, receipt/cheque direction, due date, amount, counterparty, reference, account classification, automatic/manual due registration, status/history and journal numbers. Authorized users can register due items, cancel eligible unregistered items with a reason, and confirm actual settlement using an explicit settlement date and a selectable cash/bank/clearing account. The UI explains that a due date is not proof of actual receipt/payment and that actual income/expense/cash movement is posted only at settlement. Backend posting rules remain authoritative; no new ledger or payment system was added. CI has not yet verified these UI changes on the exact latest head.
 
 Each record captures at least:
 - Direction and purpose: expected receipt/incoming cheque, or expected payment/issued cheque.
@@ -454,7 +456,7 @@ Each record captures at least:
 - Selected active postable account(s) and posting treatment. Before saving, the UI explains in plain language which account is debited and which is credited, and whether the item affects projected income/expense, cash flow, receivables, or payables.
 - **Automatic accounting registration enabled/disabled.** Creating a future record must not immediately post its future event.
 
-When automatic registration is enabled, the due handler processes the configured accounting event at maturity; when disabled, the due item waits for an authorized user to confirm/register it. If LyraPOS was closed at the due time, it processes overdue eligible items after restart and never creates a duplicate on retries. The UI shows upcoming, due-awaiting-confirmation, registered/posted, settled, cancelled, and failed/retry-needed states as relevant.
+When automatic registration is enabled, the due handler processes the configured accounting event at maturity; when disabled, the due item waits for an authorized user to confirm/register it. If LyraPOS was closed at the due time, it processes overdue eligible items after restart and never creates a duplicate on retries. The UI shows upcoming, due-awaiting-confirmation, registered/posted, settled, cancelled, and failed/retry-needed states, with due and settlement journal numbers when present. Registration actions are disabled until the due date. The settlement date and eligible settlement account are selected explicitly in the UI.
 
 Important: calendar maturity is not proof that money actually entered or left the bank. Due registration must not silently pretend that a cheque cleared or that a payment was made. For the current cash-received/paid-expense contract, due registration uses clearing accounts and receivable/payable balances; it does not recognize income or paid expense. The configured revenue/expense account and actual cash/bank movement are posted only when settlement is confirmed by the user, unless an explicit, verified payment/bank integration is added in a separate scope. Do not count an expected cheque as already collected merely because its date arrived.
 
