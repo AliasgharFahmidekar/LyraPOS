@@ -3371,10 +3371,11 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
     WHEN NOT (
-      (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled')) OR
-      (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled')) OR
+      (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled','failed')) OR
+      (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled','failed')) OR
+      (OLD.status='failed' AND NEW.status IN ('registered','cancelled')) OR
       (OLD.status='registered' AND NEW.status IN ('settled')) OR
-      (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled')
+      (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed')
               AND COALESCE(NEW.registered_at,'')=COALESCE(OLD.registered_at,'')
               AND COALESCE(NEW.registered_by,'')=COALESCE(OLD.registered_by,'')
               AND COALESCE(NEW.settlement_date,'')=COALESCE(OLD.settlement_date,'')
