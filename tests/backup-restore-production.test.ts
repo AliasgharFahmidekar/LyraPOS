@@ -614,6 +614,9 @@ async function run() {
       reconciliationJournalId, 'restore-adjustment-idempotency-key', 'd'.repeat(64), 'restore-test',
     );
 
+    getDatabase().prepare(
+      "INSERT INTO accounting_future_items (id, record_type, direction, due_date, amount_minor, currency_code, description, classification_account_id, auto_register, status, idempotency_key, payload_hash, created_by) VALUES (?, 'cheque', 'incoming', '2090-01-01', 550, 'INR', 'Restore future cheque', 'acct-other-income', 0, 'scheduled', ?, ?, ?)",
+    ).run('restore-future-item', 'restore-future-item-idempotency-key', 'e'.repeat(64), 'restore-test');
     getDatabase().prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES ('restore-period-guard-close', '2026-10-10', '2026-10-10', 'closed', 'restore regression', 'restore-test')").run();
     assert.throws(
       () => getDatabase().prepare('UPDATE accounting_journal_entries SET description=? WHERE id=?').run('changed', restoredPeriodEntry),
@@ -677,6 +680,19 @@ async function run() {
         1,
         'full backup preserves the closed-period record',
       );
+      const snapshotFutureItem = backupSnapshotDb.prepare(
+        'SELECT record_type, direction, due_date, amount_minor, currency_code, description, classification_account_id, auto_register, status, idempotency_key, payload_hash FROM accounting_future_items WHERE id=?',
+      ).get('restore-future-item') as any;
+      assert.equal(snapshotFutureItem?.record_type, 'cheque', 'full backup preserves future-item record type');
+      assert.equal(snapshotFutureItem?.direction, 'incoming', 'full backup preserves future-item direction');
+      assert.equal(snapshotFutureItem?.due_date, '2090-01-01', 'full backup preserves future-item due date');
+      assert.equal(snapshotFutureItem?.amount_minor, 550, 'full backup preserves future-item exact amount');
+      assert.equal(snapshotFutureItem?.currency_code, 'INR', 'full backup preserves future-item currency');
+      assert.equal(snapshotFutureItem?.classification_account_id, 'acct-other-income', 'full backup preserves future-item account mapping');
+      assert.equal(snapshotFutureItem?.auto_register, 0, 'full backup preserves manual confirmation mode');
+      assert.equal(snapshotFutureItem?.status, 'scheduled', 'full backup preserves scheduled status');
+      assert.equal(snapshotFutureItem?.idempotency_key, 'restore-future-item-idempotency-key', 'full backup preserves future-item idempotency key');
+      assert.equal(snapshotFutureItem?.payload_hash, 'e'.repeat(64), 'full backup preserves future-item payload hash');
       const snapshotAdjustment = backupSnapshotDb.prepare(
         'SELECT account_id, adjustment_date, system_balance_minor, verified_balance_minor, difference_minor, currency_code, reason, source_reference, journal_entry_id, idempotency_key, payload_hash FROM accounting_reconciliation_adjustments WHERE id=?',
       ).get('restore-reconciliation-adjustment') as any;
@@ -721,6 +737,29 @@ async function run() {
       1,
       'direct restore preserves closed-period records',
     );
+    const restoredFutureItem = getDatabase().prepare(
+      'SELECT record_type, direction, due_date, amount_minor, currency_code, description, classification_account_id, auto_register, status, idempotency_key, payload_hash FROM accounting_future_items WHERE id=?',
+    ).get('restore-future-item') as any;
+    assert.equal(restoredFutureItem?.record_type, 'cheque', 'direct restore preserves future-item type');
+    assert.equal(restoredFutureItem?.direction, 'incoming', 'direct restore preserves future-item direction');
+    assert.equal(restoredFutureItem?.due_date, '2090-01-01', 'direct restore preserves future-item due date');
+    assert.equal(restoredFutureItem?.amount_minor, 550, 'direct restore preserves future-item amount');
+    assert.equal(restoredFutureItem?.currency_code, 'INR', 'direct restore preserves future-item currency');
+    assert.equal(restoredFutureItem?.classification_account_id, 'acct-other-income', 'direct restore preserves future-item account mapping');
+    assert.equal(restoredFutureItem?.auto_register, 0, 'direct restore preserves manual mode');
+    assert.equal(restoredFutureItem?.status, 'scheduled', 'direct restore preserves future-item status');
+    assert.equal(restoredFutureItem?.idempotency_key, 'restore-future-item-idempotency-key', 'direct restore preserves future-item idempotency key');
+    assert.equal(restoredFutureItem?.payload_hash, 'e'.repeat(64), 'direct restore preserves future-item payload hash');
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_future_items SET due_date=? WHERE id=?').run('2090-01-02', 'restore-future-item'),
+      /ACCOUNTING_FUTURE_ITEM_PAYLOAD_IMMUTABLE/,
+      'direct restore reinstates future-item payload immutability',
+    );
+    assert.throws(
+      () => getDatabase().prepare('DELETE FROM accounting_future_items WHERE id=?').run('restore-future-item'),
+      /ACCOUNTING_FUTURE_ITEM_IMMUTABLE/,
+      'direct restore reinstates future-item delete protection',
+    );
     const restoredAdjustment = getDatabase().prepare(
       'SELECT account_id, adjustment_date, system_balance_minor, verified_balance_minor, difference_minor, currency_code, reason, source_reference, journal_entry_id, idempotency_key, payload_hash FROM accounting_reconciliation_adjustments WHERE id=?',
     ).get('restore-reconciliation-adjustment') as any;
@@ -754,6 +793,11 @@ async function run() {
       'accounting_period_closures_audit_update',
       'accounting_reconciliation_adjustments_immutable_update',
       'accounting_reconciliation_adjustments_immutable_delete',
+      'accounting_future_items_payload_immutable',
+      'accounting_future_items_state_guard',
+      'accounting_future_items_no_delete',
+      'accounting_future_items_audit_insert',
+      'accounting_future_items_audit_update',
       'accounting_closed_period_posted_entry_update_guard',
       'accounting_closed_period_posted_entry_delete_guard',
       'accounting_closed_period_posted_line_insert_guard',
