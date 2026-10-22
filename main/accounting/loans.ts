@@ -143,7 +143,6 @@ export function listLoans(db: DB, filters: any = {}): any[] {
 }
 export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any, actorId: string | null, idempotencyInput: unknown): any {
   const loan = loanRow(db,loanIdInput);
-  if (loan.status !== 'active') fail('loan_not_active','Cannot add instalments to a closed loan.',409);
   if (!Array.isArray(input?.installments) || input.installments.length<1 || input.installments.length>120) fail('invalid_installments','Provide between 1 and 120 instalments.');
   const idempotencyKey=key(idempotencyInput);
   const normalized=input.installments.map((item:any,index:number)=>{
@@ -169,8 +168,10 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
       const rows=db.prepare('SELECT * FROM accounting_loan_installments WHERE batch_id=? ORDER BY due_date').all(old.id);
       return {batch:old,installments:rows,duplicate:true};
     }
-    const alreadyScheduled = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered')").get(loan.id) as {total:number};
-    if(!Number.isSafeInteger(principalTotal) || principalTotal + Number(alreadyScheduled.total) > outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Combined scheduled principal exceeds the loan remaining principal.',409);
+    const currentLoan = loanRow(db,loan.id);
+    if (currentLoan.status !== 'active') fail('loan_not_active','Cannot add instalments to a closed loan.',409);
+    const alreadyScheduled = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered')").get(currentLoan.id) as {total:number};
+    if(!Number.isSafeInteger(principalTotal) || principalTotal + Number(alreadyScheduled.total) > outstanding(db,currentLoan)) fail('principal_schedule_exceeds_balance','Combined scheduled principal exceeds the loan remaining principal.',409);
     const batchId=randomUUID();
     db.prepare('INSERT INTO accounting_loan_installment_batches (id,loan_id,idempotency_key,payload_hash,created_by) VALUES (?,?,?,?,?)')
       .run(batchId,loan.id,idempotencyKey,payloadHash,actor(actorId));
