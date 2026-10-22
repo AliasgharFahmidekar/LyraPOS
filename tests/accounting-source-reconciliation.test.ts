@@ -129,7 +129,7 @@ test('date range and limit validation reject invalid filters', () => {
 test('a missing journal is an exception and not silently repaired', () => {
   const result = getAccountingSourceEventReconciliation(fakeDb({
     cutoff: '2026-10-01T00:00:00Z',
-    bills: [{ id: 13, created_at: '2026-10-02 12:00:00', payment_details: JSON.stringify([{ payment_event_id: 'evt-missing', method: 'card', amount: 100 }]) }],
+    bills: [{ id: 13, created_at: '2026-10-02 12:00:00', payment_details: JSON.stringify([{ payment_event_id: 'evt-missing', method: 'card', amount: 100, timestamp: '2026-10-02T12:01:00Z' }]) }],
   }));
   assert.equal(result.events[0].status, 'missing_journal');
   assert.equal(result.events[0].journal_entry_ids.length, 0);
