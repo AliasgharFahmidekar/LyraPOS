@@ -79,7 +79,7 @@ export function AccountingFutureItems() {
     const expense = rows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1);
     setClassificationAccount((current) => rows.some((a) => a.id === current && a.account_type === (recordType === 'receipt' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1) ? current : (recordType === 'receipt' ? income?.id : expense?.id) || '');
   }, [locale, recordType]);
-  useEffect(() => { void load().catch(() => toast.error(t.failedMessage)); }, [load, t.failedMessage]);
+  useEffect(() => { void Promise.resolve().then(() => load()).catch(() => toast.error(t.failedMessage)); }, [load, t.failedMessage]);
   const money = useMemo(() => (minor: number) => new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: digits }).format(minor / (10 ** digits)), [locale, currency, digits]);
   const selectClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
   const inputClass = selectClass;
