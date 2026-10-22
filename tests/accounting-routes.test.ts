@@ -952,6 +952,9 @@ async function main(): Promise<void> {
       counterparty: 'Service supplier', reference_number: 'CHQ-OUT-001',
       classification_account_id: 'acct-operating-expenses', auto_register: false,
     };
+    const outgoingDueReportBefore = await request(app)
+      .get('/api/accounting/reports?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
+    equal(outgoingDueReportBefore.status, 200, 'baseline expense report is available before outgoing due registration');
     const manualOutgoing = await request(app).post('/api/accounting/future-items')
       .set(manager).set('Idempotency-Key', 'future-outgoing-manual-001').send(manualOutgoingPayload);
     equal(manualOutgoing.status, 201, 'manager can create an outgoing cheque in manual-confirmation mode');
@@ -973,11 +976,23 @@ async function main(): Promise<void> {
       'outgoing due registration does not recognize an expense before actual payment');
     ok(manualDueLines.some((line) => line.account_id === 'acct-payables' && line.credit_minor === 2500),
       'outgoing due registration credits payables without claiming the payment was made');
+    const outgoingDueReportAfter = await request(app)
+      .get('/api/accounting/reports?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
+    equal(outgoingDueReportAfter.status, 200, 'expense report remains available after outgoing due registration');
+    equal(outgoingDueReportAfter.body.summary.posted_expenses_minor, outgoingDueReportBefore.body.summary.posted_expenses_minor,
+      'an unpaid due cheque does not change reported paid expenses');
+    const manualSettlementDate = (() => {
+      if (todayAccountingDate >= '2099-12-01') return '2100-01-01';
+      const date = new Date(todayAccountingDate + 'T00:00:00.000Z');
+      date.setUTCDate(date.getUTCDate() + 1);
+      return date.toISOString().slice(0, 10);
+    })();
+    const outgoingSettlementReportBefore = await request(app)
+      .get('/api/accounting/reports?from=' + manualSettlementDate + '&to=' + manualSettlementDate).set(manager);
+    equal(outgoingSettlementReportBefore.status, 200, 'baseline report is available for the actual payment date');
     const manualSettled = await request(app).post('/api/accounting/future-items/' + manualOutgoingId + '/settle')
       .set(manager).set('Idempotency-Key', 'future-outgoing-settlement-001')
-      .send({ settlement_date: todayAccountingDate < '2099-12-01' ? ((): string => {
-        const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10);
-      })() : '2100-01-01', settlement_account_id: 'acct-bank' });
+      .send({ settlement_date: manualSettlementDate, settlement_account_id: 'acct-bank' });
     equal(manualSettled.status, 200, 'manager can settle an outgoing cheque after the due event was registered');
     equal(manualSettled.body.item?.status, 'settled', 'outgoing cheque reaches settled status after actual payment confirmation');
     const manualSettlementLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
@@ -990,6 +1005,12 @@ async function main(): Promise<void> {
       'actual outgoing settlement recognizes the configured expense only when paid');
     ok(manualSettlementLines.some((line) => line.account_id === 'acct-future-payment-clearing' && line.credit_minor === 2500),
       'actual outgoing settlement clears the pending-payment asset');
+    const outgoingSettlementReportAfter = await request(app)
+      .get('/api/accounting/reports?from=' + manualSettlementDate + '&to=' + manualSettlementDate).set(manager);
+    equal(outgoingSettlementReportAfter.status, 200, 'expense report is available after actual outgoing settlement');
+    equal(outgoingSettlementReportAfter.body.summary.posted_expenses_minor,
+      outgoingSettlementReportBefore.body.summary.posted_expenses_minor + 2500,
+      'actual outgoing settlement recognizes the expense exactly once on the actual payment date');
 
     const cancelDueDate = (() => {
       const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 30); return date.toISOString().slice(0, 10);
