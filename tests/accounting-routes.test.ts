@@ -968,6 +968,12 @@ async function main(): Promise<void> {
       'actual incoming settlement clears receivables');
     ok(settlementLines.some((line) => line.account_id === 'acct-future-receipt-clearing' && line.debit_minor === 5000),
       'actual incoming settlement releases the deferred-receipt clearing liability');
+    const settlementRangeForecast = await request(app).get('/api/accounting/forecast?from=' + dayBeforeTodayAccountingDate + '&to=' + todayAccountingDate).set(manager);
+    equal(settlementRangeForecast.status, 200, 'forecast can include actual ledger movements after its opening date');
+    ok(settlementRangeForecast.body.events.some((event: any) => event.source === 'ledger' && event.id === settlementJournal.id && event.actual_cash_in_minor === 5000),
+      'settled receipt appears as actual cash movement when it occurs after the forecast opening date');
+    equal(settlementRangeForecast.body.events.some((event: any) => event.source === 'future_item' && event.id === futureIncomingId), false,
+      'settled receipt is not also counted as an unsettled future projection');
     ok(settlementLines.some((line) => line.account_id === 'acct-other-income' && line.credit_minor === 5000),
       'actual incoming settlement recognizes income in its configured revenue account');
     const futureIncomeAfterSettlement = await request(app).get('/api/accounting/reports?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
