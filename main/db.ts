@@ -3050,60 +3050,60 @@ function dropAccountingLedgerRestoreTriggers(db: Database.Database): void {
 }
 
 const ACCOUNTING_PERIOD_CLOSE_TRIGGER_SQL = `
-  CREATE TRIGGER IF NOT EXISTS accounting_journal_entries_closed_period_insert_guard
+  CREATE TRIGGER accounting_journal_entries_closed_period_insert_guard
     BEFORE INSERT ON accounting_journal_entries
     WHEN NEW.status = 'posted' AND EXISTS (
       SELECT 1 FROM accounting_period_closures AS period
       WHERE period.status = 'closed' AND NEW.entry_date BETWEEN period.period_start AND period.period_end
     )
     BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_journal_entries_closed_period_guard
+  CREATE TRIGGER accounting_journal_entries_closed_period_guard
     BEFORE UPDATE OF status ON accounting_journal_entries
     WHEN NEW.status = 'posted' AND OLD.status != 'posted' AND EXISTS (
       SELECT 1 FROM accounting_period_closures AS period
       WHERE period.status = 'closed' AND NEW.entry_date BETWEEN period.period_start AND period.period_end
     )
     BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_no_delete
+  CREATE TRIGGER accounting_period_closures_no_delete
     BEFORE DELETE ON accounting_period_closures
     BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_IMMUTABLE'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_closed_period_posted_entry_update_guard
+  CREATE TRIGGER accounting_closed_period_posted_entry_update_guard
     BEFORE UPDATE ON accounting_journal_entries
     WHEN OLD.status = 'posted' AND (
-      EXISTS (SELECT 1 FROM accounting_period_closures AS period
+      EXISTS ( SELECT 1 FROM accounting_period_closures AS period
         WHERE period.status = 'closed' AND OLD.entry_date BETWEEN period.period_start AND period.period_end)
-      OR EXISTS (SELECT 1 FROM accounting_period_closures AS period
+      OR EXISTS ( SELECT 1 FROM accounting_period_closures AS period
         WHERE period.status = 'closed' AND NEW.entry_date BETWEEN period.period_start AND period.period_end)
     )
     BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_closed_period_posted_entry_delete_guard
+  CREATE TRIGGER accounting_closed_period_posted_entry_delete_guard
     BEFORE DELETE ON accounting_journal_entries
     WHEN OLD.status = 'posted' AND EXISTS (
       SELECT 1 FROM accounting_period_closures AS period
       WHERE period.status = 'closed' AND OLD.entry_date BETWEEN period.period_start AND period.period_end
     )
     BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_closed_period_posted_line_insert_guard
+  CREATE TRIGGER accounting_closed_period_posted_line_insert_guard
     BEFORE INSERT ON accounting_journal_lines
-    WHEN EXISTS (SELECT 1 FROM accounting_journal_entries AS entry
+    WHEN EXISTS ( SELECT 1 FROM accounting_journal_entries AS entry
       JOIN accounting_period_closures AS period ON period.status = 'closed'
       AND entry.entry_date BETWEEN period.period_start AND period.period_end
       WHERE entry.id = NEW.journal_entry_id AND entry.status = 'posted')
     BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_closed_period_posted_line_update_guard
+  CREATE TRIGGER accounting_closed_period_posted_line_update_guard
     BEFORE UPDATE ON accounting_journal_lines
-    WHEN EXISTS (SELECT 1 FROM accounting_journal_entries AS entry
+    WHEN EXISTS ( SELECT 1 FROM accounting_journal_entries AS entry
       JOIN accounting_period_closures AS period ON period.status = 'closed'
       AND entry.entry_date BETWEEN period.period_start AND period.period_end
       WHERE entry.id = OLD.journal_entry_id AND entry.status = 'posted')
-      OR EXISTS (SELECT 1 FROM accounting_journal_entries AS entry
+      OR EXISTS ( SELECT 1 FROM accounting_journal_entries AS entry
       JOIN accounting_period_closures AS period ON period.status = 'closed'
       AND entry.entry_date BETWEEN period.period_start AND period.period_end
       WHERE entry.id = NEW.journal_entry_id AND entry.status = 'posted')
     BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_closed_period_posted_line_delete_guard
+  CREATE TRIGGER accounting_closed_period_posted_line_delete_guard
     BEFORE DELETE ON accounting_journal_lines
-    WHEN EXISTS (SELECT 1 FROM accounting_journal_entries AS entry
+    WHEN EXISTS ( SELECT 1 FROM accounting_journal_entries AS entry
       JOIN accounting_period_closures AS period ON period.status = 'closed'
       AND entry.entry_date BETWEEN period.period_start AND period.period_end
       WHERE entry.id = OLD.journal_entry_id AND entry.status = 'posted')
