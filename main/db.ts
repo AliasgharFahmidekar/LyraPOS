@@ -2709,6 +2709,7 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_journal_entries_closed_period_insert_guard',
   'accounting_journal_entries_closed_period_guard',
   'accounting_period_closures_no_delete',
+  'accounting_period_closures_insert_guard',
   'accounting_period_closures_update_guard',
   'accounting_period_closures_no_overlap_insert',
   'accounting_period_closures_no_overlap_update',
@@ -3116,6 +3117,19 @@ const ACCOUNTING_PERIOD_CLOSE_TRIGGER_SQL = `
 `;
 
 const ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL = `
+  -- A period record must start in the closed state. Reopened records can
+  -- only be produced by the audited state transition below.
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_insert_guard
+    BEFORE INSERT ON accounting_period_closures
+    WHEN NEW.status != 'closed'
+      OR NEW.reopen_reason IS NOT NULL
+      OR NEW.reopened_by IS NOT NULL
+      OR NEW.reopened_at IS NOT NULL
+      OR length(trim(COALESCE(NEW.close_reason, ''))) = 0
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION');
+    END;
+
   -- The date range and identity are permanent. Only close -> reopen -> reclose
   -- transitions are supported; every accepted insert/update is audited by SQL
   -- so direct database writes cannot bypass the accounting audit trail.
