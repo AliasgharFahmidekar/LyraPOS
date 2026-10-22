@@ -107,6 +107,18 @@ test('post-cutover refund on a legacy bill is reconciled by refund timestamp', (
   assert.equal(result.events[0].event_date, '2026-10-02T12:05:00Z');
 });
 
+test('legacy pre-cutover payment line without timestamp or event ID is excluded under the explicit no-backfill policy', () => {
+  const result = getAccountingSourceEventReconciliation(fakeDb({
+    cutoff: '2026-10-02T12:00:00Z',
+    bills: [{ id: 17, created_at: '2024-03-01 10:00:00', payment_details: JSON.stringify([
+      { method: 'cash', amount: 500 },
+    ]) }],
+  }));
+  assert.equal(result.events[0].status, 'skipped_pre_cutover');
+  assert.equal(result.events[0].event_date, null);
+  assert.match(result.events[0].reason || '', /no event ID or timestamp/i);
+});
+
 test('date range and limit validation reject invalid filters', () => {
   const db = fakeDb({});
   assert.throws(() => getAccountingSourceEventReconciliation(db, { from: '2026-02-30' }), /real calendar date/);
