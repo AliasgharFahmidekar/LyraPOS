@@ -63,6 +63,31 @@ export function getAccountingForecast(db: DB, filters: ForecastFilters = {}): an
   const { currencyCode, fractionDigits } = currency(db);
   const startingLiquidBalance = liquidBalance(db, range.from);
   const events: any[] = [];
+  // Include already-posted liquid-account movements after the opening date so a
+  // historical/custom range does not omit real cash movements from its running balance.
+  // The opening balance already includes all entries dated exactly on range.from.
+  const actualRows = db.prepare(
+    "SELECT e.id, e.entry_date, e.description, e.source_type, e.source_event, " +
+    "COALESCE(SUM(CASE WHEN a.normal_balance='debit' THEN l.debit_minor-l.credit_minor ELSE l.credit_minor-l.debit_minor END),0) AS liquid_change " +
+    "FROM accounting_journal_entries e JOIN accounting_journal_lines l ON l.journal_entry_id=e.id " +
+    "JOIN accounting_accounts a ON a.id=l.account_id " +
+    "WHERE e.status='posted' AND e.entry_date>? AND e.entry_date<=? " +
+    "AND a.system_key IN ('cash_drawer','bank_accounts','payment_clearing') " +
+    "GROUP BY e.id ORDER BY e.entry_date, e.entry_number, e.id",
+  ).all(range.from, range.to) as any[];
+  for (const row of actualRows) {
+    const change = total(row.liquid_change, 'actual liquid movement');
+    if (change === 0) continue;
+    const amount = Math.abs(change);
+    events.push({
+      id: row.id, date: row.entry_date, kind: 'actual_cash_movement', description: row.description,
+      counterparty: null, status: 'posted', source: 'ledger', direction: change > 0 ? 'incoming' : 'outgoing',
+      amount_minor: amount, cash_in_minor: 0, cash_out_minor: 0,
+      actual_cash_in_minor: change > 0 ? amount : 0, actual_cash_out_minor: change < 0 ? amount : 0,
+      projected_income_minor: 0, projected_expense_minor: 0, recognized_unpaid_minor: 0,
+      principal_minor: 0, actual_source_type: row.source_type, actual_source_event: row.source_event,
+    });
+  }
   const futureRows = db.prepare(
     "SELECT f.id, f.direction, f.record_type, f.due_date, f.amount_minor, f.currency_code, f.description, f.counterparty, f.status, " +
     "f.classification_account_id, a.name AS classification_account_name " +
@@ -78,6 +103,7 @@ export function getAccountingForecast(db: DB, filters: ForecastFilters = {}): an
       description: row.description, counterparty: row.counterparty, status: row.status, source: 'future_item',
       direction: row.direction, amount_minor: amount, cash_in_minor: row.direction === 'incoming' ? amount : 0,
       cash_out_minor: row.direction === 'outgoing' ? amount : 0,
+      actual_cash_in_minor: 0, actual_cash_out_minor: 0,
       projected_income_minor: row.direction === 'incoming' && row.status !== 'registered' ? amount : 0,
       projected_expense_minor: row.direction === 'outgoing' && row.status !== 'registered' ? amount : 0,
       recognized_unpaid_minor: row.status === 'registered' ? amount : 0,
@@ -101,25 +127,27 @@ export function getAccountingForecast(db: DB, filters: ForecastFilters = {}): an
       id: row.id, date: row.due_date, kind: 'loan_installment', description: 'Loan installment — ' + row.lender,
       counterparty: row.lender, status: row.status, source: 'loan', direction: 'outgoing',
       amount_minor: outflow, principal_minor: principal, interest_minor: interest, fees_minor: fees,
-      cash_in_minor: 0, cash_out_minor: outflow, projected_income_minor: 0,
+      cash_in_minor: 0, cash_out_minor: outflow, actual_cash_in_minor: 0, actual_cash_out_minor: 0, projected_income_minor: 0,
       projected_expense_minor: row.status === 'registered' ? 0 : total(interest + fees, 'projected loan costs'),
       recognized_unpaid_minor: row.status === 'registered' ? total(interest + fees, 'accrued loan costs') : 0,
       liability_reduction_minor: principal,
     });
   }
-  events.sort((a,b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id));
+  events.sort((a,b) => a.date.localeCompare(b.date) || (a.source === 'ledger' ? -1 : b.source === 'ledger' ? 1 : 0) || a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id));
   let runningBalance = startingLiquidBalance;
   const byDate = new Map<string, any>();
   for (const event of events) {
-    runningBalance = total(runningBalance + event.cash_in_minor - event.cash_out_minor, 'projected liquid balance');
+    runningBalance = total(runningBalance + event.cash_in_minor - event.cash_out_minor + (event.actual_cash_in_minor ?? 0) - (event.actual_cash_out_minor ?? 0), 'projected liquid balance');
     event.projected_liquid_balance_minor = runningBalance;
     const day = byDate.get(event.date) ?? {
-      date: event.date, expected_inflows_minor: 0, expected_outflows_minor: 0,
+      date: event.date, expected_inflows_minor: 0, expected_outflows_minor: 0, actual_inflows_minor: 0, actual_outflows_minor: 0,
       projected_income_minor: 0, projected_expense_minor: 0, recognized_unpaid_minor: 0,
       loan_principal_due_minor: 0, projected_liquid_balance_minor: startingLiquidBalance, event_count: 0,
     };
     day.expected_inflows_minor = total(day.expected_inflows_minor + event.cash_in_minor, 'daily expected inflows');
     day.expected_outflows_minor = total(day.expected_outflows_minor + event.cash_out_minor, 'daily expected outflows');
+    day.actual_inflows_minor = total(day.actual_inflows_minor + (event.actual_cash_in_minor ?? 0), 'daily actual inflows');
+    day.actual_outflows_minor = total(day.actual_outflows_minor + (event.actual_cash_out_minor ?? 0), 'daily actual outflows');
     day.projected_income_minor = total(day.projected_income_minor + event.projected_income_minor, 'daily projected income');
     day.projected_expense_minor = total(day.projected_expense_minor + event.projected_expense_minor, 'daily projected expense');
     day.recognized_unpaid_minor = total(day.recognized_unpaid_minor + event.recognized_unpaid_minor, 'daily recognized unpaid obligations');
@@ -131,16 +159,18 @@ export function getAccountingForecast(db: DB, filters: ForecastFilters = {}): an
   const summary = events.reduce((acc, event) => {
     acc.expected_inflows_minor = total(acc.expected_inflows_minor + event.cash_in_minor, 'forecast inflows');
     acc.expected_outflows_minor = total(acc.expected_outflows_minor + event.cash_out_minor, 'forecast outflows');
+    acc.actual_inflows_minor = total(acc.actual_inflows_minor + (event.actual_cash_in_minor ?? 0), 'actual inflows in forecast range');
+    acc.actual_outflows_minor = total(acc.actual_outflows_minor + (event.actual_cash_out_minor ?? 0), 'actual outflows in forecast range');
     acc.projected_income_minor = total(acc.projected_income_minor + event.projected_income_minor, 'forecast income');
     acc.projected_expense_minor = total(acc.projected_expense_minor + event.projected_expense_minor, 'forecast expenses');
     acc.recognized_unpaid_minor = total(acc.recognized_unpaid_minor + event.recognized_unpaid_minor, 'recognized unpaid obligations');
     acc.loan_principal_due_minor = total(acc.loan_principal_due_minor + (event.principal_minor ?? 0), 'loan principal due');
     return acc;
-  }, {expected_inflows_minor:0, expected_outflows_minor:0, projected_income_minor:0, projected_expense_minor:0, recognized_unpaid_minor:0, loan_principal_due_minor:0});
+  }, {expected_inflows_minor:0, expected_outflows_minor:0, actual_inflows_minor:0, actual_outflows_minor:0, projected_income_minor:0, projected_expense_minor:0, recognized_unpaid_minor:0, loan_principal_due_minor:0});
   return {
     from: range.from, to: range.to, days: range.days, currency_code: currencyCode, accounting_fraction_digits: fractionDigits,
     starting_liquid_balance_minor: startingLiquidBalance,
-    projected_ending_liquid_balance_minor: total(startingLiquidBalance + summary.expected_inflows_minor - summary.expected_outflows_minor, 'projected ending liquid balance'),
+    projected_ending_liquid_balance_minor: total(startingLiquidBalance + summary.actual_inflows_minor - summary.actual_outflows_minor + summary.expected_inflows_minor - summary.expected_outflows_minor, 'projected ending liquid balance'),
     summary, daily: Array.from(byDate.values()), events,
     policy: {
       read_only: true,
