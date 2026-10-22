@@ -591,6 +591,29 @@ async function run() {
     );
     getDatabase().prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor) VALUES ('restore-period-line-1', ?, 1, 'acct-cash-drawer', 500, 0), ('restore-period-line-2', ?, 2, 'acct-sales-revenue', 0, 500)").run(restoredPeriodEntry, restoredPeriodEntry);
     getDatabase().prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=datetime('now') WHERE id=?").run(restoredPeriodEntry);
+
+    // Persist a real-shaped reconciliation-adjustment journal and immutable metadata row
+    // so the round-trip proves the financial reconciliation data survives, not only the GL.
+    const reconciliationJournalId = 'restore-reconciliation-adjustment-entry';
+    getDatabase().prepare(
+      "INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, source_type, source_id, source_event, idempotency_key, payload_hash) VALUES (?, ?, '2026-10-10', 'Restore reconciliation adjustment', 'INR', ?, ?, ?, ?, ?)",
+    ).run(
+      reconciliationJournalId, 'JE-RESTORE-RECON-001',
+      'accounting_reconciliation_adjustment', 'restore-adjustment-fixture', 'balance_adjustment',
+      'restore-adjustment-idempotency-key', 'd'.repeat(64),
+    );
+    getDatabase().prepare(
+      "INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, description, debit_minor, credit_minor) VALUES ('restore-adjustment-line-1', ?, 1, 'acct-cash-drawer', 'verified balance debit', 500, 0), ('restore-adjustment-line-2', ?, 2, 'acct-reconciliation-adjustment-equity', 'reconciliation offset', 0, 500)",
+    ).run(reconciliationJournalId, reconciliationJournalId);
+    getDatabase().prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=datetime('now') WHERE id=?").run(reconciliationJournalId);
+    getDatabase().prepare(
+      "INSERT INTO accounting_reconciliation_adjustments (id, account_id, adjustment_date, system_balance_minor, verified_balance_minor, difference_minor, currency_code, reason, source_reference, journal_entry_id, idempotency_key, payload_hash, created_by) VALUES (?, 'acct-cash-drawer', '2026-10-10', 0, 500, 500, 'INR', ?, ?, ?, ?, ?, ?)",
+    ).run(
+      'restore-reconciliation-adjustment',
+      'Backup restore reconciliation regression', 'restore-bank-statement-001',
+      reconciliationJournalId, 'restore-adjustment-idempotency-key', 'd'.repeat(64), 'restore-test',
+    );
+
     getDatabase().prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES ('restore-period-guard-close', '2026-10-10', '2026-10-10', 'closed', 'restore regression', 'restore-test')").run();
     assert.throws(
       () => getDatabase().prepare('UPDATE accounting_journal_entries SET description=? WHERE id=?').run('changed', restoredPeriodEntry),
@@ -654,6 +677,20 @@ async function run() {
         1,
         'full backup preserves the closed-period record',
       );
+      const snapshotAdjustment = backupSnapshotDb.prepare(
+        'SELECT account_id, adjustment_date, system_balance_minor, verified_balance_minor, difference_minor, currency_code, reason, source_reference, journal_entry_id, idempotency_key, payload_hash FROM accounting_reconciliation_adjustments WHERE id=?',
+      ).get('restore-reconciliation-adjustment') as any;
+      assert.equal(snapshotAdjustment?.account_id, 'acct-cash-drawer', 'full backup preserves reconciliation adjustment account');
+      assert.equal(snapshotAdjustment?.adjustment_date, '2026-10-10', 'full backup preserves reconciliation adjustment date');
+      assert.equal(snapshotAdjustment?.system_balance_minor, 0, 'full backup preserves reconciliation before-balance');
+      assert.equal(snapshotAdjustment?.verified_balance_minor, 500, 'full backup preserves reconciliation verified balance');
+      assert.equal(snapshotAdjustment?.difference_minor, 500, 'full backup preserves reconciliation difference');
+      assert.equal(snapshotAdjustment?.currency_code, 'INR', 'full backup preserves reconciliation currency');
+      assert.equal(snapshotAdjustment?.reason, 'Backup restore reconciliation regression', 'full backup preserves reconciliation reason');
+      assert.equal(snapshotAdjustment?.source_reference, 'restore-bank-statement-001', 'full backup preserves reconciliation evidence reference');
+      assert.equal(snapshotAdjustment?.journal_entry_id, reconciliationJournalId, 'full backup preserves reconciliation journal link');
+      assert.equal(snapshotAdjustment?.idempotency_key, 'restore-adjustment-idempotency-key', 'full backup preserves reconciliation idempotency key');
+      assert.equal(snapshotAdjustment?.payload_hash, 'd'.repeat(64), 'full backup preserves reconciliation payload hash');
     } finally {
       backupSnapshotDb.close();
     }
@@ -684,6 +721,20 @@ async function run() {
       1,
       'direct restore preserves closed-period records',
     );
+    const restoredAdjustment = getDatabase().prepare(
+      'SELECT account_id, adjustment_date, system_balance_minor, verified_balance_minor, difference_minor, currency_code, reason, source_reference, journal_entry_id, idempotency_key, payload_hash FROM accounting_reconciliation_adjustments WHERE id=?',
+    ).get('restore-reconciliation-adjustment') as any;
+    assert.equal(restoredAdjustment?.account_id, 'acct-cash-drawer', 'direct restore preserves reconciliation adjustment account');
+    assert.equal(restoredAdjustment?.adjustment_date, '2026-10-10', 'direct restore preserves reconciliation adjustment date');
+    assert.equal(restoredAdjustment?.system_balance_minor, 0, 'direct restore preserves reconciliation before-balance');
+    assert.equal(restoredAdjustment?.verified_balance_minor, 500, 'direct restore preserves reconciliation verified balance');
+    assert.equal(restoredAdjustment?.difference_minor, 500, 'direct restore preserves reconciliation difference');
+    assert.equal(restoredAdjustment?.currency_code, 'INR', 'direct restore preserves reconciliation currency');
+    assert.equal(restoredAdjustment?.reason, 'Backup restore reconciliation regression', 'direct restore preserves reconciliation reason');
+    assert.equal(restoredAdjustment?.source_reference, 'restore-bank-statement-001', 'direct restore preserves reconciliation evidence reference');
+    assert.equal(restoredAdjustment?.journal_entry_id, 'restore-reconciliation-adjustment-entry', 'direct restore preserves reconciliation journal link');
+    assert.equal(restoredAdjustment?.idempotency_key, 'restore-adjustment-idempotency-key', 'direct restore preserves reconciliation idempotency key');
+    assert.equal(restoredAdjustment?.payload_hash, 'd'.repeat(64), 'direct restore preserves reconciliation payload hash');
     for (const trigger of [
       'accounting_period_closures_insert_guard',
       'accounting_period_closures_update_guard',
