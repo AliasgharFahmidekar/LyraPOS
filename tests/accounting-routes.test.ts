@@ -992,10 +992,14 @@ async function main(): Promise<void> {
     catch (error: any) { futureItemDeleteBlocked = String(error?.message || '').includes('ACCOUNTING_FUTURE_ITEM_IMMUTABLE'); }
     equal(futureItemDeleteBlocked, true, 'database trigger prevents deleting future-item audit records');
 
+    const futureTestClosedPeriod = await request(app).post('/api/accounting/periods/close').set(manager).send({
+      period_start: '2019-01-01', period_end: '2019-01-01', reason: 'Regression: future-item posting into a closed period',
+    });
+    equal(futureTestClosedPeriod.status, 201, 'fixture creates a clean closed period for future-item retry safety');
     const closedDueItem = await request(app).post('/api/accounting/future-items').set(manager).set('Idempotency-Key', 'future-closed-period-001')
-      .send({ ...futureIncomingPayload, due_date: '2020-01-01', reference_number: 'RCPT-CLOSED-001' });
+      .send({ ...futureIncomingPayload, due_date: '2019-01-01', reference_number: 'RCPT-CLOSED-001' });
     equal(closedDueItem.status, 201, 'a future item can be captured even if its historical due date is later found to fall in a closed period');
-    const closedDuePass = processDueFutureItems(db, '2020-01-01');
+    const closedDuePass = processDueFutureItems(db, '2019-01-01');
     ok(closedDuePass.failed >= 1, 'automatic due registration reports failure for a closed-period posting');
     equal(db.prepare('SELECT status FROM accounting_future_items WHERE id=?').get(closedDueItem.body.item?.id)?.status, 'failed',
       'closed-period future item stays visible as failed and retryable');
