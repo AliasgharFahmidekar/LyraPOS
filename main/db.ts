@@ -3460,6 +3460,22 @@ function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   recreateAccountingAccountDefinitionGuard(db);
 }
 
+function ensureLoanPayableSystemAccount(dbInstance: Database.Database): void {
+  const existing = dbInstance.prepare("SELECT id FROM accounting_accounts WHERE system_key='loans_payable'").get();
+  if (existing) return;
+  const parent = dbInstance.prepare("SELECT id FROM accounting_accounts WHERE id='acct-liabilities' AND account_type='liability'").get();
+  if (!parent) throw new Error('Cannot seed Loans payable: the liability parent account is missing.');
+  let accountId = 'acct-loans-payable';
+  for (let suffix = 2; dbInstance.prepare('SELECT 1 FROM accounting_accounts WHERE id=?').get(accountId); suffix++) {
+    accountId = 'acct-loans-payable-' + suffix;
+  }
+  let accountCode = 2030;
+  while (dbInstance.prepare('SELECT 1 FROM accounting_accounts WHERE account_code=?').get(String(accountCode))) accountCode++;
+  dbInstance.prepare(`INSERT INTO accounting_accounts
+    (id,system_key,account_code,name,account_type,normal_balance,parent_account_id,is_system,is_active,is_postable)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(accountId,'loans_payable',String(accountCode),'Loans payable','liability','credit','acct-liabilities',1,1,1);
+}
+
 function dataOnlyRestore(
   backupPath: string,
   backupVersion: number,
@@ -3643,6 +3659,9 @@ function dataOnlyRestore(
       tablesRestored++;
       console.log(`[DB] Restored ${tableName}: ${commonColumns.length} columns`);
     }
+
+    // Older backups predate the dedicated loan liability account; preserve the current schema contract.
+    ensureLoanPayableSystemAccount(currentDb);
 
     // Re-enable the normal accounting invariants before validating/committing.
     recreateAccountingLedgerRestoreTriggers(currentDb);
@@ -7260,7 +7279,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
                 'due_journal_entry_id',NEW.due_journal_entry_id,'settlement_journal_entry_id',NEW.settlement_journal_entry_id,
                 'cancellation_reason',NEW.cancellation_reason,'last_error_code',NEW.last_error_code,'last_error_message',NEW.last_error_message)); END;
       `);
-      db.prepare("INSERT OR IGNORE INTO accounting_accounts (id,system_key,account_code,name,account_type,normal_balance,parent_account_id,is_system,is_active,is_postable) VALUES ('acct-loans-payable','loans_payable','2030','Loans payable','liability','credit','acct-liabilities',1,1,1)").run();
+      ensureLoanPayableSystemAccount(db);
     },
   },
 ] ; 
