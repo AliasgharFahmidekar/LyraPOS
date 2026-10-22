@@ -83,8 +83,9 @@ export function AccountingReports() {
     refunds: 'بازپرداخت‌های واقعی',
     netSales: 'درآمد فروش پس از برگشت',
     otherIncome: 'سایر درآمدهای ثبت‌شده',
-    expenses: 'هزینه‌های ثبت‌شده در دفتر کل',
+    expenses: 'هزینه‌های پرداخت‌شده ثبت‌شده در دفتر کل',
     loanCosts: 'از هزینه‌ها: سود و کارمزد وام پرداخت‌شده',
+    loanAccrualNote: 'سود و کارمزد قسط در سررسید به بدهی وام اضافه می‌شود؛ اما در جمع هزینه‌های پرداخت‌شده فقط پس از تأیید پرداخت واقعی محاسبه می‌شود.',
     taxPayments: 'مالیات پرداخت‌شده (هزینه)',
     result: 'نتیجه پیش از بهای تمام‌شده',
     notNetProfit: 'این عدد سود خالص نیست.',
@@ -121,8 +122,9 @@ export function AccountingReports() {
     refunds: 'Actual monetary refunds',
     netSales: 'Sales revenue after refunds',
     otherIncome: 'Posted other income',
-    expenses: 'Posted ledger expenses',
+    expenses: 'Paid expenses posted to ledger',
     loanCosts: 'Included in expenses: loan interest and fees paid',
+    loanAccrualNote: 'Loan interest and fees are accrued to the loan liability on the due date, but enter paid-expense totals only after actual payment is confirmed.',
     taxPayments: 'Taxes paid (expense)',
     result: 'Result before cost of goods sold',
     notNetProfit: 'This is not net profit.',
@@ -223,6 +225,7 @@ export function AccountingReports() {
         <p className="font-semibold">{t.notNetProfit}</p>
         <p className="mt-1">{t.cogsWarning}</p>
         <p className="mt-1">{t.taxPolicy}</p>
+        <p className="mt-1">{t.loanAccrualNote}</p>
         <p className="mt-1">{t.excluded}</p>
       </div>
 
