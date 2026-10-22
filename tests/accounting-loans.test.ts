@@ -111,6 +111,7 @@ function main(): void {
     ok(!!retriedDue.due_journal_entry_id,'successful retry links the due accrual journal');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'loan-settle-001'), 'idempotency_conflict', 'changed settlement payload under the same key conflicts');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'different-key'), 'installment_already_settled', 'settled installment cannot be paid twice');
+    throws(() => db.prepare('UPDATE accounting_loan_installments SET settlement_payload_hash=? WHERE id=?').run('a'.repeat(64),installment.id), 'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE', 'settled loan settlement payload is immutable');
 
     throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
       due_date:'2026-11-10', principal_minor:700, interest_minor:0, fees_minor:0, auto_register:false,
