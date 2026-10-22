@@ -349,6 +349,9 @@ export function processDueFutureItems(db: DB, asOfDateInput?: unknown): { checke
 export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdInput: unknown, idempotencyKeyInput: unknown): any {
   const id = requiredText(idInput, 'future_item_id', 100);
   const settlementDate = accountingDateValue(input?.settlement_date, 'settlement_date');
+  if (settlementDate > businessDate(db)) {
+    fail('future_settlement_date', 'Actual settlement date cannot be in the future. Keep the item as a future receipt/cheque until settlement is confirmed.', 400);
+  }
   const settlementAccountId = assertLiquidSettlementAccount(db, input?.settlement_account_id);
   const idempotencyKey = requiredText(idempotencyKeyInput, 'idempotency_key', 200);
   const settledBy = actor(actorIdInput);
