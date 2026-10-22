@@ -5,6 +5,7 @@ import * as os from 'os';
 
 import { Bonjour } from 'bonjour-service';
 import { getDatabase, initDatabase, closeDatabase, waitForDatabaseRequests, beginDatabaseShutdown, SchemaVersionMismatchError, now, withDatabaseRequest } from './db';
+import { startAccountingFutureItemScheduler, stopAccountingFutureItemScheduler } from './accounting/future-items-scheduler';
 import { BETA_CHANNEL_SETTING_KEY, parseStoredBetaChannelEnabled, resolveUpdateChannel } from './update-channel';
 import { computeTaxPackUpdates, fetchRemoteTaxPackCatalog } from './tax-packs/catalog';
 import { startServer, stopServer, getLocalIP, isServerRunning, getServerPort } from './server';
@@ -1183,6 +1184,7 @@ async function initialize(): Promise<void> {
     console.log('[LyraPOS] Initializing database...');
     initDatabase();
     if (isShutdownRequested()) return;
+    startAccountingFutureItemScheduler();
 
     console.log('[LyraPOS] Starting local server...');
     await startServer();
@@ -1414,6 +1416,7 @@ if (process.env.NODE_ENV === 'test' && process.env.FLO_E2E_PID_FILE) {
 
 // --- Cleanup function (idempotent — safe to call from every entrypoint) ---
 const cleanupCoordinator = createShutdownCoordinator(() => [
+  { name: 'accounting future-item scheduler', run: () => stopAccountingFutureItemScheduler() },
   {
     name: 'tray',
     run: () => {
