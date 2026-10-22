@@ -53,7 +53,8 @@ export function AccountingLoans() {
     const liquid=rows.filter(x=>x.account_type==='asset'&&x.is_active===1&&x.is_postable===1&&['cash_drawer','bank_accounts','payment_clearing'].includes(x.system_key||''));
     setCashAccount(current=>liquid.some(x=>x.id===current)?current:(liquid[0]?.id||''));
     setSettlementAccount(current=>liquid.some(x=>x.id===current)?current:(liquid[0]?.id||''));
-    setLiabilityAccount(current=>rows.some(x=>x.id===current&&x.account_type==='liability'&&x.is_active===1&&x.is_postable===1)?current:(rows.find(x=>x.account_type==='liability'&&x.is_active===1&&x.is_postable===1)?.id||''));
+    const liabilities=rows.filter(x=>x.account_type==='liability'&&x.is_active===1&&x.is_postable===1&&(!x.system_key||x.system_key==='loans_payable'));
+    setLiabilityAccount(current=>liabilities.some(x=>x.id===current)?current:(liabilities.find(x=>x.system_key==='loans_payable')?.id||liabilities[0]?.id||''));
     const expenses=rows.filter(x=>x.account_type==='expense'&&x.is_active===1&&x.is_postable===1);
     setInterestAccount(current=>expenses.some(x=>x.id===current)?current:(expenses[0]?.id||''));
     setFeesAccount(current=>expenses.some(x=>x.id===current)?current:(expenses[0]?.id||''));
@@ -62,7 +63,7 @@ export function AccountingLoans() {
   useEffect(()=>{void Promise.resolve().then(()=>load()).catch(()=>toast.error(t.failed));},[load,t.failed]);
   const money=useMemo(()=> (value:number)=>new Intl.NumberFormat(locale,{style:'currency',currency,maximumFractionDigits:digits}).format(value/(10**digits)),[locale,currency,digits]);
   const liquidAccounts=accounts.filter(a=>a.account_type==='asset'&&a.is_active===1&&a.is_postable===1&&['cash_drawer','bank_accounts','payment_clearing'].includes(a.system_key||''));
-  const liabilityAccounts=accounts.filter(a=>a.account_type==='liability'&&a.is_active===1&&a.is_postable===1);
+  const liabilityAccounts=accounts.filter(a=>a.account_type==='liability'&&a.is_active===1&&a.is_postable===1&&(!a.system_key||a.system_key==='loans_payable'));
   const expenseAccounts=accounts.filter(a=>a.account_type==='expense'&&a.is_active===1&&a.is_postable===1);
   function amountMinor(raw:string,allowZero=false):number|null{
     const normalized=raw.trim().replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٬,]/g,'').replace(/٫/g,'.');
