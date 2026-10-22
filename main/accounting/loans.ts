@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { resolveTenantCurrency } from '../countries';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
+import { accountingDate } from './sales';
 
 type DB = Database.Database;
 type LoanMode = 'new' | 'opening';
@@ -187,7 +188,7 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
 }
 export function registerLoanInstallment(db: DB, installmentIdInput: unknown, actorId: string | null, asOfInput?: unknown): any {
   const id=text(installmentIdInput,'installment_id',100);
-  const asOf=asOfInput===undefined?require('./sales').accountingDate(db,new Date().toISOString()):date(asOfInput,'as_of_date');
+  const asOf=asOfInput===undefined?accountingDate(db,new Date().toISOString()):date(asOfInput,'as_of_date');
   return db.transaction(()=>{
     const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
     if(!item) fail('installment_not_found','Loan instalment was not found.',404);
