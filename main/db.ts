@@ -3368,20 +3368,8 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
       )) OR ((NEW.interest_minor + NEW.fees_minor)=0 AND NEW.due_journal_entry_id IS NOT NULL)
     )
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_DUE_JOURNAL_REQUIRED'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments
-    WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR NEW.due_date<>OLD.due_date
-      OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor
-      OR COALESCE(NEW.interest_account_id,'')<>COALESCE(OLD.interest_account_id,'')
-      OR COALESCE(NEW.fees_account_id,'')<>COALESCE(OLD.fees_account_id,'')
-      OR NEW.auto_register<>OLD.auto_register OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
-    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;
-  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments
-    WHEN OLD.status='settled' AND (
-      NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') OR COALESCE(NEW.due_journal_entry_id,'')<>COALESCE(OLD.due_journal_entry_id,'') OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'')
-      OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'')
-      OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'') OR COALESCE(NEW.settlement_payload_hash,'')<>COALESCE(OLD.settlement_payload_hash,'') OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'')
-      OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,''))
-    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR NEW.due_date<>OLD.due_date OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor OR COALESCE(NEW.interest_account_id,'')<>COALESCE(OLD.interest_account_id,'') OR COALESCE(NEW.fees_account_id,'')<>COALESCE(OLD.fees_account_id,'') OR NEW.auto_register<>OLD.auto_register OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'') OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') AND NEW.status<>'settled' BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments WHEN OLD.status='settled' AND ( NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'') OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'') OR COALESCE(NEW.due_journal_entry_id,'')<>COALESCE(OLD.due_journal_entry_id,'') OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'') OR COALESCE(NEW.settlement_payload_hash,'')<>COALESCE(OLD.settlement_payload_hash,'') OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'') OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,'') ) BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
     WHEN NOT (
       (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','cancelled','failed')) OR
