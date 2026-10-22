@@ -584,7 +584,11 @@ async function run() {
     const periodGuardRestore = restoreBackup(olderBackup, false);
     assert.equal(periodGuardRestore.success, true, 'period-close guard verification starts from a successful data-only restore');
     const restoredPeriodEntry = 'restore-period-guard-entry';
-    getDatabase().prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, payload_hash) VALUES (?, ?, '2026-10-10', 'restore guard test', 'IRR', ?)").run(restoredPeriodEntry, 'JE-RESTORE-PERIOD-001', 'b'.repeat(64));
+    getDatabase().prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, source_type, source_id, source_event, idempotency_key, payload_hash) VALUES (?, ?, '2026-10-10', 'restore guard test', 'IRR', ?, ?, ?, ?, ?)").run(
+      restoredPeriodEntry, 'JE-RESTORE-PERIOD-001',
+      'backup_restore_regression', 'period-guard-fixture', 'posted_fixture',
+      'backup-restore-regression-idempotency-key', 'b'.repeat(64),
+    );
     getDatabase().prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor) VALUES ('restore-period-line-1', ?, 1, 'acct-cash-drawer', 500, 0), ('restore-period-line-2', ?, 2, 'acct-sales-revenue', 0, 500)").run(restoredPeriodEntry, restoredPeriodEntry);
     getDatabase().prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=datetime('now') WHERE id=?").run(restoredPeriodEntry);
     getDatabase().prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES ('restore-period-guard-close', '2026-10-10', '2026-10-10', 'closed', 'restore regression', 'restore-test')").run();
@@ -614,6 +618,92 @@ async function run() {
       1,
       'restored trigger recreates automatic period-close audit recording',
     );
+
+    // Full backup/direct-restore must preserve the audit-grade identity of accounting journals,
+    // their idempotency/source references, period-close history, audit rows, and SQL guards.
+    getDatabase().prepare(
+      "INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      'accounting_source_event', 'backup-restore-regression-event', 'regression_fixture',
+      'restore-test', null, JSON.stringify({ source_type: 'backup_restore_regression', source_id: 'period-guard-fixture' }),
+    );
+    const accountingRoundTripBackup = await createBackup();
+    const backupSnapshotDb = new Database(accountingRoundTripBackup.path, { readonly: true, fileMustExist: true });
+    try {
+      const snapshotJournal = backupSnapshotDb.prepare(
+        'SELECT status, source_type, source_id, source_event, idempotency_key, payload_hash FROM accounting_journal_entries WHERE id=?',
+      ).get(restoredPeriodEntry) as any;
+      assert.equal(snapshotJournal?.status, 'posted', 'full backup preserves the posted accounting journal');
+      assert.equal(snapshotJournal?.source_type, 'backup_restore_regression', 'full backup preserves the journal source type');
+      assert.equal(snapshotJournal?.source_id, 'period-guard-fixture', 'full backup preserves the source identity');
+      assert.equal(snapshotJournal?.source_event, 'posted_fixture', 'full backup preserves the source event');
+      assert.equal(snapshotJournal?.idempotency_key, 'backup-restore-regression-idempotency-key', 'full backup preserves the idempotency key');
+      assert.equal(snapshotJournal?.payload_hash, 'b'.repeat(64), 'full backup preserves the exact payload hash');
+      assert.equal(
+        (backupSnapshotDb.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=? AND action='closed'").get('restore-period-guard-close') as any).count,
+        1,
+        'full backup preserves period-close audit history',
+      );
+      assert.equal(
+        (backupSnapshotDb.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=?").get('backup-restore-regression-event') as any).count,
+        1,
+        'full backup preserves source-event audit metadata',
+      );
+      assert.equal(
+        (backupSnapshotDb.prepare("SELECT COUNT(*) AS count FROM accounting_period_closures WHERE id='restore-period-guard-close' AND status='closed'").get() as any).count,
+        1,
+        'full backup preserves the closed-period record',
+      );
+    } finally {
+      backupSnapshotDb.close();
+    }
+
+    const accountingRoundTripRestore = restoreBackup(accountingRoundTripBackup.path, true);
+    assert.equal(accountingRoundTripRestore.success, true, 'full direct restore accepts a current complete accounting backup');
+    const roundTrippedJournal = getDatabase().prepare(
+      'SELECT status, source_type, source_id, source_event, idempotency_key, payload_hash FROM accounting_journal_entries WHERE id=?',
+    ).get(restoredPeriodEntry) as any;
+    assert.equal(roundTrippedJournal?.status, 'posted', 'direct restore preserves posted journal status');
+    assert.equal(roundTrippedJournal?.source_type, 'backup_restore_regression', 'direct restore preserves source type');
+    assert.equal(roundTrippedJournal?.source_id, 'period-guard-fixture', 'direct restore preserves source identity');
+    assert.equal(roundTrippedJournal?.source_event, 'posted_fixture', 'direct restore preserves source event');
+    assert.equal(roundTrippedJournal?.idempotency_key, 'backup-restore-regression-idempotency-key', 'direct restore preserves idempotency identity');
+    assert.equal(roundTrippedJournal?.payload_hash, 'b'.repeat(64), 'direct restore preserves idempotency payload hash');
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=? AND action='closed'").get('restore-period-guard-close') as any).count,
+      1,
+      'direct restore preserves period-close audit history',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=?").get('backup-restore-regression-event') as any).count,
+      1,
+      'direct restore preserves source-event audit metadata',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_period_closures WHERE id='restore-period-guard-close' AND status='closed'").get() as any).count,
+      1,
+      'direct restore preserves closed-period records',
+    );
+    for (const trigger of [
+      'accounting_period_closures_insert_guard',
+      'accounting_period_closures_update_guard',
+      'accounting_period_closures_no_overlap_insert',
+      'accounting_period_closures_no_overlap_update',
+      'accounting_period_closures_audit_insert',
+      'accounting_period_closures_audit_update',
+      'accounting_closed_period_posted_entry_update_guard',
+      'accounting_closed_period_posted_entry_delete_guard',
+      'accounting_closed_period_posted_line_insert_guard',
+      'accounting_closed_period_posted_line_update_guard',
+      'accounting_closed_period_posted_line_delete_guard',
+    ]) {
+      assert.equal(
+        (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger) as any).count,
+        1,
+        'full direct restore reinstates ' + trigger,
+      );
+    }
+    assert.deepEqual(getDatabase().pragma('foreign_key_check'), [], 'full direct restore leaves no foreign-key violations');
 
     console.log('✅ Production database restore tests passed');
   } finally {
