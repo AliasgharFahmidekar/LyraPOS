@@ -74,7 +74,8 @@ export function AccountingLoans() {
   }
   async function createLoan(e:FormEvent){
     e.preventDefault();
-    const original=amountMinor(originalAmount), remaining=mode==='opening'?amountMinor(remainingAmount):original;
+    const remaining=mode==='opening'?amountMinor(remainingAmount):amountMinor(originalAmount);
+    const original=mode==='opening'?(originalAmount.trim()?amountMinor(originalAmount):remaining):remaining;
     if(!lender.trim()||!loanDate||!original||!remaining||!liabilityAccount||(mode==='new'&&!cashAccount)){toast.error(t.required);return;}
     setBusy(true);
     try{
@@ -115,7 +116,7 @@ export function AccountingLoans() {
         <label className="space-y-1 text-sm"><span>{t.mode}</span><select value={mode} onChange={e=>setMode(e.target.value as 'new'|'opening')} className={field}><option value="new">{t.newMode}</option><option value="opening">{t.openingMode}</option></select></label>
         <label className="space-y-1 text-sm"><span>{t.lender}</span><input required maxLength={200} value={lender} onChange={e=>setLender(e.target.value)} className={field}/></label>
         <label className="space-y-1 text-sm"><span>{t.date}</span><input required type="date" value={loanDate} onChange={e=>setLoanDate(e.target.value)} className={field}/></label>
-        <label className="space-y-1 text-sm"><span>{t.original} · {currency}</span><input required inputMode="decimal" value={originalAmount} onChange={e=>setOriginalAmount(e.target.value)} className={field}/></label>
+        <label className="space-y-1 text-sm"><span>{mode==='opening'?(fa?'اصل اولیه وام (در صورت اطلاع)':'Original principal (if known)'):t.original} · {currency}</span><input required={mode==='new'} inputMode="decimal" value={originalAmount} onChange={e=>setOriginalAmount(e.target.value)} className={field}/></label>
         {mode==='opening'&&<label className="space-y-1 text-sm"><span>{t.remaining} · {currency}</span><input required inputMode="decimal" value={remainingAmount} onChange={e=>setRemainingAmount(e.target.value)} className={field}/></label>}
         <label className="space-y-1 text-sm"><span>{t.liability}</span><select required value={liabilityAccount} onChange={e=>setLiabilityAccount(e.target.value)} className={field}><option value="">—</option>{liabilityAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>
         {mode==='new'&&<label className="space-y-1 text-sm"><span>{t.cash}</span><select required value={cashAccount} onChange={e=>setCashAccount(e.target.value)} className={field}><option value="">—</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>}
