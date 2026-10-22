@@ -26,7 +26,7 @@ function configuredCurrency(db: DB): string {
   }
 }
 
-function accountingDate(db: DB, timestamp: string): string {
+export function accountingDate(db: DB, timestamp: string): string {
   const parsed = parseDbTimestamp(timestamp);
   if (!Number.isFinite(parsed.getTime())) fail('accounting_date_invalid', 'The source event has an invalid timestamp.', 409);
   const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country','currency','timezone')").all() as Array<{ key: string; value: string | null }>;
