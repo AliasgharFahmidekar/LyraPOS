@@ -90,11 +90,17 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
   const currencyCode = currency(db);
   if (input?.currency_code !== undefined && String(input.currency_code).trim().toUpperCase() !== currencyCode) fail('currency_mismatch', 'Loan must use the configured store currency.', 409);
   const liability = account(db, input?.liability_account_id, ['liability'], 'liability_account_id');
-  const original = input?.original_principal_minor === undefined ? input?.principal_minor : input.original_principal_minor;
-  if (!Number.isSafeInteger(original) || original <= 0) fail('invalid_original_principal', 'Original principal must be a positive integer in accounting currency units.');
-  const initialOutstanding = mode === 'new' ? original : input?.remaining_principal_minor;
-  if (!Number.isSafeInteger(initialOutstanding) || initialOutstanding <= 0 || initialOutstanding > original) {
-    fail('invalid_remaining_principal', 'Remaining principal must be positive and cannot exceed the informational original principal.');
+  const rawRemaining = mode === 'new' ? undefined : input?.remaining_principal_minor;
+  const rawOriginal = input?.original_principal_minor === undefined || input?.original_principal_minor === null || input?.original_principal_minor === ''
+    ? (mode === 'opening' ? rawRemaining : input?.principal_minor)
+    : input.original_principal_minor;
+  const initialOutstanding = mode === 'new' ? rawOriginal : rawRemaining;
+  if (!Number.isSafeInteger(initialOutstanding) || initialOutstanding <= 0) {
+    fail('invalid_remaining_principal', 'Remaining principal must be a positive integer in accounting currency units.');
+  }
+  const original = rawOriginal;
+  if (!Number.isSafeInteger(original) || original <= 0 || initialOutstanding > original) {
+    fail('invalid_original_principal', 'Original principal must be positive and at least the remaining principal.');
   }
   const cash = mode === 'new' ? liquid(db, input?.cash_account_id) : null;
   if (mode === 'opening' && input?.cash_account_id != null && input.cash_account_id !== '') {
