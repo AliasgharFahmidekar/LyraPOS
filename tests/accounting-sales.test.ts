@@ -222,6 +222,32 @@ try {
     closeDatabase();
   }
 
+  // Scenario 8: post-cutover money events on legacy bills are recognized by event time.
+  {
+    const db = freshDb();
+    const legacyStamp = '2024-01-01T10:00:00.000Z';
+    const { billId } = makeBill(db, 'LEGACY-POST-CUTOVER', 100, 0, legacyStamp);
+    db.prepare("UPDATE settings SET value='2025-01-01T00:00:00.000Z' WHERE key='accounting_cutover_at'").run();
+    const payment = { payment_event_id: 'late-payment-001', method: 'cash', amount: 20, timestamp: '2025-01-01T00:00:01.000Z' };
+    db.prepare('UPDATE bills SET payment_status=?, payment_details=? WHERE id=?').run('paid', JSON.stringify([payment]), billId);
+    db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
+    const receiptJournal = journalForSource(db, 'bill_payment', String(billId) + ':' + payment.payment_event_id, 'money_received');
+    ok(receiptJournal, 'post-cutover receipt is posted even when the bill itself predates cutover');
+    equal(receiptJournal.status, 'posted', 'legacy bill receipt is posted through the normal ledger');
+    equal(receiptJournal.entry_date, '2025-01-01', 'receipt posting date comes from the actual receipt timestamp');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_pre_cutover_payment'").get('payment:' + payment.payment_event_id).n, 0, 'new receipt event is not incorrectly audited as a skipped legacy receipt');
+
+    const refund = db.prepare(
+      'INSERT INTO refunds (bill_id, amount_cents, method, reason, approved_by, created_by, created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(billId, 2500, 'cash', 'Post-cutover refund on legacy bill', 'test-owner-accounting', 'test-owner-accounting', '2025-01-02T08:00:00.000Z');
+    const refundResult = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
+    equal(refundResult.posted, true, 'post-cutover refund is posted even when its source bill predates cutover');
+    const refundJournal = journalForSource(db, 'refund', String(refund.lastInsertRowid), 'money_refunded');
+    equal(refundJournal.status, 'posted', 'legacy-bill refund follows the normal posted-journal path');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_pre_cutover_refund'").get('refund:' + Number(refund.lastInsertRowid)).n, 0, 'new refund is not incorrectly audited as a skipped legacy refund');
+    closeDatabase();
+  }
+
   console.log('PASS: ' + assertions + ' accounting sales/collections/refunds assertions');
 } catch (error: any) {
   try { closeDatabase(); } catch {}
