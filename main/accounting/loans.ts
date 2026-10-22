@@ -227,10 +227,9 @@ export function registerLoanInstallment(db: DB, installmentIdInput: unknown, act
 }
 export function processDueLoanInstallments(db: DB, asOfInput?: unknown): {checked:number;registered:number;awaitingConfirmation:number;failed:number} {
   const asOf=asOfInput===undefined?accountingDate(db,new Date().toISOString()):date(asOfInput,'as_of_date');
-  const due=db.prepare("SELECT id,auto_register,status FROM accounting_loan_installments WHERE due_date<=? AND status IN ('scheduled','failed') ORDER BY due_date,created_at,id").all(asOf) as any[];
+  const due=db.prepare("SELECT id,auto_register,status FROM accounting_loan_installments WHERE due_date<=? AND status='scheduled' ORDER BY due_date,created_at,id").all(asOf) as any[];
   let registered=0,awaitingConfirmation=0,failed=0;
   for(const item of due) {
-    if(item.status==='failed' && item.auto_register!==1) continue;
     if(item.auto_register===1) {
       try {
         const result=registerLoanInstallment(db,item.id,'system',asOf);
@@ -239,7 +238,7 @@ export function processDueLoanInstallments(db: DB, asOfInput?: unknown): {checke
         const code=typeof error?.code==='string'&&error.code.trim()?String(error.code).slice(0,100):'loan_installment_registration_failed';
         const message=String(error?.message||'Loan installment due registration failed.').slice(0,500);
         try {
-          db.prepare("UPDATE accounting_loan_installments SET status='failed',last_error_code=?,last_error_message=? WHERE id=? AND status IN ('scheduled','failed')")
+          db.prepare("UPDATE accounting_loan_installments SET status='failed',last_error_code=?,last_error_message=? WHERE id=? AND status='scheduled'")
             .run(code,message,item.id);
         } catch { /* preserve the original posting failure; the row remains visible for review */ }
         failed++;
@@ -297,7 +296,7 @@ export function cancelLoanInstallment(db: DB, installmentIdInput: unknown, reaso
     if(!item) fail('installment_not_found','Loan instalment was not found.',404);
     if(item.status==='cancelled' && item.cancellation_reason===reason) return {...item,duplicate:true};
     if(item.status!=='scheduled' && item.status!=='awaiting_confirmation' && item.status!=='failed') fail('installment_not_cancellable','Only unregistered/unpaid instalments can be cancelled.',409);
-    db.prepare("UPDATE accounting_loan_installments SET status='cancelled',cancellation_reason=?,cancelled_by=?,cancelled_at=CURRENT_TIMESTAMP WHERE id=?")
+    db.prepare("UPDATE accounting_loan_installments SET status='cancelled',cancellation_reason=?,cancelled_by=?,cancelled_at=CURRENT_TIMESTAMP,last_error_code=NULL,last_error_message=NULL WHERE id=?")
       .run(reason,actor(actorId),id);
     return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false};
   })();
