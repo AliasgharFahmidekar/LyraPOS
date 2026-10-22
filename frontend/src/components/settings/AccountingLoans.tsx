@@ -94,7 +94,7 @@ export function AccountingLoans() {
     }catch{toast.error(t.failed);}finally{setBusy(false);}
   }
   async function registerInstallment(item:Installment){
-    setBusy(true);try{await api.post('/accounting/loan-installments/'+encodeURIComponent(item.id)+'/register',{as_of_date:today()});await load();}catch{toast.error(t.failed);}finally{setBusy(false);}
+    setBusy(true);try{await api.post('/accounting/loan-installments/'+encodeURIComponent(item.id)+'/register',{});await load();}catch{toast.error(t.failed);}finally{setBusy(false);}
   }
   async function settleInstallment(item:Installment){
     if(!settlementDate||!settlementAccount){toast.error(t.required);return;}
