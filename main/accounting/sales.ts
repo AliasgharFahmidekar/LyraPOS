@@ -95,7 +95,7 @@ function isBeforeAccountingCutover(db: DB, sourceCreatedAt: unknown): boolean {
   const created = typeof sourceCreatedAt === 'string' ? parseDbTimestamp(sourceCreatedAt).getTime() : Number.NaN;
   // If the cutover has not been recorded, fail closed for automatic posting.
   if (!Number.isFinite(cutoff)) fail('accounting_cutover_missing', 'The accounting cutover is not configured; automatic posting is disabled.', 409);
-  if (!Number.isFinite(created)) fail('accounting_source_date_invalid', 'The source bill has an invalid creation timestamp.', 409);
+  if (!Number.isFinite(created)) fail('accounting_source_date_invalid', 'The accounting event has an invalid timestamp.', 409);
   // SQLite timestamps have one-second precision. Treat a source stamped exactly
   // at cutover as legacy to avoid accidentally recognizing historical revenue.
   return created <= cutoff;
@@ -230,6 +230,18 @@ export function finalizeBillSale(db: DB, billId: string | number, actorId: strin
  * Loyalty-wallet lines are intentionally ignored: neither wallet credits nor
  * redemptions create accounting entries. Discounts are not posted separately.
  */
+function canFinalizeBillSnapshot(db: DB, bill: any): boolean {
+  if (!bill || bill.accounting_finalized_at) return false;
+  // Snapshot finalization is intentionally separate from cash-receipt recognition.
+  // A legacy bill can still receive post-cutover money, but must not be backfilled
+  // as a newly finalized commercial sale.
+  try {
+    return !isBeforeAccountingCutover(db, bill.created_at);
+  } catch {
+    return false;
+  }
+}
+
 export function postCollectionPaymentLines(db: DB, billId: string | number, paymentLines: any[], actorId: string | null): void {
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
   if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
@@ -237,34 +249,45 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
     // A supported discount may consume the remaining balance after a prior real-money
     // partial receipt. When POS subsequently closes that bill without applying more
     // cash (the tender is returned as change), lock the final commercial snapshot now.
-    // A 100%-discount/free bill has no receipt journal and is intentionally not finalized.
+    // Do not finalize pre-cutover bills merely because a later payment was collected.
     if (bill.payment_status === 'paid' && !bill.accounting_finalized_at
-      && hasAccountingRecordedMonetaryReceipt(db, billId)) {
+      && hasAccountingRecordedMonetaryReceipt(db, billId) && canFinalizeBillSnapshot(db, bill)) {
       finalizeBillSale(db, billId, actorId);
     }
     return;
   }
-  if (isBeforeAccountingCutover(db, bill.created_at)) {
-    for (const payment of paymentLines) {
-      const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
-      if (eventId && payment?.method !== 'wallet' && payment?.method !== 'loyalty') auditPreCutoverEvent(db, 'payment:' + eventId, 'skipped_pre_cutover_payment', actorId, {
-        bill_id: String(bill.id), payment_event_id: eventId, amount: payment.amount, method: payment.method,
-        reason: 'Bill predates accounting cutover; historical money receipts are intentionally not backfilled.',
-      });
-    }
-    return;
-  }
-  // Wallet-only batches must not create accounting entries or finalize a bill.
-  if (paymentLines.every((payment) => payment?.method === 'wallet' || payment?.method === 'loyalty')) return;
-  // A bill remains editable under POS rules after a partial receipt so its discount can
-  // safely settle the remaining balance. Lock the snapshot only when the bill is paid.
-  if (!bill.accounting_finalized_at && bill.payment_status === 'paid') finalizeBillSale(db, billId, actorId);
-  const currency = configuredCurrency(db);
-  const revenueId = postingAccountBySystemKey(db, 'sales_revenue', 'revenue');
+
+  // Cutover is determined per monetary event timestamp, not by bill creation time.
+  // A bill may predate the accounting ledger but receive a new real-money payment
+  // after cutover; that receipt must be posted without backfilling the old bill.
+  const eligiblePaymentLines: any[] = [];
   for (const payment of paymentLines) {
     if (payment?.method === 'wallet' || payment?.method === 'loyalty') continue;
     const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
+    const eventTimestamp = typeof payment?.timestamp === 'string' && payment.timestamp.trim()
+      ? payment.timestamp.trim()
+      : now();
+    if (isBeforeAccountingCutover(db, eventTimestamp)) {
+      if (eventId) auditPreCutoverEvent(db, 'payment:' + eventId, 'skipped_pre_cutover_payment', actorId, {
+        bill_id: String(bill.id), payment_event_id: eventId, amount: payment.amount, method: payment.method,
+        event_timestamp: eventTimestamp,
+        reason: 'The receipt event timestamp predates accounting cutover; historical money receipts are intentionally not backfilled.',
+      });
+      continue;
+    }
     if (!eventId) fail('payment_event_identity_missing', 'A new payment line has no stable payment_event_id; receipt posting was blocked.', 409);
+    eligiblePaymentLines.push({ ...payment, timestamp: eventTimestamp });
+  }
+  // Wallet-only or historical-only batches must not create accounting entries.
+  if (!eligiblePaymentLines.length) return;
+
+  // Keep the old commercial snapshot policy separate from the financial event:
+  // new money on a legacy bill is recorded, but does not backfill/finalize that bill.
+  if (bill.payment_status === 'paid' && canFinalizeBillSnapshot(db, bill)) finalizeBillSale(db, billId, actorId);
+  const currency = configuredCurrency(db);
+  const revenueId = postingAccountBySystemKey(db, 'sales_revenue', 'revenue');
+  for (const payment of eligiblePaymentLines) {
+    const eventId = String(payment.payment_event_id);
     const amountMinor = toMinorUnits(payment.amount, currency, 'Applied payment amount');
     if (amountMinor <= 0) continue;
     const key = paymentMethodKey(db, payment);
@@ -317,10 +340,10 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     if (['wallet', 'loyalty', 'credit', 'store_credit', 'loyalty_wallet'].includes(refundMethod)) {
       return { posted: false, reason: 'non_monetary_refund_ignored' };
     }
-    if (isBeforeAccountingCutover(db, bill.created_at)) {
+    if (isBeforeAccountingCutover(db, refund.created_at || now())) {
       auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
-        refund_id: String(refund.id), bill_id: String(bill.id),
-        reason: 'Source bill predates accounting cutover; historic monetary refunds are not backfilled.',
+        refund_id: String(refund.id), bill_id: String(bill.id), event_timestamp: refund.created_at || null,
+        reason: 'The refund event timestamp predates accounting cutover; historical monetary refunds are intentionally not backfilled.',
       });
       return { posted: false, reason: 'pre_cutover_bill' };
     }
