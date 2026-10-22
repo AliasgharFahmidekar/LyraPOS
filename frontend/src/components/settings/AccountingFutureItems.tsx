@@ -86,7 +86,7 @@ export function AccountingFutureItems() {
   const cardClass = 'rounded-xl border border-border bg-card p-4 space-y-3';
   function amountToMinor(value: string): number | null {
     const normalized = value.trim().replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٬,]/g, '').replace(/٫/g, '.');
-    if (!/^\\d+(\\.\\d+)?$/.test(normalized)) return null;
+    if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
     const [whole, fraction = ''] = normalized.split('.');
     if (fraction.length > digits) return null;
     const result = Number(whole) * (10 ** digits) + Number((fraction + '0'.repeat(digits)).slice(0, digits) || '0');
@@ -114,7 +114,7 @@ export function AccountingFutureItems() {
     catch { toast.error(t.failedMessage); } finally { setBusy(false); }
   }
   async function settle(item: FutureItem) {
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(settlementDate) || !settlementAccount) { toast.error(t.required); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(settlementDate) || !settlementAccount) { toast.error(t.required); return; }
     setBusy(true);
     try {
       await api.post('/accounting/future-items/' + encodeURIComponent(item.id) + '/settle', {
