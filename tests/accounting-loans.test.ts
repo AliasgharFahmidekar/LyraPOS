@@ -16,6 +16,7 @@ const { initDatabase, getDatabase, getCurrentSchemaVersion, closeDatabase } = db
 const loans = require('../main/accounting/loans');
 const { getAccountingManagementReport } = require('../main/accounting/reports');
 const { getAccountingForecast } = require('../main/accounting/forecast');
+const { closeAccountingPeriod } = require('../main/accounting/period-close');
 let assertions = 0;
 function ok(value: unknown, message: string): void { assert.ok(value, message); assertions++; }
 function equal(actual: unknown, expected: unknown, message: string): void { assert.equal(actual, expected, message); assertions++; }
@@ -210,6 +211,24 @@ function main(): void {
     const cancelled = loans.cancelLoanInstallment(db, future.id, 'Schedule corrected', 'test-owner');
     equal(cancelled.status, 'cancelled', 'unregistered installment can be cancelled with a reason');
     throws(() => loans.cancelLoanInstallment(db, installment.id, 'too late', 'test-owner'), 'installment_not_cancellable', 'settled installment cannot be cancelled');
+
+    const closedPeriodLoan = loans.createLoan(db, {
+      mode:'new', lender:'Closed-period test lender', loan_date:'2018-12-01', principal_minor:1000,
+      liability_account_id:'acct-loans-payable', cash_account_id:'acct-bank', currency_code:'IRR',
+    }, 'test-owner', 'loan-closed-period-create');
+    const closedPeriod = closeAccountingPeriod(db, {
+      period_start:'2019-01-01', period_end:'2019-01-01', reason:'Regression: closed-period principal-only installment registration',
+    }, 'test-owner');
+    equal(closedPeriod.status,'closed','regression setup closes the period containing the principal-only due date');
+    const closedPeriodBatch = loans.createLoanInstallments(db, closedPeriodLoan.id, {installments:[{
+      due_date:'2019-01-01', principal_minor:500, interest_minor:0, fees_minor:0, auto_register:false,
+    }]}, 'test-owner', 'loan-closed-period-installment');
+    throws(() => loans.registerLoanInstallment(db, closedPeriodBatch.installments[0].id, 'test-owner', '2019-01-01'),
+      'period_closed','principal-only due registration cannot bypass the closed-period guard just because it creates no accrual journal');
+    equal((db.prepare('SELECT status FROM accounting_loan_installments WHERE id=?').get(closedPeriodBatch.installments[0].id) as any).status,'scheduled',
+      'closed-period registration rejection leaves the installment unchanged');
+    equal((db.prepare('SELECT due_journal_entry_id FROM accounting_loan_installments WHERE id=?').get(closedPeriodBatch.installments[0].id) as any).due_journal_entry_id,null,
+      'closed-period principal-only rejection creates no due journal');
 
     const auditCount = db.prepare("SELECT COUNT(*) AS n FROM accounting_audit_log WHERE entity_type IN ('accounting_loan','accounting_loan_installment','accounting_loan_installment_batch')").get().n;
     ok(auditCount >= 7, 'loan creation, schedule, due-state and settlement actions are audited');
