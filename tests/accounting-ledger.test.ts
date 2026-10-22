@@ -131,7 +131,7 @@ function freshInstallChecks(): void {
   initDatabase();
   const db = getDatabase();
 
-  equal(getCurrentSchemaVersion(), 110, 'fresh install reaches schema version 110');
+  equal(getCurrentSchemaVersion(), 111, 'fresh install reaches schema version 111');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
     'accounting_journal_lines', 'accounting_audit_log', 'accounting_opening_balances', 'accounting_reconciliation_adjustments', 'accounting_period_closures',
@@ -443,13 +443,13 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 110, 'existing database upgrades from v99 through schema version 110');
+  equal(getCurrentSchemaVersion(), 111, 'existing database upgrades from v99 through schema version 111');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
     'upgrade preserves existing user settings',
   );
-  assertAccountingSeedAccounts(db, 'schema v99 to v110 upgrade');
+  assertAccountingSeedAccounts(db, 'schema v99 to v111 upgrade');
   equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'upgraded database passes integrity_check');
 
   closeDatabase();
@@ -478,7 +478,7 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 110, 'v100 database upgrades through schema version 110');
+  equal(getCurrentSchemaVersion(), 111, 'v100 database upgrades through schema version 111');
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
     /system or posted accounting account definitions are immutable/i,
@@ -494,7 +494,7 @@ function upgradeFromVersion100Checks(): void {
     /system accounting accounts cannot be deleted/i,
     'v100 upgrade keeps system-account deletion protection',
   );
-  assertAccountingSeedAccounts(db, 'schema v100 to v110 upgrade');
+  assertAccountingSeedAccounts(db, 'schema v100 to v111 upgrade');
 
   closeDatabase();
   fs.rmSync(activeTestDir, { recursive: true, force: true });
@@ -521,8 +521,8 @@ function upgradeFromVersion102Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 110, 'v102 database upgrades to schema version 110');
-  assertAccountingSeedAccounts(db, 'schema v102 to v110 upgrade');
+  equal(getCurrentSchemaVersion(), 111, 'v102 database upgrades to schema version 111');
+  assertAccountingSeedAccounts(db, 'schema v102 to v111 upgrade');
   const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key,reversal_journal_entry_id,reversal_reason FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
   equal(preserved.id, 'expense-v102-preserve', 'upgrade preserves existing expense records');
   equal(preserved.amount_minor, 2500, 'upgrade preserves existing expense amount');
@@ -538,7 +538,7 @@ function upgradeFromVersion102Checks(): void {
     !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='accounting_expense_state_transition_guard'").get(),
     'v104 installs expense lifecycle guards on upgrade',
   );
-  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v110 upgrade passes integrity_check');
+  equal((db.prepare('PRAGMA integrity_check').get() as any).integrity_check, 'ok', 'v102 to v111 upgrade passes integrity_check');
 
   closeDatabase();
   fs.rmSync(activeTestDir, { recursive: true, force: true });
@@ -561,8 +561,8 @@ function upgradeFromVersion101Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 110, 'v101 database upgrades through schema version 110');
-  assertAccountingSeedAccounts(db, 'schema v101 to v110 upgrade');
+  equal(getCurrentSchemaVersion(), 111, 'v101 database upgrades through schema version 111');
+  assertAccountingSeedAccounts(db, 'schema v101 to v111 upgrade');
   check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
   check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
   check(tableExists(db, 'accounting_expenses'), 'expense migration creates expenses');
