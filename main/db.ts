@@ -3364,7 +3364,7 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments
     WHEN OLD.status='settled' AND (
-      NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'')
+      NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') OR COALESCE(NEW.due_journal_entry_id,'')<>COALESCE(OLD.due_journal_entry_id,'') OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'')
       OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'')
       OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'') OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'')
       OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,''))
