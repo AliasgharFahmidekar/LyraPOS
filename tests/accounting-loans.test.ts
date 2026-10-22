@@ -35,6 +35,13 @@ function main(): void {
       ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'loan migration creates ' + table);
     }
 
+    // Loan creation intentionally requires configured tenant regional settings.
+    // Keep the test fixture realistic instead of weakening that production guard.
+    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('country', 'IR', CURRENT_TIMESTAMP)").run();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'IRR', CURRENT_TIMESTAMP)").run();
+    equal((db.prepare("SELECT value FROM settings WHERE key='country'").get() as any).value, 'IR', 'loan fixture configures the store country');
+    equal((db.prepare("SELECT value FROM settings WHERE key='currency'").get() as any).value, 'IRR', 'loan fixture configures the store currency');
+
     const loanInput = {
       mode: 'new', lender: 'Test lender', loan_date: '2026-10-01', principal_minor: 1000,
       liability_account_id: 'acct-loans-payable', cash_account_id: 'acct-bank', currency_code: 'IRR',
