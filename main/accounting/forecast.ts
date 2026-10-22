@@ -78,7 +78,7 @@ export function getAccountingForecast(db: DB, filters: ForecastFilters = {}): an
       description: row.description, counterparty: row.counterparty, status: row.status, source: 'future_item',
       direction: row.direction, amount_minor: amount, cash_in_minor: row.direction === 'incoming' ? amount : 0,
       cash_out_minor: row.direction === 'outgoing' ? amount : 0,
-      projected_income_minor: row.direction === 'incoming' ? amount : 0,
+      projected_income_minor: row.direction === 'incoming' && row.status !== 'registered' ? amount : 0,
       projected_expense_minor: row.direction === 'outgoing' && row.status !== 'registered' ? amount : 0,
       recognized_unpaid_minor: row.status === 'registered' ? amount : 0,
       classification_account_name: row.classification_account_name,
