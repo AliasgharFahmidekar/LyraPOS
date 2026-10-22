@@ -5,7 +5,6 @@ import { createDraftJournalEntry, postJournalEntry } from './ledger';
 
 type DB = Database.Database;
 type LoanMode = 'new' | 'opening';
-type InstallmentStatus = 'scheduled' | 'awaiting_confirmation' | 'registered' | 'settled' | 'cancelled';
 
 export class AccountingLoanError extends Error {
   constructor(public readonly code: string, message: string, public readonly statusCode = 400) {
@@ -161,7 +160,8 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
   });
   if(new Set(normalized.map(i=>i.dueDate)).size!==normalized.length) fail('duplicate_installment_due_date','Installment due dates must be unique within a schedule.');
   const principalTotal=normalized.reduce((sum,i)=>sum+i.principal,0);
-  if(!Number.isSafeInteger(principalTotal)||principalTotal>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Scheduled principal exceeds the loan remaining principal.',409);
+  const alreadyScheduled = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered')").get(loan.id) as {total:number};
+  if(!Number.isSafeInteger(principalTotal) || principalTotal + Number(alreadyScheduled.total) > outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Combined scheduled principal exceeds the loan remaining principal.',409);
   const payloadHash=hash({loanId:loan.id,installments:normalized.map(({index,...i})=>i)});
   return db.transaction(()=>{
     const old=db.prepare('SELECT * FROM accounting_loan_installment_batches WHERE idempotency_key=?').get(idempotencyKey) as any;
@@ -187,7 +187,7 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
 }
 export function registerLoanInstallment(db: DB, installmentIdInput: unknown, actorId: string | null, asOfInput?: unknown): any {
   const id=text(installmentIdInput,'installment_id',100);
-  const asOf=asOfInput===undefined?new Date().toISOString().slice(0,10):date(asOfInput,'as_of_date');
+  const asOf=asOfInput===undefined?require('./sales').accountingDate(db,new Date().toISOString()):date(asOfInput,'as_of_date');
   return db.transaction(()=>{
     const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
     if(!item) fail('installment_not_found','Loan instalment was not found.',404);
@@ -226,6 +226,7 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
       fail('installment_already_settled','Instalment is already settled.',409);
     }
     const loan=loanRow(db,item.loan_id);
+    if(settlementDate<loan.loan_date) fail('settlement_before_loan_date','Settlement date cannot precede the loan date.');
     if(item.principal_minor>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Principal payment exceeds current outstanding principal.',409);
     const total=Number(item.principal_minor)+Number(item.interest_minor)+Number(item.fees_minor);
     if(!Number.isSafeInteger(total)||total<=0) fail('invalid_installment_amount','Instalment total is invalid.');
@@ -244,7 +245,9 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
     db.prepare("UPDATE accounting_loan_installments SET status='settled',settlement_date=?,settlement_account_id=?,settlement_journal_entry_id=?,settled_at=CURRENT_TIMESTAMP,settled_by=?,settlement_idempotency_key=? WHERE id=?")
       .run(settlementDate,cash.id,journal.id,actor(actorId),idempotencyKey,id);
     const updated=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
-    return {...updated,duplicate:false,entry_number:journal.entryNumber,remaining_principal_minor:outstanding(db,loan)};
+    const remaining = outstanding(db,loan);
+    if (remaining === 0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
+    return {...updated,duplicate:false,entry_number:journal.entryNumber,remaining_principal_minor:remaining};
   })();
 }
 export function cancelLoanInstallment(db: DB, installmentIdInput: unknown, reasonInput: unknown, actorId: string | null): any {
