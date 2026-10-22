@@ -153,7 +153,12 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
   const otherIncomeMinor = sumLedgerLines(
     db,
     'line.credit_minor - line.debit_minor',
-    "account.account_type='revenue' AND entry.source_type='accounting_manual_activity' AND entry.source_event='other_income'",
+    "account.account_type='revenue' AND (" +
+      "(entry.source_type='accounting_manual_activity' AND entry.source_event='other_income') OR " +
+      "(entry.source_type='accounting_future_item' AND entry.source_event='due_registration' AND EXISTS (" +
+        "SELECT 1 FROM accounting_future_items AS future_item WHERE future_item.id=entry.source_id AND future_item.direction='incoming'" +
+      "))" +
+    ")",
     range,
   );
   const postedExpensesMinor = sumLedgerLines(
@@ -203,7 +208,8 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
     reporting_policy: {
       sales_revenue_basis: 'actual_monetary_receipts',
       tax_treatment: 'tax_payments_are_expenses_when_paid',
-      message: 'POS sales revenue reflects actual monetary receipts. Tax is recorded as an expense when it is paid and is not deducted a second time from sales revenue.',
+      future_item_recognition: 'future_receipt_and_obligation_journals_are_recognized_on_due_registration; cash_and_bank_change_only_on_actual_settlement',
+      message: 'POS sales revenue reflects actual monetary receipts. Other income can include future receipt items once their due event is registered; that registration does not claim cash was collected. Tax is recorded as an expense when it is paid and is not deducted a second time from sales revenue.',
     },
     profit_limitations: {
       cogs_available: false,
