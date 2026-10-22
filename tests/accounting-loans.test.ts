@@ -92,6 +92,23 @@ function main(): void {
     equal(afterSettlementReport.summary.loan_interest_fees_paid_minor,60,'report identifies paid loan costs as a subset of expenses');
     equal(afterSettlementReport.summary.tax_payments_expense_minor,0,'loan interest is not misclassified as tax paid');
     equal(loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-settle-001').duplicate, true, 'identical settlement retry is idempotent');
+
+    const retryBatch=loans.createLoanInstallments(db,created.id,{installments:[{
+      due_date:'2026-10-12',principal_minor:100,interest_minor:5,fees_minor:0,
+      interest_account_id:'acct-operating-expenses',auto_register:true,
+    }]},'test-owner','loan-installments-retry-001');
+    db.prepare("UPDATE accounting_accounts SET is_active=0 WHERE id='acct-operating-expenses'").run();
+    const failedDue=loans.processDueLoanInstallments(db,'2026-10-22');
+    equal(failedDue.failed,1,'automatic due accrual failure is surfaced instead of marked registered');
+    const failedInstallment=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(retryBatch.installments[0].id) as any;
+    equal(failedInstallment.status,'failed','failed automatic accrual remains visible and retryable');
+    equal(failedInstallment.last_error_code,'account_inactive','failed due registration stores the concrete accounting error');
+    equal(failedInstallment.due_journal_entry_id,null,'failed due accrual leaves no partial journal link');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_loan' AND source_id=? AND source_event='installment_due_registration'").get(failedInstallment.id).n,0,'failed due accrual rolls back its journal atomically');
+    db.prepare("UPDATE accounting_accounts SET is_active=1 WHERE id='acct-operating-expenses'").run();
+    const retriedDue=loans.registerLoanInstallment(db,failedInstallment.id,'test-owner','2026-10-22');
+    equal(retriedDue.status,'registered','owner can retry a failed due accrual after fixing its account');
+    ok(!!retriedDue.due_journal_entry_id,'successful retry links the due accrual journal');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-23',settlement_account_id:'acct-bank'}, 'test-owner', 'different-key'), 'installment_already_settled', 'settled installment cannot be paid twice');
 
     throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
