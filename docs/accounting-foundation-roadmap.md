@@ -481,6 +481,15 @@ Recurring-obligation implementation must preserve this payable-versus-paid separ
 
 For an Iran tenant, monthly recurrence uses the tenant's Jalali month sequence while stored dates remain canonical Gregorian ISO. Anchor month navigation to the original first due date and handle shorter months deterministically (for example, a 31st-day schedule falls on the last valid day of a shorter month, then returns to the original day-of-month in subsequent longer months; no permanent drift). The custom N-days interval advances by exactly N calendar days under the documented date-only contract. Each occurrence has a stable ID, due date, amount, status, and posting/settlement references.
 
+### 7.2 — Recurring obligations (implementation started; CI verification pending)
+
+- Migration v115 introduces immutable recurring schedule identity and occurrence history. A finite schedule creates stable, numbered occurrences linked to the existing one-off future-item engine; no parallel ledger or payment table is introduced.
+- Supports monthly and every-N-calendar-days schedules, 1–120 occurrences, active expense account validation, store currency, owner/manager routes, payload-bound idempotency, occurrence listing, and cancellation with a reason.
+- Each occurrence is represented by the existing future cheque/payable workflow. Due processing can register a payable, but actual cash/bank movement and expense recognition still require confirmed settlement. Cancelling a schedule cancels only unregistered occurrences; registered/settled entries and journals remain untouched.
+- Monthly dates are anchored to the original due date; shorter months clamp to their last day without permanent day-of-month drift. Iran uses the Persian calendar month sequence; stored due dates remain Gregorian ISO.
+- Focused tests cover exact N-day arithmetic, month-end/no-drift behavior, finite count, idempotent retry and changed-payload conflict, no journals at schedule creation, cancellation, and invalid account classification.
+- Remaining before acceptance: exact-head CI, integration with the main Accounting UI, cancellation/partial-posting regression, startup catch-up/restart behavior, and Windows offline verification.
+
 ### 7.3 — Loans (separate loan record and repayment workflow)
 
 The first scope is **loans received by the business**. A loan is borrowing, not sales revenue.

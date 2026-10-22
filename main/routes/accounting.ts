@@ -14,6 +14,7 @@ import { getAccountingSourceEventReconciliation } from '../accounting/source-rec
 import { getAccountingTrialBalance } from '../accounting/trial-balance';
 import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } from '../accounting/period-close';
 import { cancelFutureItem, createFutureItem, listFutureItems, registerFutureItem, settleFutureItem, FutureItemError } from '../accounting/future-items';
+import { cancelRecurringObligation, createRecurringObligation, listRecurringObligations, RecurringObligationError } from '../accounting/recurring-obligations';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -22,6 +23,9 @@ function actorId(req: Request): string | null {
   return user?.userId == null ? null : String(user.userId);
 }
 function respondError(res: Response, error: any): void {
+  if (error instanceof RecurringObligationError) {
+    res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
+  }
   if (error instanceof FutureItemError) {
     res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
   }
@@ -38,6 +42,18 @@ function respondError(res: Response, error: any): void {
   console.error('[API] Accounting expense request failed:', error);
   res.status(500).json({ error: 'Unable to process accounting request.' });
 }
+router.get('/recurring-obligations', managerOnly, (req, res) => {
+  try { res.json({ schedules: listRecurringObligations(getDatabase(), req.query) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/recurring-obligations', managerOnly, (req, res) => {
+  try { res.status(201).json({ schedule: createRecurringObligation(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/recurring-obligations/:id/cancel', managerOnly, (req, res) => {
+  try { res.json({ schedule: cancelRecurringObligation(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
 router.get('/future-items', managerOnly, (req, res) => {
   try { res.json(listFutureItems(getDatabase(), req.query)); }
   catch (error) { respondError(res, error); }

@@ -6872,6 +6872,96 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       }
     },
   },
+  {
+    version: 115,
+    name: 'accounting_recurring_obligations',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_recurring_schedules (
+          id TEXT PRIMARY KEY,
+          direction TEXT NOT NULL CHECK (direction = 'outgoing'),
+          frequency TEXT NOT NULL CHECK (frequency IN ('monthly', 'every_n_days')),
+          interval_days INTEGER CHECK (interval_days IS NULL OR (typeof(interval_days)='integer' AND interval_days BETWEEN 1 AND 366)),
+          first_due_date TEXT NOT NULL CHECK (length(first_due_date)=10 AND first_due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          occurrence_count INTEGER NOT NULL CHECK (typeof(occurrence_count)='integer' AND occurrence_count BETWEEN 1 AND 120),
+          amount_minor INTEGER NOT NULL CHECK (typeof(amount_minor)='integer' AND amount_minor > 0 AND amount_minor <= 9007199254740991),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          description TEXT NOT NULL CHECK (length(trim(description)) BETWEEN 1 AND 500),
+          counterparty TEXT CHECK (counterparty IS NULL OR length(trim(counterparty)) <= 200),
+          classification_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          auto_register INTEGER NOT NULL CHECK (auto_register IN (0, 1)),
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          cancelled_by TEXT,
+          cancellation_reason TEXT CHECK (cancellation_reason IS NULL OR length(trim(cancellation_reason)) BETWEEN 1 AND 500),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          cancelled_at TEXT,
+          CHECK ((frequency='monthly' AND interval_days IS NULL) OR (frequency='every_n_days' AND interval_days IS NOT NULL)),
+          CHECK ((status='active' AND cancelled_by IS NULL AND cancellation_reason IS NULL AND cancelled_at IS NULL)
+            OR (status='cancelled' AND cancelled_by IS NOT NULL AND cancellation_reason IS NOT NULL AND cancelled_at IS NOT NULL))
+        );
+        CREATE TABLE accounting_recurring_occurrences (
+          id TEXT PRIMARY KEY,
+          schedule_id TEXT NOT NULL REFERENCES accounting_recurring_schedules(id) ON DELETE RESTRICT,
+          occurrence_number INTEGER NOT NULL CHECK (typeof(occurrence_number)='integer' AND occurrence_number BETWEEN 1 AND 120),
+          due_date TEXT NOT NULL CHECK (length(due_date)=10 AND due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          future_item_id TEXT NOT NULL UNIQUE REFERENCES accounting_future_items(id) ON DELETE RESTRICT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(schedule_id, occurrence_number),
+          UNIQUE(schedule_id, due_date)
+        );
+        CREATE INDEX accounting_recurring_schedule_status ON accounting_recurring_schedules(status, first_due_date);
+        CREATE INDEX accounting_recurring_occurrence_due ON accounting_recurring_occurrences(due_date, schedule_id);
+        CREATE TRIGGER accounting_recurring_schedule_no_delete
+          BEFORE DELETE ON accounting_recurring_schedules
+          BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_RECURRING_SCHEDULE_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_recurring_occurrence_no_update
+          BEFORE UPDATE ON accounting_recurring_occurrences
+          BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_RECURRING_OCCURRENCE_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_recurring_occurrence_no_delete
+          BEFORE DELETE ON accounting_recurring_occurrences
+          BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_RECURRING_OCCURRENCE_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_recurring_schedule_identity_guard
+          BEFORE UPDATE ON accounting_recurring_schedules
+          WHEN NEW.id <> OLD.id OR NEW.direction <> OLD.direction OR NEW.frequency <> OLD.frequency
+            OR COALESCE(NEW.interval_days, -1) <> COALESCE(OLD.interval_days, -1)
+            OR NEW.first_due_date <> OLD.first_due_date OR NEW.occurrence_count <> OLD.occurrence_count
+            OR NEW.amount_minor <> OLD.amount_minor OR NEW.currency_code <> OLD.currency_code
+            OR NEW.description <> OLD.description OR COALESCE(NEW.counterparty, '') <> COALESCE(OLD.counterparty, '')
+            OR NEW.classification_account_id <> OLD.classification_account_id OR NEW.auto_register <> OLD.auto_register
+            OR NEW.idempotency_key <> OLD.idempotency_key OR NEW.payload_hash <> OLD.payload_hash
+            OR COALESCE(NEW.created_by, '') <> COALESCE(OLD.created_by, '')
+          BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_RECURRING_SCHEDULE_IDENTITY_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_recurring_schedule_audit_insert
+          AFTER INSERT ON accounting_recurring_schedules
+          BEGIN
+            INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+            VALUES ('accounting_recurring_schedule', NEW.id, 'created', NEW.created_by, NULL,
+              json_object('id', NEW.id, 'frequency', NEW.frequency, 'interval_days', NEW.interval_days,
+                'first_due_date', NEW.first_due_date, 'occurrence_count', NEW.occurrence_count,
+                'amount_minor', NEW.amount_minor, 'currency_code', NEW.currency_code,
+                'classification_account_id', NEW.classification_account_id, 'auto_register', NEW.auto_register));
+          END;
+        CREATE TRIGGER accounting_recurring_schedule_audit_update
+          AFTER UPDATE ON accounting_recurring_schedules
+          BEGIN
+            INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+            VALUES ('accounting_recurring_schedule', NEW.id, 'cancelled', NEW.cancelled_by,
+              json_object('status', OLD.status), json_object('status', NEW.status, 'reason', NEW.cancellation_reason));
+          END;
+        CREATE TRIGGER accounting_recurring_occurrence_audit_insert
+          AFTER INSERT ON accounting_recurring_occurrences
+          BEGIN
+            INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+            VALUES ('accounting_recurring_occurrence', NEW.id, 'generated', NULL, NULL,
+              json_object('schedule_id', NEW.schedule_id, 'occurrence_number', NEW.occurrence_number,
+                'due_date', NEW.due_date, 'future_item_id', NEW.future_item_id));
+          END;
+      `);
+    },
+  },
 ] ; 
  
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
