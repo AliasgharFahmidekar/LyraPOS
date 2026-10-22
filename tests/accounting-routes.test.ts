@@ -839,6 +839,10 @@ async function main(): Promise<void> {
       .run('period-close-unbalanced-debit', unbalancedJournalId);
     db.prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, description, debit_minor, credit_minor) VALUES (?, ?, 2, 'acct-sales-revenue', 'unbalanced credit', 0, 99)")
       .run('period-close-unbalanced-credit', unbalancedJournalId);
+    // Simulate a damaged legacy/directly-tampered database: the normal journal-post guard
+    // correctly blocks this state, so bypass it only inside this disposable regression fixture.
+    // Period close must still detect the malformed posted ledger independently.
+    db.exec('DROP TRIGGER accounting_journal_entry_post_guard');
     db.prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=CURRENT_TIMESTAMP WHERE id=?").run(unbalancedJournalId);
     const unbalancedClose = await request(app).post('/api/accounting/periods/close').set(manager).send({
       period_start: '2020-01-02', period_end: '2020-01-02', reason: 'Reject unbalanced posted journal',
