@@ -71,7 +71,7 @@ export function AccountingFutureItems() {
     setAccounts(rows);
     const code = accountResponse.data.currency_code || 'IRR';
     setCurrency(code);
-    try { setDigits(new Intl.NumberFormat(locale, { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits); } catch { setDigits(0); }
+    try { setDigits(new Intl.NumberFormat(locale, { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits ?? 0); } catch { setDigits(0); }
     setItems(itemResponse.data.items || []);
     const liquid = rows.filter((a) => a.account_type === 'asset' && a.is_active === 1 && a.is_postable === 1 && ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(a.system_key || ''));
     setSettlementAccount((current) => liquid.some((a) => a.id === current) ? current : (liquid[0]?.id || ''));
