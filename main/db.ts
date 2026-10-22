@@ -6771,6 +6771,8 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
             CHECK (status IN ('scheduled', 'awaiting_confirmation', 'registered', 'settled', 'cancelled', 'failed')),
           due_journal_entry_id TEXT UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
           settlement_journal_entry_id TEXT UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          settlement_idempotency_key TEXT UNIQUE CHECK (settlement_idempotency_key IS NULL OR length(trim(settlement_idempotency_key)) BETWEEN 1 AND 200),
+          settlement_payload_hash TEXT CHECK (settlement_payload_hash IS NULL OR length(settlement_payload_hash)=64),
           settlement_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           registered_at TEXT,
           registered_by TEXT,
@@ -6795,9 +6797,11 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           ),
           CHECK (
             (status = 'settled' AND settlement_journal_entry_id IS NOT NULL
+              AND settlement_idempotency_key IS NOT NULL AND settlement_payload_hash IS NOT NULL
               AND settlement_account_id IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL)
             OR
             (status <> 'settled' AND settlement_journal_entry_id IS NULL
+              AND settlement_idempotency_key IS NULL AND settlement_payload_hash IS NULL
               AND settlement_account_id IS NULL AND settled_at IS NULL AND settled_by IS NULL)
           ),
           CHECK (
