@@ -7272,6 +7272,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
                 'due_journal_entry_id',NEW.due_journal_entry_id,'settlement_journal_entry_id',NEW.settlement_journal_entry_id,
                 'cancellation_reason',NEW.cancellation_reason,'last_error_code',NEW.last_error_code,'last_error_message',NEW.last_error_message)); END;
       `);
+      db.prepare("INSERT OR IGNORE INTO accounting_accounts (id,system_key,account_code,name,account_type,normal_balance,parent_account_id,is_system,is_active,is_postable) VALUES ('acct-loans-payable','loans_payable','2030','Loans payable','liability','credit','acct-liabilities',1,1,1)").run();
     },
   },
 ] ; 
