@@ -214,6 +214,8 @@ export function registerLoanInstallment(db: DB, installmentIdInput: unknown, act
     if(item.due_date>asOf) fail('installment_not_due','Instalment cannot be registered before its due date.',409);
     const loan=loanRow(db,item.loan_id);
     if (item.due_date < loan.loan_date) fail('installment_before_loan_date','An installment due date cannot precede the loan date.',409);
+    const closedPeriod = db.prepare("SELECT 1 FROM accounting_period_closures WHERE status='closed' AND ? BETWEEN period_start AND period_end LIMIT 1").get(item.due_date);
+    if (closedPeriod) fail('period_closed','Accounting period is closed; reopen it with a reason before registering the installment due event.',409);
     const dueLines:any[]=[];
     if(item.interest_minor>0) {
       account(db,item.interest_account_id,['expense'],'interest_account_id');
