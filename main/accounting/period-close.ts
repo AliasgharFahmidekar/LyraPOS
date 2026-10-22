@@ -13,16 +13,11 @@ function requiredText(value: unknown, field: string, max = 500): string {
   }
   return value.trim();
 }
-function audit(db: DB, id: string, action: string, actorId: string | null, before: unknown, after: unknown): void {
-  db.prepare('INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('accounting_period', id, action, actorId, before == null ? null : JSON.stringify(before), after == null ? null : JSON.stringify(after));
-}
 type PeriodRow = {
   id: string; period_start: string; period_end: string; status: 'closed' | 'reopened';
   close_reason: string; closed_by: string | null; closed_at: string; reopen_reason: string | null;
   reopened_by: string | null; reopened_at: string | null;
 };
-function snapshot(row: PeriodRow): Record<string, unknown> { return { ...row }; }
 
 export function listAccountingPeriods(db: DB): PeriodRow[] {
   return db.prepare('SELECT id, period_start, period_end, status, close_reason, closed_by, closed_at, reopen_reason, reopened_by, reopened_at FROM accounting_period_closures ORDER BY period_start DESC, closed_at DESC')
@@ -71,14 +66,12 @@ export function closeAccountingPeriod(db: DB, input: any, actorId: string | null
       db.prepare("UPDATE accounting_period_closures SET status='closed', close_reason=?, closed_by=?, closed_at=CURRENT_TIMESTAMP, reopen_reason=NULL, reopened_by=NULL, reopened_at=NULL WHERE id=? AND status='reopened'")
         .run(reason, actorId, existing.id);
       const saved = db.prepare('SELECT * FROM accounting_period_closures WHERE id=?').get(existing.id) as PeriodRow;
-      audit(db, existing.id, 'reclosed', actorId, snapshot(existing), snapshot(saved));
       return { ...saved, duplicate: false };
     }
     const id = randomUUID();
     db.prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES (?, ?, ?, 'closed', ?, ?)")
       .run(id, start, end, reason, actorId);
     const saved = db.prepare('SELECT * FROM accounting_period_closures WHERE id=?').get(id) as PeriodRow;
-    audit(db, id, 'closed', actorId, null, snapshot(saved));
     return { ...saved, duplicate: false };
   })();
 }
@@ -97,7 +90,6 @@ export function reopenAccountingPeriod(db: DB, idInput: unknown, reasonInput: un
     db.prepare("UPDATE accounting_period_closures SET status='reopened', reopen_reason=?, reopened_by=?, reopened_at=CURRENT_TIMESTAMP WHERE id=? AND status='closed'")
       .run(reason, actorId, id);
     const saved = db.prepare('SELECT * FROM accounting_period_closures WHERE id=?').get(id) as PeriodRow;
-    audit(db, id, 'reopened', actorId, snapshot(current), snapshot(saved));
     return { ...saved, duplicate: false };
   })();
 }
