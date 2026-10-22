@@ -22,7 +22,7 @@ function throws(operation: () => unknown, code: string, message: string): void {
   assertions++;
 }
 function journalLines(db: any, entryId: string): any[] {
-  return db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=? ORDER BY line_number').all(entryId) as any[];
+  return db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=? ORDER BY line_no').all(entryId) as any[];
 }
 
 function main(): void {
