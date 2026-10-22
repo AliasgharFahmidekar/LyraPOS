@@ -663,6 +663,35 @@ async function main(): Promise<void> {
     });
     equal(closedPeriod.status, 201, 'manager can close a clean accounting period');
     equal(closedPeriod.body.period.status, 'closed', 'period close persists closed status');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=? AND action='closed'").get(closedPeriod.body.period.id) as any).count, 1,
+      'database trigger audits the initial close exactly once');
+
+    let directCloseReasonMutationBlocked = false;
+    try {
+      db.prepare('UPDATE accounting_period_closures SET close_reason=? WHERE id=?')
+        .run('tampered without a transition', closedPeriod.body.period.id);
+    } catch (error: any) {
+      directCloseReasonMutationBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION');
+    }
+    equal(directCloseReasonMutationBlocked, true, 'database trigger blocks direct edits to a close reason');
+
+    let directPeriodRangeMutationBlocked = false;
+    try {
+      db.prepare('UPDATE accounting_period_closures SET period_end=? WHERE id=?')
+        .run('2020-01-02', closedPeriod.body.period.id);
+    } catch (error: any) {
+      directPeriodRangeMutationBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION');
+    }
+    equal(directPeriodRangeMutationBlocked, true, 'database trigger makes closed period identity and date range immutable');
+
+    let directOverlapInsertBlocked = false;
+    try {
+      db.prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES (?, '2019-12-31', '2020-01-02', 'closed', 'SQL overlap attempt', 'accounting-api-owner')")
+        .run('closed-period-direct-overlap');
+    } catch (error: any) {
+      directOverlapInsertBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSE_OVERLAP');
+    }
+    equal(directOverlapInsertBlocked, true, 'database trigger blocks overlapping close rows even for direct SQL writes');
     equal((await request(app).post('/api/accounting/periods/close').set(manager).send({
       period_start: '2020-01-01', period_end: '2020-01-01', reason: 'Changed reason',
     })).status, 409, 'a changed close retry cannot silently reuse the existing close record');
