@@ -146,6 +146,7 @@ function freshInstallChecks(): void {
   }
   const loanInstallmentColumns = (db.pragma('table_info(accounting_loan_installments)') as Array<{name:string}>).map(column=>column.name);
   check(loanInstallmentColumns.includes('due_journal_entry_id'), 'migration v116 links due-accrual journals');
+  check(loanInstallmentColumns.includes('settlement_payload_hash'), 'migration v116 persists settlement idempotency payloads');
   check(loanInstallmentColumns.includes('last_error_message'), 'migration v116 persists retryable due-registration failures');
   const billColumns = (db.pragma('table_info(bills)') as Array<{ name: string }>).map((column) => column.name);
   check(billColumns.includes('accounting_finalized_at'), 'migration v105 adds bill accounting finalization field');
