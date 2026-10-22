@@ -141,8 +141,10 @@ export function listLoans(db: DB, filters: any = {}): any[] {
     WHERE (? IS NULL OR l.status=?) ORDER BY l.loan_date,l.created_at,l.id`).all(status,status) as any[];
   return rows.map(loan => {
     const remaining = outstanding(db,loan);
-    const installments = db.prepare(`SELECT i.*, j.entry_number AS settlement_entry_number FROM accounting_loan_installments i
-      LEFT JOIN accounting_journal_entries j ON j.id=i.settlement_journal_entry_id WHERE i.loan_id=? ORDER BY i.due_date,i.created_at,i.id`).all(loan.id) as any[];
+    const installments = db.prepare(`SELECT i.*, due.entry_number AS due_entry_number, settlement.entry_number AS settlement_entry_number FROM accounting_loan_installments i
+      LEFT JOIN accounting_journal_entries due ON due.id=i.due_journal_entry_id
+      LEFT JOIN accounting_journal_entries settlement ON settlement.id=i.settlement_journal_entry_id
+      WHERE i.loan_id=? ORDER BY i.due_date,i.created_at,i.id`).all(loan.id) as any[];
     return {...loan,remaining_principal_minor:remaining,principal_repaid_minor:Number(loan.initial_outstanding_minor)-remaining,
       status:remaining===0?'closed':loan.status,installments};
   });
