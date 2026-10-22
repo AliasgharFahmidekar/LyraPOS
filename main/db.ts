@@ -2709,6 +2709,11 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_journal_entries_closed_period_insert_guard',
   'accounting_journal_entries_closed_period_guard',
   'accounting_period_closures_no_delete',
+  'accounting_period_closures_update_guard',
+  'accounting_period_closures_no_overlap_insert',
+  'accounting_period_closures_no_overlap_update',
+  'accounting_period_closures_audit_insert',
+  'accounting_period_closures_audit_update',
   'accounting_closed_period_posted_entry_update_guard',
   'accounting_closed_period_posted_entry_delete_guard',
   'accounting_closed_period_posted_line_insert_guard',
@@ -3110,6 +3115,100 @@ const ACCOUNTING_PERIOD_CLOSE_TRIGGER_SQL = `
     BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
 `;
 
+const ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL = `
+  -- The date range and identity are permanent. Only close -> reopen -> reclose
+  -- transitions are supported; every accepted insert/update is audited by SQL
+  -- so direct database writes cannot bypass the accounting audit trail.
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_update_guard
+    BEFORE UPDATE ON accounting_period_closures
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.period_start IS NOT OLD.period_start
+      OR NEW.period_end IS NOT OLD.period_end
+      OR NOT (
+        (OLD.status = 'closed' AND NEW.status = 'reopened'
+          AND NEW.close_reason IS OLD.close_reason
+          AND NEW.closed_by IS OLD.closed_by
+          AND NEW.closed_at IS OLD.closed_at
+          AND length(trim(COALESCE(NEW.reopen_reason, ''))) > 0
+          AND NEW.reopened_by IS NOT NULL
+          AND NEW.reopened_at IS NOT NULL)
+        OR
+        (OLD.status = 'reopened' AND NEW.status = 'closed'
+          AND NEW.reopen_reason IS NULL
+          AND NEW.reopened_by IS NULL
+          AND NEW.reopened_at IS NULL
+          AND length(trim(COALESCE(NEW.close_reason, ''))) > 0)
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_no_overlap_insert
+    BEFORE INSERT ON accounting_period_closures
+    WHEN NEW.status = 'closed' AND EXISTS (
+      SELECT 1 FROM accounting_period_closures AS existing
+      WHERE existing.status = 'closed'
+        AND existing.period_start <= NEW.period_end
+        AND existing.period_end >= NEW.period_start
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_OVERLAP');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_no_overlap_update
+    BEFORE UPDATE ON accounting_period_closures
+    WHEN NEW.status = 'closed' AND EXISTS (
+      SELECT 1 FROM accounting_period_closures AS existing
+      WHERE existing.id != NEW.id
+        AND existing.status = 'closed'
+        AND existing.period_start <= NEW.period_end
+        AND existing.period_end >= NEW.period_start
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_OVERLAP');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_audit_insert
+    AFTER INSERT ON accounting_period_closures
+    BEGIN
+      INSERT INTO accounting_audit_log
+        (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+      VALUES (
+        'accounting_period', NEW.id, 'closed', NEW.closed_by, NULL,
+        json_object(
+          'id', NEW.id, 'period_start', NEW.period_start, 'period_end', NEW.period_end,
+          'status', NEW.status, 'close_reason', NEW.close_reason, 'closed_by', NEW.closed_by,
+          'closed_at', NEW.closed_at, 'reopen_reason', NEW.reopen_reason,
+          'reopened_by', NEW.reopened_by, 'reopened_at', NEW.reopened_at
+        )
+      );
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_audit_update
+    AFTER UPDATE ON accounting_period_closures
+    BEGIN
+      INSERT INTO accounting_audit_log
+        (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+      VALUES (
+        'accounting_period', NEW.id,
+        CASE NEW.status WHEN 'reopened' THEN 'reopened' ELSE 'reclosed' END,
+        CASE NEW.status WHEN 'reopened' THEN NEW.reopened_by ELSE NEW.closed_by END,
+        json_object(
+          'id', OLD.id, 'period_start', OLD.period_start, 'period_end', OLD.period_end,
+          'status', OLD.status, 'close_reason', OLD.close_reason, 'closed_by', OLD.closed_by,
+          'closed_at', OLD.closed_at, 'reopen_reason', OLD.reopen_reason,
+          'reopened_by', OLD.reopened_by, 'reopened_at', OLD.reopened_at
+        ),
+        json_object(
+          'id', NEW.id, 'period_start', NEW.period_start, 'period_end', NEW.period_end,
+          'status', NEW.status, 'close_reason', NEW.close_reason, 'closed_by', NEW.closed_by,
+          'closed_at', NEW.closed_at, 'reopen_reason', NEW.reopen_reason,
+          'reopened_by', NEW.reopened_by, 'reopened_at', NEW.reopened_at
+        )
+      );
+    END;
+`;
+
 function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (!getTables(db).includes('accounting_accounts')) return;
   db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
@@ -3117,6 +3216,7 @@ function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
     && getTables(db).includes('accounting_journal_entries')
     && getTables(db).includes('accounting_journal_lines')) {
     db.exec(ACCOUNTING_PERIOD_CLOSE_TRIGGER_SQL);
+    db.exec(ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL);
   }
   if (
     getTables(db).includes('bills')
@@ -6526,6 +6626,13 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 111,
+    name: 'accounting_period_close_record_immutability_and_audit',
+    up: () => {
+      db.exec(ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL);
+    },
+
 ]; 
  
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
