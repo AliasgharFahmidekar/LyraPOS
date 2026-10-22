@@ -218,7 +218,11 @@ function postDueJournal(db: DB, item: any, postedBy: string): { id: string; entr
   const lines = item.direction === 'incoming'
     ? [
       { accountId: controlAccount, debitMinor: amount, creditMinor: 0, description: 'Future receipt/cheque receivable' },
-      { accountId: classification.id, debitMinor: 0, creditMinor: amount, description: item.description },
+      {
+        accountId: systemAccount(db, 'future_receipt_clearing', 'liability'),
+        debitMinor: 0, creditMinor: amount,
+        description: 'Receipt pending actual settlement; not recognized as income yet',
+      },
     ]
     : [
       { accountId: classification.id, debitMinor: amount, creditMinor: 0, description: item.description },
@@ -349,11 +353,19 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
     const controlAccount = item.direction === 'incoming'
       ? systemAccount(db, 'accounts_receivable', 'asset')
       : systemAccount(db, 'accounts_payable', 'liability');
+    const incomingClassification = item.direction === 'incoming'
+      ? assertAccount(db, item.classification_account_id, ['revenue'])
+      : null;
+    const incomingClearingAccount = item.direction === 'incoming'
+      ? systemAccount(db, 'future_receipt_clearing', 'liability')
+      : null;
     const amount = Number(item.amount_minor);
     const lines = item.direction === 'incoming'
       ? [
         { accountId: settlementAccountId, debitMinor: amount, creditMinor: 0, description: 'Actual future receipt/cheque settlement' },
-        { accountId: controlAccount, debitMinor: 0, creditMinor: amount, description: item.description },
+        { accountId: controlAccount, debitMinor: 0, creditMinor: amount, description: 'Clear registered future receipt receivable' },
+        { accountId: incomingClearingAccount!, debitMinor: amount, creditMinor: 0, description: 'Release receipt clearing balance after actual settlement' },
+        { accountId: incomingClassification!.id, debitMinor: 0, creditMinor: amount, description: item.description },
       ]
       : [
         { accountId: controlAccount, debitMinor: amount, creditMinor: 0, description: 'Settle registered payable' },
