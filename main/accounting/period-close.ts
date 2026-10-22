@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getAccountingSourceEventReconciliation } from './source-reconciliation';
 import { AccountingExpenseError, assertAccountingDate } from './expenses';
+import { getAccountingTrialBalance } from './trial-balance';
 
 type DB = Database.Database;
 function fail(code: string, message: string, statusCode = 400): never {
@@ -52,6 +53,19 @@ export function closeAccountingPeriod(db: DB, input: any, actorId: string | null
     const expenses = db.prepare("SELECT COUNT(*) AS count FROM accounting_expenses WHERE status='draft' AND ((expense_date BETWEEN ? AND ?) OR (payment_date BETWEEN ? AND ?))")
       .get(start, end, start, end) as { count: number };
     if (expenses.count > 0) fail('period_has_unposted_expenses', 'Post or resolve draft expenses in this period before closing it.', 409);
+
+    // Period close is a financial integrity boundary, not just a source-event check.
+    // Re-check every posted journal in the exact period so externally seeded or
+    // otherwise malformed posted rows cannot be frozen into a "closed" period.
+    const trialBalance = getAccountingTrialBalance(db, { from: start, to: end });
+    if (!trialBalance.integrity.balanced
+      || trialBalance.totals.period_debit_minor !== trialBalance.totals.period_credit_minor) {
+      fail(
+        'period_has_unbalanced_journals',
+        'Resolve unbalanced or incomplete posted journal entries in this period before closing it.',
+        409,
+      );
+    }
 
     const reconciliation = getAccountingSourceEventReconciliation(db, { from: start, to: end, limit: 2000 });
     const allowedStatuses = new Set(['posted_once', 'skipped_pre_cutover', 'excluded_non_monetary']);
