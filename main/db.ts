@@ -3366,7 +3366,7 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
     WHEN OLD.status='settled' AND (
       NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') OR COALESCE(NEW.due_journal_entry_id,'')<>COALESCE(OLD.due_journal_entry_id,'') OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'')
       OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'')
-      OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'') OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'')
+      OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'') OR COALESCE(NEW.settlement_payload_hash,'')<>COALESCE(OLD.settlement_payload_hash,'') OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'')
       OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,''))
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
@@ -3383,6 +3383,7 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
               AND COALESCE(NEW.settlement_account_id,'')=COALESCE(OLD.settlement_account_id,'')
               AND COALESCE(NEW.settlement_journal_entry_id,'')=COALESCE(OLD.settlement_journal_entry_id,'')
               AND COALESCE(NEW.settlement_idempotency_key,'')=COALESCE(OLD.settlement_idempotency_key,'')
+              AND COALESCE(NEW.settlement_payload_hash,'')=COALESCE(OLD.settlement_payload_hash,'')
               AND COALESCE(NEW.settled_at,'')=COALESCE(OLD.settled_at,'')
               AND COALESCE(NEW.settled_by,'')=COALESCE(OLD.settled_by,'')
               AND COALESCE(NEW.cancellation_reason,'')=COALESCE(OLD.cancellation_reason,'')
@@ -7126,6 +7127,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           settlement_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
           settlement_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
           settlement_idempotency_key TEXT UNIQUE,
+          settlement_payload_hash TEXT CHECK (settlement_payload_hash IS NULL OR length(settlement_payload_hash)=64),
           settled_at TEXT,
           settled_by TEXT,
           cancellation_reason TEXT CHECK (cancellation_reason IS NULL OR length(trim(cancellation_reason)) BETWEEN 1 AND 500),
@@ -7138,10 +7140,10 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           CHECK (principal_minor + interest_minor + fees_minor > 0),
           CHECK ((interest_minor=0 AND interest_account_id IS NULL) OR (interest_minor>0 AND interest_account_id IS NOT NULL)),
           CHECK ((fees_minor=0 AND fees_account_id IS NULL) OR (fees_minor>0 AND fees_account_id IS NOT NULL)),
-          CHECK ((status='scheduled' AND registered_at IS NULL AND due_journal_entry_id IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+          CHECK ((status='scheduled' AND registered_at IS NULL AND due_journal_entry_id IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND settlement_payload_hash IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
             OR (status='awaiting_confirmation' AND registered_at IS NULL AND due_journal_entry_id IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
             OR (status='registered' AND registered_at IS NOT NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
-            OR (status='settled' AND settlement_date IS NOT NULL AND settlement_account_id IS NOT NULL AND settlement_journal_entry_id IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='settled' AND settlement_date IS NOT NULL AND settlement_account_id IS NOT NULL AND settlement_journal_entry_id IS NOT NULL AND settlement_idempotency_key IS NOT NULL AND settlement_payload_hash IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
             OR (status='cancelled' AND cancellation_reason IS NOT NULL AND cancelled_by IS NOT NULL AND cancelled_at IS NOT NULL AND due_journal_entry_id IS NULL AND settlement_journal_entry_id IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
             OR (status='failed' AND registered_at IS NULL AND due_journal_entry_id IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL AND last_error_code IS NOT NULL AND last_error_message IS NOT NULL))
         );
@@ -7224,6 +7226,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         AND COALESCE(NEW.settlement_account_id,'')=COALESCE(OLD.settlement_account_id,'')
         AND COALESCE(NEW.settlement_journal_entry_id,'')=COALESCE(OLD.settlement_journal_entry_id,'')
         AND COALESCE(NEW.settlement_idempotency_key,'')=COALESCE(OLD.settlement_idempotency_key,'')
+        AND COALESCE(NEW.settlement_payload_hash,'')=COALESCE(OLD.settlement_payload_hash,'')
         AND COALESCE(NEW.settled_at,'')=COALESCE(OLD.settled_at,'')
         AND COALESCE(NEW.settled_by,'')=COALESCE(OLD.settled_by,'')
         AND COALESCE(NEW.cancellation_reason,'')=COALESCE(OLD.cancellation_reason,'')
