@@ -46,6 +46,7 @@ function main(): void {
     const duplicateLoan = loans.createLoan(db, loanInput, 'test-owner', 'loan-create-001');
     equal(duplicateLoan.duplicate, true, 'identical loan creation retry is idempotent');
     throws(() => loans.createLoan(db, {...loanInput, principal_minor: 1100}, 'test-owner', 'loan-create-001'), 'idempotency_conflict', 'changed loan payload under same key is rejected');
+    throws(() => loans.createLoan(db, {...loanInput, liability_account_id:'acct-payables'}, 'test-owner', 'loan-wrong-liability'), 'invalid_loan_liability_account', 'general accounts payable cannot be reused as the loan liability account');
 
     const receiptLines = journalLines(db, created.initial_journal_entry_id);
     equal(receiptLines.length, 2, 'loan receipt creates a two-line balanced journal');
