@@ -420,6 +420,20 @@ As of this PR branch, Phase 0 discovery, Phase 1 ledger, Phase 2 expenses/transf
 
 **Owner requirement and recommended design decision updated 2026-10-22.** **Phase 6 passed CI run #605** on head `c4a41d09e2bbf0067255061fac0fe76590f1ad31`. Phase 7 is now in progress on the same unmerged PR branch. This is a planned capability on top of the existing ledger, not a parallel accounting system. Build three distinct accounting workflows over one shared due-date/occurrence engine.
 
+### 7.0 — Shared data model and posting contract (in progress)
+
+Before adding recurrence or loans, Phase 7 establishes a single audited pattern for a one-off future item:
+
+- **Definition row:** immutable purpose/type, direction, amount in integer accounting units, canonical Gregorian ISO due date, configured currency, classification account, automatic-registration choice, source idempotency key and payload hash.
+- **Lifecycle:** `scheduled` → `awaiting_confirmation` (manual mode) or `registered` (automatic/confirmed); transient posting failures are `failed` and retryable; `registered` → `settled` only after actual settlement; `cancelled` is terminal only before posting. Settled/posted journals are never deleted or rewritten.
+- **Due registration versus settlement:** registration records the dated accounting event without pretending cash moved. Incoming income/checks debit the receivable account and credit the selected revenue account; outgoing expense/checks debit the selected expense account and credit the payable account. Actual settlement is a separate user-attributed journal: incoming = debit selected cash/bank/clearing account, credit receivable; outgoing = debit payable, credit selected cash/bank/clearing account.
+- **Automatic mode:** when the due date is reached, post the due journal only for records with automatic registration enabled; manual-mode items become due and wait for an authorized confirmation. If the app was closed, catch up after startup; retries must be idempotent. A due date alone never claims that a cheque cleared or that cash/bank was physically paid.
+- **Accounting meanings:** incoming items require an active postable revenue account; outgoing items require an active postable expense account. The counterpart account is the existing system receivable/payable account. The UI must show the effect in ordinary language before confirmation. Loan principal and recurring-obligation schedules will use separate dedicated models in later stages rather than being forced into this table.
+- **Storage and safety:** all dates are canonical ISO; money is integer accounting minor units; all writes use the existing journal engine, period-close guard, stable source tuple, audit log and idempotency contract. A failed or unresolved item is visible. A closed-period posting is rejected rather than bypassed.
+- **Reporting boundary:** future-but-unregistered items are forecast data only. Once an item is registered, it contributes to posted ledger results under its configured revenue/expense account; actual cash flow changes only on settlement. The reports must distinguish forecast items, registered-but-unsettled items and settled cash movements.
+
+This is intentionally the foundation for the first delivery stage: a one-off future receipt/cheque. It does not yet implement recurring schedules, loan repayment splitting, Jalali date entry UI, external bank verification or payment-provider integration.
+
 ### Product decision: three separate workflows, one shared scheduler
 
 The accounting sidebar/page should expose three distinct sections:
