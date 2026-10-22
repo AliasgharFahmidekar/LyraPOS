@@ -121,7 +121,7 @@ async function main() {
     const refundsBeforeAlias = (db.prepare('SELECT COUNT(*) AS n FROM refunds WHERE bill_id=?').get(aliasBill.bill.id) as any).n;
     const unsupportedCreditAlias = await api(baseUrl, '/api/refunds', {
       method: 'POST',
-      body: { bill_id: aliasBill.bill.id, amount: aliasBill.bill.paid_amount, method: 'store_credit', override_pin: '9999', approver_id: ownerId },
+      body: { bill_id: aliasBill.bill.id, amount: aliasBill.bill.paid_amount, method: 'Store Credit', override_pin: '9999', approver_id: ownerId },
       headers: ownerAuth,
     });
     assertEqual(unsupportedCreditAlias.status, 400, 'legacy store_credit alias is rejected instead of being treated as a completed refund');
