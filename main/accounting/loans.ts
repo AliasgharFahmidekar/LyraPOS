@@ -161,8 +161,6 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
   });
   if(new Set(normalized.map(i=>i.dueDate)).size!==normalized.length) fail('duplicate_installment_due_date','Installment due dates must be unique within a schedule.');
   const principalTotal=normalized.reduce((sum,i)=>sum+i.principal,0);
-  const alreadyScheduled = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered')").get(loan.id) as {total:number};
-  if(!Number.isSafeInteger(principalTotal) || principalTotal + Number(alreadyScheduled.total) > outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Combined scheduled principal exceeds the loan remaining principal.',409);
   const payloadHash=hash({loanId:loan.id,installments:normalized.map(({index,...i})=>i)});
   return db.transaction(()=>{
     const old=db.prepare('SELECT * FROM accounting_loan_installment_batches WHERE idempotency_key=?').get(idempotencyKey) as any;
@@ -171,6 +169,8 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
       const rows=db.prepare('SELECT * FROM accounting_loan_installments WHERE batch_id=? ORDER BY due_date').all(old.id);
       return {batch:old,installments:rows,duplicate:true};
     }
+    const alreadyScheduled = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered')").get(loan.id) as {total:number};
+    if(!Number.isSafeInteger(principalTotal) || principalTotal + Number(alreadyScheduled.total) > outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Combined scheduled principal exceeds the loan remaining principal.',409);
     const batchId=randomUUID();
     db.prepare('INSERT INTO accounting_loan_installment_batches (id,loan_id,idempotency_key,payload_hash,created_by) VALUES (?,?,?,?,?)')
       .run(batchId,loan.id,idempotencyKey,payloadHash,actor(actorId));
@@ -215,7 +215,7 @@ export function processDueLoanInstallments(db: DB, asOfInput?: unknown): {checke
 export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input: any, actorId: string | null, idempotencyInput: unknown): any {
   const id=text(installmentIdInput,'installment_id',100);
   const settlementDate=date(input?.settlement_date,'settlement_date');
-  const cash=liquid(db,input?.settlement_account_id);
+  const settlementAccountId=text(input?.settlement_account_id,'settlement_account_id',100);
   const idempotencyKey=key(idempotencyInput);
   return db.transaction(()=>{
     const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
@@ -226,6 +226,7 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
       if(item.settlement_idempotency_key===idempotencyKey && item.settlement_date===settlementDate && item.settlement_account_id===cash.id) return {...item,duplicate:true};
       fail('installment_already_settled','Instalment is already settled.',409);
     }
+    const cash=liquid(db,settlementAccountId);
     const loan=loanRow(db,item.loan_id);
     if(settlementDate<loan.loan_date) fail('settlement_before_loan_date','Settlement date cannot precede the loan date.');
     if(item.principal_minor>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Principal payment exceeds current outstanding principal.',409);
