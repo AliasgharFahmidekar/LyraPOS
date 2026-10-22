@@ -26,6 +26,8 @@ const { initTestDb, createApp, closeDatabase, now } = require('./helpers/test-se
 const { accountingRoutes } = require('../main/routes/accounting');
 const { createDraftJournalEntry, postJournalEntry } = require('../main/accounting/ledger');
 const { getAccountingSourceEventReconciliation } = require('../main/accounting/source-reconciliation');
+const { processDueFutureItems } = require('../main/accounting/future-items');
+const { accountingDate } = require('../main/accounting/sales');
 const { getJWTSecret } = require('../main/routes/auth');
 
 let assertions = 0;
@@ -59,6 +61,9 @@ async function main(): Promise<void> {
     const app = createApp({ '/api/accounting': accountingRoutes });
 
     equal((await request(app).get('/api/accounting/expenses')).status, 401, 'unauthenticated expense list is denied');
+    equal((await request(app).get('/api/accounting/future-items')).status, 401, 'unauthenticated future-item list is denied');
+    equal((await request(app).post('/api/accounting/future-items').set(cashier).send({})).status, 403, 'cashier cannot create future items');
+    equal((await request(app).get('/api/accounting/future-items').set(cashier)).status, 403, 'cashier cannot read future items');
     equal((await request(app).get('/api/accounting/export')).status, 401, 'unauthenticated accounting export is denied');
     for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
       equal((await request(app).get('/api/accounting/accounts').set(headers)).status, 403, role + ' cannot read accounting accounts');
@@ -851,6 +856,151 @@ async function main(): Promise<void> {
     equal(unbalancedClose.body.code, 'period_has_unbalanced_journals', 'period close reports the journal-integrity failure distinctly');
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_period_closures WHERE period_start='2020-01-02' AND period_end='2020-01-02' AND status='closed'").get() as any).count, 0,
       'a period containing an unbalanced posted journal remains open');
+
+    // Phase 7 Stage 1: future receipts/cheques have separate registration and actual settlement.
+    const futureIncomingPayload = {
+      record_type: 'receipt', direction: 'incoming', due_date: '2099-10-21',
+      amount_minor: 5000, currency_code: 'INR', description: 'Future service receipt',
+      counterparty: 'Future customer', reference_number: 'RCPT-FUTURE-001',
+      classification_account_id: 'acct-other-income', auto_register: true,
+    };
+    const futureIncomingResponse = await request(app).post('/api/accounting/future-items')
+      .set(manager).set('Idempotency-Key', 'future-incoming-001').send(futureIncomingPayload);
+    equal(futureIncomingResponse.status, 201, 'manager can create a future receipt');
+    const futureIncomingId = futureIncomingResponse.body.item?.id;
+    ok(!!futureIncomingId, 'future receipt receives a stable identity');
+    equal(futureIncomingResponse.body.item?.status, 'scheduled', 'creating a future receipt does not post its future event');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=?").get(futureIncomingId) as any).count, 0,
+      'future receipt creation does not create a ledger journal');
+    const futureIncomingRetry = await request(app).post('/api/accounting/future-items')
+      .set(manager).set('Idempotency-Key', 'future-incoming-001').send(futureIncomingPayload);
+    equal(futureIncomingRetry.status, 201, 'identical future receipt retry is idempotent');
+    equal(futureIncomingRetry.body.item?.id, futureIncomingId, 'identical future receipt retry returns the existing record');
+    equal(futureIncomingRetry.body.item?.duplicate, true, 'future receipt retry is marked duplicate');
+    equal((await request(app).post('/api/accounting/future-items').set(manager).set('Idempotency-Key', 'future-incoming-001')
+      .send({ ...futureIncomingPayload, amount_minor: 5001 })).status, 409, 'a changed future-item payload cannot reuse its idempotency key');
+    equal((await request(app).post('/api/accounting/future-items').set(manager).set('Idempotency-Key', 'future-invalid-date')
+      .send({ ...futureIncomingPayload, due_date: '2099-02-30' })).status, 400, 'future items reject impossible dates');
+    equal((await request(app).post('/api/accounting/future-items').set(manager).set('Idempotency-Key', 'future-invalid-account')
+      .send({ ...futureIncomingPayload, classification_account_id: 'acct-operating-expenses' })).status, 400,
+      'incoming future items cannot be mapped to an expense account');
+
+    const futureNotDuePass = processDueFutureItems(db, '2099-10-20');
+    equal(futureNotDuePass.checked, 0, 'due processor leaves future items untouched before their due date');
+    const autoDuePass = processDueFutureItems(db, '2099-10-21');
+    equal(autoDuePass.registered, 1, 'automatic mode registers the item when its due date is reached');
+    const futureIncomingRow = db.prepare('SELECT * FROM accounting_future_items WHERE id=?').get(futureIncomingId) as any;
+    equal(futureIncomingRow.status, 'registered', 'automatic due processing moves the item to registered');
+    const dueJournal = db.prepare('SELECT id, status, entry_date FROM accounting_journal_entries WHERE id=?').get(futureIncomingRow.due_journal_entry_id) as any;
+    equal(dueJournal.status, 'posted', 'automatic due registration posts through the normal ledger');
+    equal(dueJournal.entry_date, '2099-10-21', 'due journal uses the stored canonical ISO due date');
+    const dueLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=? ORDER BY line_no').all(dueJournal.id) as any[];
+    equal(dueLines.reduce((n, line) => n + line.debit_minor, 0), 5000, 'due registration debits the exact amount');
+    equal(dueLines.reduce((n, line) => n + line.credit_minor, 0), 5000, 'due registration credits the exact amount');
+    ok(dueLines.some((line) => line.account_id === 'acct-receivables' && line.debit_minor === 5000),
+      'incoming due registration debits receivables rather than pretending cash arrived');
+    ok(dueLines.some((line) => line.account_id === 'acct-other-income' && line.credit_minor === 5000),
+      'incoming due registration credits the configured revenue account');
+    ok(!dueLines.some((line) => line.account_id === 'acct-bank' || line.account_id === 'acct-cash-drawer'),
+      'due registration does not change a cash or bank account before actual settlement');
+    const managerFutureList = await request(app).get('/api/accounting/future-items?from=2099-10-21&to=2099-10-21').set(manager);
+    equal(managerFutureList.status, 200, 'manager can filter future items by their due-date range');
+    equal(managerFutureList.body.items?.find((item: any) => item.id === futureIncomingId)?.status, 'registered',
+      'future-item history reflects the automatic posting state');
+
+    const settlementPayload = { settlement_date: '2099-10-22', settlement_account_id: 'acct-bank' };
+    const settledIncoming = await request(app).post('/api/accounting/future-items/' + futureIncomingId + '/settle')
+      .set(manager).set('Idempotency-Key', 'future-incoming-settlement-001').send(settlementPayload);
+    equal(settledIncoming.status, 200, 'manager can confirm actual settlement separately from due registration');
+    equal(settledIncoming.body.item?.status, 'settled', 'confirmed incoming settlement moves item to settled');
+    const settlementJournal = db.prepare('SELECT id, status, entry_date FROM accounting_journal_entries WHERE id=?')
+      .get(settledIncoming.body.item?.settlement_journal_entry_id) as any;
+    equal(settlementJournal.status, 'posted', 'actual settlement posts a separate journal');
+    equal(settlementJournal.entry_date, '2099-10-22', 'settlement journal uses the actual settlement date');
+    const settlementLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?').all(settlementJournal.id) as any[];
+    ok(settlementLines.some((line) => line.account_id === 'acct-bank' && line.debit_minor === 5000),
+      'actual incoming settlement debits the chosen bank account');
+    ok(settlementLines.some((line) => line.account_id === 'acct-receivables' && line.credit_minor === 5000),
+      'actual incoming settlement clears receivables');
+    const settlementRetry = await request(app).post('/api/accounting/future-items/' + futureIncomingId + '/settle')
+      .set(manager).set('Idempotency-Key', 'future-incoming-settlement-001').send(settlementPayload);
+    equal(settlementRetry.status, 200, 'identical actual-settlement retry is accepted');
+    equal(settlementRetry.body.item?.duplicate, true, 'identical actual-settlement retry is marked duplicate');
+    equal((await request(app).post('/api/accounting/future-items/' + futureIncomingId + '/settle')
+      .set(manager).set('Idempotency-Key', 'future-incoming-settlement-001')
+      .send({ ...settlementPayload, settlement_date: '2099-10-23' })).status, 409,
+      'changed settlement payload cannot reuse its idempotency key');
+
+    const todayAccountingDate = accountingDate(db, new Date().toISOString());
+    const manualOutgoingPayload = {
+      record_type: 'cheque', direction: 'outgoing', due_date: todayAccountingDate,
+      amount_minor: 2500, currency_code: 'INR', description: 'Issued service cheque',
+      counterparty: 'Service supplier', reference_number: 'CHQ-OUT-001',
+      classification_account_id: 'acct-operating-expenses', auto_register: false,
+    };
+    const manualOutgoing = await request(app).post('/api/accounting/future-items')
+      .set(manager).set('Idempotency-Key', 'future-outgoing-manual-001').send(manualOutgoingPayload);
+    equal(manualOutgoing.status, 201, 'manager can create an outgoing cheque in manual-confirmation mode');
+    const manualOutgoingId = manualOutgoing.body.item?.id;
+    const manualDuePass = processDueFutureItems(db, todayAccountingDate);
+    equal(manualDuePass.awaitingConfirmation, 1, 'manual mode moves a due item to awaiting confirmation without posting');
+    equal(db.prepare('SELECT status FROM accounting_future_items WHERE id=?').get(manualOutgoingId)?.status, 'awaiting_confirmation',
+      'manual due item persists awaiting-confirmation status');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=? AND source_event='due_registration'").get(manualOutgoingId) as any).count, 0,
+      'manual due item has no due journal before explicit confirmation');
+    const manuallyRegistered = await request(app).post('/api/accounting/future-items/' + manualOutgoingId + '/register').set(manager).send({});
+    equal(manuallyRegistered.status, 200, 'manager can explicitly register a due manual item');
+    equal(manuallyRegistered.body.item?.status, 'registered', 'manual confirmation moves the item to registered');
+    const manualDueLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
+      .all(manuallyRegistered.body.item?.due_journal_entry_id) as any[];
+    ok(manualDueLines.some((line) => line.account_id === 'acct-operating-expenses' && line.debit_minor === 2500),
+      'outgoing due registration debits the selected expense account');
+    ok(manualDueLines.some((line) => line.account_id === 'acct-payables' && line.credit_minor === 2500),
+      'outgoing due registration credits payables and does not assume cash was already paid');
+    const manualSettled = await request(app).post('/api/accounting/future-items/' + manualOutgoingId + '/settle')
+      .set(manager).set('Idempotency-Key', 'future-outgoing-settlement-001')
+      .send({ settlement_date: todayAccountingDate < '2099-12-01' ? ((): string => {
+        const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10);
+      })() : '2100-01-01', settlement_account_id: 'acct-bank' });
+    equal(manualSettled.status, 200, 'manager can settle an outgoing cheque after the due event was registered');
+    equal(manualSettled.body.item?.status, 'settled', 'outgoing cheque reaches settled status after actual payment confirmation');
+    const manualSettlementLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
+      .all(manualSettled.body.item?.settlement_journal_entry_id) as any[];
+    ok(manualSettlementLines.some((line) => line.account_id === 'acct-payables' && line.debit_minor === 2500),
+      'actual outgoing settlement clears payables');
+    ok(manualSettlementLines.some((line) => line.account_id === 'acct-bank' && line.credit_minor === 2500),
+      'actual outgoing settlement credits the chosen bank account');
+
+    const cancelDueDate = (() => {
+      const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 30); return date.toISOString().slice(0, 10);
+    })();
+    const cancellable = await request(app).post('/api/accounting/future-items').set(manager).set('Idempotency-Key', 'future-cancel-001')
+      .send({ ...futureIncomingPayload, due_date: cancelDueDate, auto_register: false, reference_number: 'RCPT-CANCEL-001' });
+    equal(cancellable.status, 201, 'manager can create a future item that has not been registered');
+    const cancelled = await request(app).post('/api/accounting/future-items/' + cancellable.body.item?.id + '/cancel')
+      .set(manager).send({ reason: 'Source document voided' });
+    equal(cancelled.status, 200, 'manager can cancel a scheduled unposted item with a reason');
+    equal(cancelled.body.item?.status, 'cancelled', 'cancelled future item is terminal');
+    equal(cancelled.body.item?.cancellation_reason, 'Source document voided', 'cancellation reason is persisted');
+    let immutablePayloadBlocked = false;
+    try {
+      db.prepare('UPDATE accounting_future_items SET amount_minor=1 WHERE id=?').run(futureIncomingId);
+    } catch (error: any) { immutablePayloadBlocked = String(error?.message || '').includes('ACCOUNTING_FUTURE_ITEM_PAYLOAD_IMMUTABLE'); }
+    equal(immutablePayloadBlocked, true, 'database trigger prevents changing the immutable registered source payload');
+    let futureItemDeleteBlocked = false;
+    try { db.prepare('DELETE FROM accounting_future_items WHERE id=?').run(futureIncomingId); }
+    catch (error: any) { futureItemDeleteBlocked = String(error?.message || '').includes('ACCOUNTING_FUTURE_ITEM_IMMUTABLE'); }
+    equal(futureItemDeleteBlocked, true, 'database trigger prevents deleting future-item audit records');
+
+    const closedDueItem = await request(app).post('/api/accounting/future-items').set(manager).set('Idempotency-Key', 'future-closed-period-001')
+      .send({ ...futureIncomingPayload, due_date: '2020-01-01', reference_number: 'RCPT-CLOSED-001' });
+    equal(closedDueItem.status, 201, 'a future item can be captured even if its historical due date is later found to fall in a closed period');
+    const closedDuePass = processDueFutureItems(db, '2020-01-01');
+    ok(closedDuePass.failed >= 1, 'automatic due registration reports failure for a closed-period posting');
+    equal(db.prepare('SELECT status FROM accounting_future_items WHERE id=?').get(closedDueItem.body.item?.id)?.status, 'failed',
+      'closed-period future item stays visible as failed and retryable');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=?").get(closedDueItem.body.item?.id) as any).count, 0,
+      'closed-period failure creates no partial journal');
 
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
