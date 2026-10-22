@@ -61,8 +61,15 @@ function main(): void {
     const dueResult = loans.processDueLoanInstallments(db, '2026-10-22');
     equal(dueResult.checked, 1, 'due processor checks the overdue loan installment');
     equal(dueResult.registered, 1, 'automatic mode registers a due installment');
-    equal(db.prepare('SELECT status FROM accounting_loan_installments WHERE id=?').get(installment.id).status, 'registered', 'due registration does not mark installment paid');
-    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_loan' AND source_id=? AND source_event='installment_settlement'").get(installment.id).n, 0, 'due registration alone creates no fake cash/payment journal');
+    const registered = db.prepare('SELECT status,due_journal_entry_id FROM accounting_loan_installments WHERE id=?').get(installment.id) as any;
+    equal(registered.status, 'registered', 'due registration does not mark installment paid');
+    ok(!!registered.due_journal_entry_id, 'interest/fee due registration links an accrual journal');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='accounting_loan' AND source_id=? AND source_event='installment_settlement'").get(installment.id).n, 0, 'due registration creates no fake cash/payment journal');
+    const dueLines = journalLines(db, registered.due_journal_entry_id);
+    equal(dueLines.find((line:any)=>line.account_id==='acct-tax-expenses')?.debit_minor, 50, 'due registration recognizes the interest expense');
+    equal(dueLines.find((line:any)=>line.account_id==='acct-payment-fees')?.debit_minor, 10, 'due registration recognizes the fee expense');
+    equal(dueLines.find((line:any)=>line.account_id==='acct-payables')?.credit_minor, 60, 'due registration accrues interest and fees as additional amount owed');
+    ok(!dueLines.some((line:any)=>line.account_id==='acct-bank' || line.account_id==='acct-cash-drawer'), 'due accrual does not move cash or bank');
 
     const settled = loans.settleLoanInstallment(db, installment.id, {
       settlement_date:'2026-10-22', settlement_account_id:'acct-bank',
@@ -70,9 +77,9 @@ function main(): void {
     equal(settled.status, 'settled', 'explicit settlement marks installment paid');
     equal(settled.remaining_principal_minor, 600, 'settled principal reduces outstanding loan principal');
     const paymentLines = journalLines(db, settled.settlement_journal_entry_id);
-    equal(paymentLines.find((line:any)=>line.account_id==='acct-payables')?.debit_minor, 400, 'principal repayment debits liability');
-    equal(paymentLines.find((line:any)=>line.account_id==='acct-tax-expenses')?.debit_minor, 50, 'interest posts to the selected expense account');
-    equal(paymentLines.find((line:any)=>line.account_id==='acct-payment-fees')?.debit_minor, 10, 'fees post to the selected fee expense account');
+    equal(paymentLines.find((line:any)=>line.account_id==='acct-payables')?.debit_minor, 460, 'payment clears principal plus accrued interest and fees from liability');
+    equal(paymentLines.find((line:any)=>line.account_id==='acct-tax-expenses')?.debit_minor, undefined, 'settlement does not expense interest twice');
+    equal(paymentLines.find((line:any)=>line.account_id==='acct-payment-fees')?.debit_minor, undefined, 'settlement does not expense fees twice');
     equal(paymentLines.find((line:any)=>line.account_id==='acct-bank')?.credit_minor, 460, 'actual settlement credits bank for principal, interest and fees');
     equal(paymentLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0), 460, 'installment journal debits balance actual cash outflow');
     equal(paymentLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0), 460, 'installment journal credits balance actual cash outflow');
