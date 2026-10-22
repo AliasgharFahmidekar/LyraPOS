@@ -59,16 +59,29 @@ function getStoreCurrency(db: DB): string {
   }
 }
 
-function assertAccount(db: DB, accountId: unknown, types: string[]): { id: string; account_type: string; system_key: string | null } {
+function assertAccount(db: DB, accountId: unknown, types: string[]): { id: string; account_type: string; system_key: string | null; normal_balance: string } {
   const id = requiredText(accountId, 'classification_account_id', 100);
   const account = db.prepare(
-    'SELECT id, account_type, system_key, is_active, is_postable FROM accounting_accounts WHERE id = ?',
-  ).get(id) as { id: string; account_type: string; system_key: string | null; is_active: number; is_postable: number } | undefined;
+    'SELECT id, account_type, system_key, normal_balance, is_active, is_postable FROM accounting_accounts WHERE id = ?',
+  ).get(id) as { id: string; account_type: string; system_key: string | null; normal_balance: string; is_active: number; is_postable: number } | undefined;
   if (!account) fail('account_not_found', 'The selected accounting account was not found.', 404);
   if (account.is_active !== 1) fail('account_inactive', 'Choose an active accounting account.', 409);
   if (account.is_postable !== 1) fail('account_not_postable', 'Choose a posting account, not a grouping account.', 409);
   if (!types.includes(account.account_type)) {
     fail('invalid_account_type', 'This direction requires an account of type: ' + types.join(' or ') + '.', 400);
+  }
+  const expectedNormalBalance = account.account_type === 'revenue' ? 'credit'
+    : (account.account_type === 'expense' || account.account_type === 'asset') ? 'debit' : null;
+  if (expectedNormalBalance && account.normal_balance !== expectedNormalBalance) {
+    fail('invalid_account_normal_balance', 'The selected account has an incompatible normal balance for its account type.', 400);
+  }
+  return account;
+}
+
+function assertFutureClassification(db: DB, accountId: unknown, direction: Direction) {
+  const account = assertAccount(db, accountId, direction === 'incoming' ? ['revenue'] : ['expense']);
+  if (direction === 'incoming' && ['sales_revenue', 'sales_returns', 'sales_discounts'].includes(account.system_key ?? '')) {
+    fail('invalid_future_income_account', 'Future receipts must use a non-POS income account. POS sales, returns, and discounts are recorded by their own workflows.', 400);
   }
   return account;
 }
@@ -149,7 +162,7 @@ export function createFutureItem(db: DB, input: any, actorId: string | null, ide
   const description = requiredText(input?.description, 'description', 500);
   const counterparty = optionalText(input?.counterparty, 'counterparty', 200);
   const referenceNumber = optionalText(input?.reference_number, 'reference_number', 160);
-  const account = assertAccount(db, input?.classification_account_id, direction === 'incoming' ? ['revenue'] : ['expense']);
+  const account = assertFutureClassification(db, input?.classification_account_id, direction);
   const autoRegister = input?.auto_register === undefined ? false : input.auto_register;
   if (typeof autoRegister !== 'boolean') fail('invalid_auto_register', 'Automatic registration must be true or false.');
   const idempotencyKey = requiredText(idempotencyKeyInput, 'idempotency_key', 200);
@@ -211,9 +224,7 @@ export function listFutureItems(db: DB, filters: any = {}): { items: any[]; limi
 }
 
 function postDueJournal(db: DB, item: any, postedBy: string): { id: string; entryNumber: string } {
-  const classification = assertAccount(
-    db, item.classification_account_id, item.direction === 'incoming' ? ['revenue'] : ['expense'],
-  );
+  const classification = assertFutureClassification(db, item.classification_account_id, item.direction);
   const controlAccount = item.direction === 'incoming'
     ? systemAccount(db, 'accounts_receivable', 'asset')
     : systemAccount(db, 'accounts_payable', 'liability');
@@ -361,13 +372,13 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
       ? systemAccount(db, 'accounts_receivable', 'asset')
       : systemAccount(db, 'accounts_payable', 'liability');
     const incomingClassification = item.direction === 'incoming'
-      ? assertAccount(db, item.classification_account_id, ['revenue'])
+      ? assertFutureClassification(db, item.classification_account_id, 'incoming')
       : null;
     const incomingClearingAccount = item.direction === 'incoming'
       ? systemAccount(db, 'future_receipt_clearing', 'liability')
       : null;
     const outgoingClassification = item.direction === 'outgoing'
-      ? assertAccount(db, item.classification_account_id, ['expense'])
+      ? assertFutureClassification(db, item.classification_account_id, 'outgoing')
       : null;
     const outgoingClearingAccount = item.direction === 'outgoing'
       ? systemAccount(db, 'future_payment_clearing', 'asset')
