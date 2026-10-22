@@ -3465,9 +3465,9 @@ function ensureLoanPayableSystemAccount(dbInstance: Database.Database): void {
   if (existing) return;
   const parent = dbInstance.prepare("SELECT id FROM accounting_accounts WHERE id='acct-liabilities' AND account_type='liability'").get();
   if (!parent) throw new Error('Cannot seed Loans payable: the liability parent account is missing.');
-  let accountId = 'acct-loans-payable';
-  for (let suffix = 2; dbInstance.prepare('SELECT 1 FROM accounting_accounts WHERE id=?').get(accountId); suffix++) {
-    accountId = 'acct-loans-payable-' + suffix;
+  const accountId = 'acct-loans-payable';
+  if (dbInstance.prepare('SELECT 1 FROM accounting_accounts WHERE id=?').get(accountId)) {
+    throw new Error('Cannot seed Loans payable: the reserved account id is already used by a different account.');
   }
   let accountCode = 2030;
   while (dbInstance.prepare('SELECT 1 FROM accounting_accounts WHERE account_code=?').get(String(accountCode))) accountCode++;
