@@ -134,13 +134,26 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       const sourceId = eventId ? String(bill.id) + ':' + eventId : 'bill:' + String(bill.id);
       const eventDate = typeof payment?.timestamp === 'string' && payment.timestamp.trim() ? payment.timestamp.trim() : null;
       if (!eventDate) {
-        // Bill creation time cannot prove when a payment was actually received.
-        // Do not silently classify a timestamp-less line as pre-cutover or in-range.
-        events.push({
-          event_type: 'receipt', source_id: sourceId, event_date: null, amount, method,
-          status: 'missing_source_identity', journal_entry_ids: [],
-          reason: 'Receipt event has no timestamp; its cutover status and accounting business date cannot be established safely.',
-        });
+        // A pre-cutover bill plus a legacy payment-details line with neither immutable
+        // event ID nor timestamp is the one case covered by the explicit no-backfill
+        // policy: exclude it as legacy, but keep it visible. New application payments
+        // always carry both fields. If either is present/missing inconsistently, or the
+        // parent bill is post-cutover, do not guess: keep it unresolved so period close
+        // remains blocked pending evidence.
+        if (!eventId && isPreCutover(bill.created_at)) {
+          if (!inAccountingDateRange(db, bill.created_at, from, to)) continue;
+          events.push({
+            event_type: 'receipt', source_id: sourceId, event_date: null, amount, method,
+            status: 'skipped_pre_cutover', journal_entry_ids: [],
+            reason: 'Legacy payment line has no event ID or timestamp and its bill predates cutover; it is excluded under the no-backfill policy.',
+          });
+        } else {
+          events.push({
+            event_type: 'receipt', source_id: sourceId, event_date: null, amount, method,
+            status: 'missing_source_identity', journal_entry_ids: [],
+            reason: 'Receipt event has no timestamp; its cutover status and accounting business date cannot be established safely.',
+          });
+        }
         continue;
       }
       const eventDay = accountingEventDate(db, eventDate);
