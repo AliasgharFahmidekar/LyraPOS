@@ -2731,6 +2731,7 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_loan_batch_no_update',
   'accounting_loan_batch_no_delete',
   'accounting_loan_installment_no_delete',
+  'accounting_loan_installment_registration_guard',
   'accounting_loan_installment_identity_guard',
   'accounting_loan_installment_state_guard',
   'accounting_loan_installment_settled_immutable',
@@ -3355,6 +3356,18 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_no_delete BEFORE DELETE ON accounting_loan_installments
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_registration_guard BEFORE UPDATE OF status ON accounting_loan_installments
+    WHEN NEW.status='registered' AND OLD.status<>'registered' AND (
+      (NEW.interest_minor + NEW.fees_minor > 0 AND (
+        NEW.due_journal_entry_id IS NULL OR NOT EXISTS (
+          SELECT 1 FROM accounting_journal_entries entry
+          WHERE entry.id=NEW.due_journal_entry_id AND entry.status='posted'
+            AND entry.source_type='accounting_loan' AND entry.source_id=NEW.id
+            AND entry.source_event='installment_due_registration'
+        )
+      )) OR ((NEW.interest_minor + NEW.fees_minor)=0 AND NEW.due_journal_entry_id IS NOT NULL)
+    )
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_DUE_JOURNAL_REQUIRED'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments
     WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR NEW.due_date<>OLD.due_date
       OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor
@@ -7174,6 +7187,18 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
         CREATE TRIGGER accounting_loan_installment_no_delete BEFORE DELETE ON accounting_loan_installments
           BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IMMUTABLE'); END;
+  CREATE TRIGGER accounting_loan_installment_registration_guard BEFORE UPDATE OF status ON accounting_loan_installments
+                  WHEN NEW.status='registered' AND OLD.status<>'registered' AND (
+                    (NEW.interest_minor + NEW.fees_minor > 0 AND (
+                      NEW.due_journal_entry_id IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM accounting_journal_entries entry
+                        WHERE entry.id=NEW.due_journal_entry_id AND entry.status='posted'
+                          AND entry.source_type='accounting_loan' AND entry.source_id=NEW.id
+                          AND entry.source_event='installment_due_registration'
+                      )
+                    )) OR ((NEW.interest_minor + NEW.fees_minor)=0 AND NEW.due_journal_entry_id IS NOT NULL)
+                  )
+                  BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_DUE_JOURNAL_REQUIRED'); END;
         CREATE TRIGGER accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments
           WHEN OLD.status='settled' AND (
             NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'')
