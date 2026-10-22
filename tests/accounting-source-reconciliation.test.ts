@@ -18,6 +18,13 @@ function fakeDb(fixture: Fixture): any {
           return undefined;
         },
         all(...args: any[]) {
+          if (sql.includes("SELECT key, value FROM settings WHERE key IN ('country','currency','timezone')")) {
+            return [
+              { key: 'country', value: 'IN' },
+              { key: 'currency', value: 'INR' },
+              { key: 'timezone', value: 'Asia/Kolkata' },
+            ];
+          }
           if (sql.includes('FROM bills WHERE payment_details')) return fixture.bills || [];
           if (sql.includes('FROM refunds r JOIN bills')) return fixture.refunds || [];
           if (sql.includes('FROM accounting_expenses WHERE payment_status')) return fixture.expenses || [];
