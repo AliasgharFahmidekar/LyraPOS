@@ -76,20 +76,6 @@ function resolveRefundApprover(db: Database, overridePin: string, approverId: st
 
 /** Validates, authorizes, and persists a refund inside an active transaction. */
 export function createRefund(db: Database, req: RefundRequest): RefundResult {
-  const suppliedMethod = typeof req.method === 'string' ? req.method.trim() : '';
-  if (!suppliedMethod || suppliedMethod.length > 60) {
-    throw httpError('Refund method is required and must not exceed 60 characters', 400);
-  }
-  const normalizedMethod = suppliedMethod.toLowerCase().replace(/[\s-]+/g, '_');
-  // Historical non-monetary labels remain excluded by the posting layer, but must not
-  // be accepted as new refund methods: only the canonical wallet flow actually credits
-  // customer value. Otherwise the bill could be marked refunded without money or credit.
-  if (['loyalty', 'credit', 'store_credit', 'loyalty_wallet'].includes(normalizedMethod)) {
-    throw httpError('Use the canonical wallet method for store-credit refunds, or choose an active monetary payment method.', 400);
-  }
-  const isStoreCreditRefund = normalizedMethod === 'wallet';
-  const refundMethod = isStoreCreditRefund ? 'wallet' : suppliedMethod;
-
   if (req.idempotencyKey) {
     const prior = db.prepare(`
       SELECT bill_id, request_hash, response_json
@@ -107,6 +93,20 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
       }
     }
   }
+
+  const suppliedMethod = typeof req.method === 'string' ? req.method.trim() : '';
+  if (!suppliedMethod || suppliedMethod.length > 60) {
+    throw httpError('Refund method is required and must not exceed 60 characters', 400);
+  }
+  const normalizedMethod = suppliedMethod.toLowerCase().replace(/[\s-]+/g, '_');
+  // Historical non-monetary labels remain excluded by the posting layer, but must not
+  // be accepted as new refund methods: only the canonical wallet flow actually credits
+  // customer value. Otherwise the bill could be marked refunded without money or credit.
+  if (['loyalty', 'credit', 'store_credit', 'loyalty_wallet'].includes(normalizedMethod)) {
+    throw httpError('Use the canonical wallet method for store-credit refunds, or choose an active monetary payment method.', 400);
+  }
+  const isStoreCreditRefund = normalizedMethod === 'wallet';
+  const refundMethod = isStoreCreditRefund ? 'wallet' : suppliedMethod;
 
   requireOpenSessionForCashTender(db, [{ method: refundMethod }]);
 
