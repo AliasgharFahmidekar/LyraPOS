@@ -208,8 +208,8 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
     reporting_policy: {
       sales_revenue_basis: 'actual_monetary_receipts',
       tax_treatment: 'tax_payments_are_expenses_when_paid',
-      future_item_recognition: 'incoming_future_receipt_income_on_actual_settlement; outgoing_obligation_expense_on_due_registration; cash_and_bank_change_only_on_actual_settlement',
-      message: 'POS sales and future-receipt income count only when actual monetary settlement is recorded. A due-but-uncollected incoming item is offset to the future-receipt clearing liability and is excluded from income. Outgoing obligations may be recognized on due registration; actual cash or bank movement is posted only when settlement is confirmed. Tax is recorded as an expense when paid and is not deducted a second time from sales revenue.',
+      future_item_recognition: 'future_item_income_and_expense_on_actual_settlement; due_registration_uses_clearing_accounts; cash_and_bank_change_only_on_actual_settlement',
+      message: 'POS sales and future-item income/expense count only when actual monetary settlement is recorded. A due-but-uncollected incoming item is offset to the future-receipt clearing liability; a due-but-unpaid outgoing item is offset to a pending-payment clearing asset. Neither due-registration journal changes profit/loss or cash. Settlement records the actual cash/bank/clearing movement and recognizes the configured income or expense. Tax is recorded as an expense when paid and is not deducted a second time from sales revenue.',
     },
     profit_limitations: {
       cogs_available: false,
