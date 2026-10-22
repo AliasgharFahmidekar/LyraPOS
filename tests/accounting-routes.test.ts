@@ -967,10 +967,12 @@ async function main(): Promise<void> {
     equal(manuallyRegistered.body.item?.status, 'registered', 'manual confirmation moves the item to registered');
     const manualDueLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
       .all(manuallyRegistered.body.item?.due_journal_entry_id) as any[];
-    ok(manualDueLines.some((line) => line.account_id === 'acct-operating-expenses' && line.debit_minor === 2500),
-      'outgoing due registration debits the selected expense account');
+    ok(manualDueLines.some((line) => line.account_id === 'acct-future-payment-clearing' && line.debit_minor === 2500),
+      'outgoing due registration offsets the payable to the pending-payment clearing asset');
+    ok(!manualDueLines.some((line) => line.account_id === 'acct-operating-expenses' || line.account_id === 'acct-expenses'),
+      'outgoing due registration does not recognize an expense before actual payment');
     ok(manualDueLines.some((line) => line.account_id === 'acct-payables' && line.credit_minor === 2500),
-      'outgoing due registration credits payables and does not assume cash was already paid');
+      'outgoing due registration credits payables without claiming the payment was made');
     const manualSettled = await request(app).post('/api/accounting/future-items/' + manualOutgoingId + '/settle')
       .set(manager).set('Idempotency-Key', 'future-outgoing-settlement-001')
       .send({ settlement_date: todayAccountingDate < '2099-12-01' ? ((): string => {
@@ -984,6 +986,10 @@ async function main(): Promise<void> {
       'actual outgoing settlement clears payables');
     ok(manualSettlementLines.some((line) => line.account_id === 'acct-bank' && line.credit_minor === 2500),
       'actual outgoing settlement credits the chosen bank account');
+    ok(manualSettlementLines.some((line) => line.account_id === 'acct-operating-expenses' && line.debit_minor === 2500),
+      'actual outgoing settlement recognizes the configured expense only when paid');
+    ok(manualSettlementLines.some((line) => line.account_id === 'acct-future-payment-clearing' && line.credit_minor === 2500),
+      'actual outgoing settlement clears the pending-payment asset');
 
     const cancelDueDate = (() => {
       const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 30); return date.toISOString().slice(0, 10);
