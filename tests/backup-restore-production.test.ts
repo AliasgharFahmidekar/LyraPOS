@@ -365,6 +365,11 @@ async function run() {
       true,
       'data-only restore preserves the seeded system chart of accounts',
     );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE system_key = 'loans_payable' AND is_system = 1 AND is_postable = 1").get() as { count: number }).count,
+      1,
+      'data-only restore from a pre-v116 backup reseeds the dedicated Loans payable account',
+    );
     assert.throws(
       () => getDatabase().prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
       /system or posted accounting account definitions are immutable/i,
