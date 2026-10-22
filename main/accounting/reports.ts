@@ -174,7 +174,7 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
   );
   const ledgerExpensesExcludingLoanAccrualMinor = sumLedgerLines(
     db, 'line.debit_minor - line.credit_minor',
-    "account.account_type='expense' AND COALESCE(account.system_key, '') <> 'cost_of_goods_sold' AND NOT (entry.source_type='accounting_loan' AND entry.source_event='installment_due_registration')",
+    "account.account_type='expense' AND COALESCE(account.system_key, '') <> 'cost_of_goods_sold' AND NOT (COALESCE(entry.source_type,'')='accounting_loan' AND COALESCE(entry.source_event,'')='installment_due_registration')",
     range,
   );
   const loanInterestFeesPaidMinor = settledLoanCosts(db, range);
