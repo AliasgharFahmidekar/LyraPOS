@@ -37,7 +37,7 @@ function main(): void {
 
     const loanInput = {
       mode: 'new', lender: 'Test lender', loan_date: '2026-10-01', principal_minor: 1000,
-      liability_account_id: 'acct-payables', cash_account_id: 'acct-bank', currency_code: 'IRR',
+      liability_account_id: 'acct-loans-payable', cash_account_id: 'acct-bank', currency_code: 'IRR',
       reference_number: 'LN-001',
     };
     const created = loans.createLoan(db, loanInput, 'test-owner', 'loan-create-001');
@@ -50,7 +50,7 @@ function main(): void {
     const receiptLines = journalLines(db, created.initial_journal_entry_id);
     equal(receiptLines.length, 2, 'loan receipt creates a two-line balanced journal');
     equal(receiptLines.find((line:any)=>line.account_id==='acct-bank')?.debit_minor, 1000, 'new loan debits actual destination bank');
-    equal(receiptLines.find((line:any)=>line.account_id==='acct-payables')?.credit_minor, 1000, 'new loan credits liability, not revenue');
+    equal(receiptLines.find((line:any)=>line.account_id==='acct-loans-payable')?.credit_minor, 1000, 'new loan credits liability, not revenue');
     ok(!receiptLines.some((line:any)=>line.account_id==='acct-sales-revenue' || line.account_id==='acct-other-income'), 'loan proceeds are not posted as income');
 
     const batch = loans.createLoanInstallments(db, created.id, {installments:[{
@@ -69,7 +69,7 @@ function main(): void {
     const dueLines = journalLines(db, registered.due_journal_entry_id);
     equal(dueLines.find((line:any)=>line.account_id==='acct-operating-expenses')?.debit_minor, 50, 'due registration recognizes the interest expense');
     equal(dueLines.find((line:any)=>line.account_id==='acct-payment-fees')?.debit_minor, 10, 'due registration recognizes the fee expense');
-    equal(dueLines.find((line:any)=>line.account_id==='acct-payables')?.credit_minor, 60, 'due registration accrues interest and fees as additional amount owed');
+    equal(dueLines.find((line:any)=>line.account_id==='acct-loans-payable')?.credit_minor, 60, 'due registration accrues interest and fees as additional amount owed');
     ok(!dueLines.some((line:any)=>line.account_id==='acct-bank' || line.account_id==='acct-cash-drawer'), 'due accrual does not move cash or bank');
     const beforeSettlementReport = getAccountingManagementReport(db,{from:'2026-10-01',to:'2026-10-31'});
     equal(beforeSettlementReport.summary.posted_expenses_minor,0,'unpaid loan accrual is excluded from cash-basis paid expenses');
@@ -81,7 +81,7 @@ function main(): void {
     equal(settled.status, 'settled', 'explicit settlement marks installment paid');
     equal(settled.remaining_principal_minor, 600, 'settled principal reduces outstanding loan principal');
     const paymentLines = journalLines(db, settled.settlement_journal_entry_id);
-    equal(paymentLines.find((line:any)=>line.account_id==='acct-payables')?.debit_minor, 460, 'payment clears principal plus accrued interest and fees from liability');
+    equal(paymentLines.find((line:any)=>line.account_id==='acct-loans-payable')?.debit_minor, 460, 'payment clears principal plus accrued interest and fees from liability');
     equal(paymentLines.find((line:any)=>line.account_id==='acct-operating-expenses')?.debit_minor, undefined, 'settlement does not expense interest twice');
     equal(paymentLines.find((line:any)=>line.account_id==='acct-payment-fees')?.debit_minor, undefined, 'settlement does not expense fees twice');
     equal(paymentLines.find((line:any)=>line.account_id==='acct-bank')?.credit_minor, 460, 'actual settlement credits bank for principal, interest and fees');
@@ -120,13 +120,13 @@ function main(): void {
     const opening = loans.createLoan(db, {
       mode:'opening', lender:'Existing lender', loan_date:'2026-10-01',
       original_principal_minor:1000, remaining_principal_minor:700,
-      liability_account_id:'acct-payables', currency_code:'IRR',
+      liability_account_id:'acct-loans-payable', currency_code:'IRR',
     }, 'test-owner', 'loan-opening-001');
     equal(opening.remaining_principal_minor, 700, 'opening an existing loan uses remaining principal, not original principal');
     equal(opening.cash_account_id, null, 'opening balance has no cash account');
     const openingLines = journalLines(db, opening.initial_journal_entry_id);
     equal(openingLines.find((line:any)=>line.account_id==='acct-opening-balance-equity')?.debit_minor, 700, 'existing loan opening uses opening-equity offset');
-    equal(openingLines.find((line:any)=>line.account_id==='acct-payables')?.credit_minor, 700, 'existing loan opening credits only remaining liability');
+    equal(openingLines.find((line:any)=>line.account_id==='acct-loans-payable')?.credit_minor, 700, 'existing loan opening credits only remaining liability');
     ok(!openingLines.some((line:any)=>line.account_id==='acct-bank' || line.account_id==='acct-cash-drawer'), 'existing loan opening does not invent cash received');
 
     const schedule = loans.createLoanInstallments(db, opening.id, {installments:[
