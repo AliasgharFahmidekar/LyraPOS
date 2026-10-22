@@ -2720,6 +2720,11 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_closed_period_posted_line_insert_guard',
   'accounting_closed_period_posted_line_update_guard',
   'accounting_closed_period_posted_line_delete_guard',
+  'accounting_future_items_payload_immutable',
+  'accounting_future_items_state_guard',
+  'accounting_future_items_no_delete',
+  'accounting_future_items_audit_insert',
+  'accounting_future_items_audit_update',
 ] as const;
 
 /**
@@ -3223,6 +3228,97 @@ const ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL = `
     END;
 `;
 
+const ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL = `
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_payload_immutable
+    BEFORE UPDATE ON accounting_future_items
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.record_type IS NOT OLD.record_type
+      OR NEW.direction IS NOT OLD.direction
+      OR NEW.due_date IS NOT OLD.due_date
+      OR NEW.amount_minor IS NOT OLD.amount_minor
+      OR NEW.currency_code IS NOT OLD.currency_code
+      OR NEW.description IS NOT OLD.description
+      OR NEW.counterparty IS NOT OLD.counterparty
+      OR NEW.reference_number IS NOT OLD.reference_number
+      OR NEW.classification_account_id IS NOT OLD.classification_account_id
+      OR NEW.auto_register IS NOT OLD.auto_register
+      OR NEW.idempotency_key IS NOT OLD.idempotency_key
+      OR NEW.payload_hash IS NOT OLD.payload_hash
+      OR NEW.created_by IS NOT OLD.created_by
+      OR NEW.created_at IS NOT OLD.created_at
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_PAYLOAD_IMMUTABLE');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_state_guard
+    BEFORE UPDATE ON accounting_future_items
+    WHEN NOT (
+      (OLD.status = 'scheduled' AND NEW.status IN ('awaiting_confirmation', 'registered', 'cancelled', 'failed'))
+      OR (OLD.status = 'awaiting_confirmation' AND NEW.status IN ('registered', 'cancelled', 'failed'))
+      OR (OLD.status = 'failed' AND NEW.status IN ('registered', 'cancelled', 'failed'))
+      OR (OLD.status = 'registered' AND NEW.status = 'settled')
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_INVALID_TRANSITION');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_no_delete
+    BEFORE DELETE ON accounting_future_items
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_IMMUTABLE');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_audit_insert
+    AFTER INSERT ON accounting_future_items
+    BEGIN
+      INSERT INTO accounting_audit_log
+        (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+      VALUES (
+        'accounting_future_item', NEW.id, 'created', NEW.created_by, NULL,
+        json_object(
+          'id', NEW.id, 'record_type', NEW.record_type, 'direction', NEW.direction,
+          'due_date', NEW.due_date, 'amount_minor', NEW.amount_minor, 'currency_code', NEW.currency_code,
+          'description', NEW.description, 'counterparty', NEW.counterparty, 'reference_number', NEW.reference_number,
+          'classification_account_id', NEW.classification_account_id, 'auto_register', NEW.auto_register,
+          'status', NEW.status, 'idempotency_key', NEW.idempotency_key, 'payload_hash', NEW.payload_hash
+        )
+      );
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_audit_update
+    AFTER UPDATE ON accounting_future_items
+    BEGIN
+      INSERT INTO accounting_audit_log
+        (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+      VALUES (
+        'accounting_future_item', NEW.id,
+        CASE NEW.status
+          WHEN 'awaiting_confirmation' THEN 'due_awaiting_confirmation'
+          WHEN 'registered' THEN 'registered'
+          WHEN 'settled' THEN 'settled'
+          WHEN 'cancelled' THEN 'cancelled'
+          WHEN 'failed' THEN 'registration_failed'
+          ELSE 'state_updated'
+        END,
+        NEW.status_actor_id,
+        json_object(
+          'status', OLD.status, 'due_journal_entry_id', OLD.due_journal_entry_id,
+          'settlement_journal_entry_id', OLD.settlement_journal_entry_id,
+          'settlement_account_id', OLD.settlement_account_id, 'registered_at', OLD.registered_at,
+          'settled_at', OLD.settled_at, 'cancelled_at', OLD.cancelled_at,
+          'last_error_code', OLD.last_error_code, 'last_error_message', OLD.last_error_message
+        ),
+        json_object(
+          'status', NEW.status, 'due_journal_entry_id', NEW.due_journal_entry_id,
+          'settlement_journal_entry_id', NEW.settlement_journal_entry_id,
+          'settlement_account_id', NEW.settlement_account_id, 'registered_at', NEW.registered_at,
+          'settled_at', NEW.settled_at, 'cancelled_at', NEW.cancelled_at,
+          'last_error_code', NEW.last_error_code, 'last_error_message', NEW.last_error_message
+        )
+      );
+    END;
+`;
+
 function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (!getTables(db).includes('accounting_accounts')) return;
   db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
@@ -3248,6 +3344,9 @@ function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (getTables(db).includes('accounting_expenses')) {
     db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
     db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
+  }
+  if (getTables(db).includes('accounting_future_items')) {
+    db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
   }
   recreateAccountingAccountDefinitionGuard(db);
 }
@@ -6647,7 +6746,78 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       db.exec(ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL);
     },
   },
-]; 
+  {
+    version: 112,
+    name: 'accounting_future_receipts_and_cheques',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_future_items (
+          id TEXT PRIMARY KEY,
+          record_type TEXT NOT NULL CHECK (record_type IN ('receipt', 'cheque')),
+          direction TEXT NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
+          due_date TEXT NOT NULL CHECK (
+            length(due_date)=10 AND due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+          ),
+          amount_minor INTEGER NOT NULL CHECK (
+            typeof(amount_minor)='integer' AND amount_minor > 0 AND amount_minor <= 9007199254740991
+          ),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          description TEXT NOT NULL CHECK (length(trim(description)) BETWEEN 1 AND 500),
+          counterparty TEXT CHECK (counterparty IS NULL OR length(trim(counterparty)) <= 200),
+          reference_number TEXT CHECK (reference_number IS NULL OR length(trim(reference_number)) <= 160),
+          classification_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          auto_register INTEGER NOT NULL CHECK (auto_register IN (0, 1)),
+          status TEXT NOT NULL DEFAULT 'scheduled'
+            CHECK (status IN ('scheduled', 'awaiting_confirmation', 'registered', 'settled', 'cancelled', 'failed')),
+          due_journal_entry_id TEXT UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          settlement_journal_entry_id TEXT UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          settlement_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          registered_at TEXT,
+          registered_by TEXT,
+          settled_at TEXT,
+          settled_by TEXT,
+          cancelled_at TEXT,
+          cancelled_by TEXT,
+          cancellation_reason TEXT CHECK (cancellation_reason IS NULL OR length(trim(cancellation_reason)) BETWEEN 1 AND 500),
+          last_error_code TEXT CHECK (last_error_code IS NULL OR length(trim(last_error_code)) <= 100),
+          last_error_message TEXT CHECK (last_error_message IS NULL OR length(trim(last_error_message)) <= 500),
+          status_actor_id TEXT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (
+            (status IN ('scheduled', 'awaiting_confirmation', 'failed', 'cancelled')
+              AND due_journal_entry_id IS NULL AND registered_at IS NULL AND registered_by IS NULL)
+            OR
+            (status IN ('registered', 'settled')
+              AND due_journal_entry_id IS NOT NULL AND registered_at IS NOT NULL AND registered_by IS NOT NULL)
+          ),
+          CHECK (
+            (status = 'settled' AND settlement_journal_entry_id IS NOT NULL
+              AND settlement_account_id IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL)
+            OR
+            (status <> 'settled' AND settlement_journal_entry_id IS NULL
+              AND settlement_account_id IS NULL AND settled_at IS NULL AND settled_by IS NULL)
+          ),
+          CHECK (
+            (status = 'cancelled' AND cancelled_at IS NOT NULL AND cancelled_by IS NOT NULL
+              AND cancellation_reason IS NOT NULL AND length(trim(cancellation_reason)) > 0)
+            OR
+            (status <> 'cancelled' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL)
+          ),
+          CHECK (
+            (status = 'failed' AND last_error_code IS NOT NULL)
+            OR (status <> 'failed' AND last_error_code IS NULL AND last_error_message IS NULL)
+          )
+        );
+        CREATE INDEX accounting_future_items_due_status ON accounting_future_items(status, due_date, auto_register);
+        CREATE INDEX accounting_future_items_direction_due ON accounting_future_items(direction, due_date, status);
+      `);
+      db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
+    },
+  },
+] ; 
  
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
   if (buildingIdealSchema) return;
