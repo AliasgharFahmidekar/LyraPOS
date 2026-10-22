@@ -251,7 +251,7 @@ Acceptance criteria:
 **Resolved reporting policy — cash received is sales income; tax is an expense when paid:** the report uses the actual monetary receipts already posted by the POS as sales revenue. It does not subtract stored bill-tax snapshots from that income. When the business later pays tax, the owner records that payment as a paid expense using the seeded “Taxes paid” category, which posts to the dedicated tax-expense account and reduces the report's result for the payment's accounting date. This is the requested internal cash-received bookkeeping model, not a statutory tax-liability calculation or tax-compliance claim.
 
 
-### Phase 6 — Reconciliation, backup and close controls (in progress on PR #19)
+### Phase 6 — Reconciliation, backup and close controls (complete on PR #19)
 
 This phase must be implemented in separate increments so that reconciliation never silently repairs or rewrites the ledger.
 
@@ -280,6 +280,8 @@ This phase must be implemented in separate increments so that reconciliation nev
 - This accounting export is a portable audit snapshot, not a full database backup and not a restore file. Existing local backup/restore remains the operational backup path; accounting data is not sent to a cloud service by this export.
 - Restore regression tests now check that period-close trigger names are present after a data-only restore and that direct edits to posted journal headers/lines and deletion of close history are rejected.
 - The exact-head workflow must pass focused accounting tests, the full regression suite, build and lint for the current changes. If CI exposes further restore/data-integrity issues, fix those before marking this stage complete.
+**Phase 6 completion record — CI run #605 passed on 2026-10-22 at PR head `c4a41d09e2bbf0067255061fac0fe76590f1ad31`.** The unchanged full regression suite, TypeScript build, backend/frontend lint, canonical i18n verification and generated print-label verification all passed on that exact head. This closes Phase 6; future Phase 7 changes must pass their own exact-head CI gates and must not be inferred from this run.
+
 #### Phase 6 acceptance gate
 - Every eligible post-cutover source event is posted exactly once or appears as a visible, actionable exception; excluded events remain excluded.
 - Posted journal totals balance, account balances and trial balance reconcile exactly in integer minor units, and no report claims external reconciliation without external evidence.
@@ -416,7 +418,7 @@ As of this PR branch, Phase 0 discovery, Phase 1 ledger, Phase 2 expenses/transf
 
 ## 11. Planned Phase 7 — Future receipts/cheques, recurring obligations, and loans
 
-**Owner requirement and recommended design decision updated 2026-10-22.** This is a planned capability on top of the existing ledger, not a parallel accounting system. Do not begin implementation until the exact current PR head passes the existing Phase 6 verification gates. Build three distinct accounting workflows over one shared due-date/occurrence engine.
+**Owner requirement and recommended design decision updated 2026-10-22.** **Phase 6 passed CI run #605** on head `c4a41d09e2bbf0067255061fac0fe76590f1ad31`. Phase 7 is now in progress on the same unmerged PR branch. This is a planned capability on top of the existing ledger, not a parallel accounting system. Build three distinct accounting workflows over one shared due-date/occurrence engine.
 
 ### Product decision: three separate workflows, one shared scheduler
 
