@@ -793,7 +793,6 @@ async function run() {
       'accounting_period_closures_audit_update',
       'accounting_reconciliation_adjustments_immutable_update',
       'accounting_reconciliation_adjustments_immutable_delete',
-      'accounting_future_items_payload_immutable',
       'accounting_future_items_state_guard',
       'accounting_future_items_no_delete',
       'accounting_future_items_audit_insert',
