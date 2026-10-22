@@ -13,6 +13,7 @@ import { getAccountingManagementReport } from '../accounting/reports';
 import { getAccountingSourceEventReconciliation } from '../accounting/source-reconciliation';
 import { getAccountingTrialBalance } from '../accounting/trial-balance';
 import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } from '../accounting/period-close';
+import { cancelFutureItem, createFutureItem, listFutureItems, registerFutureItem, settleFutureItem, FutureItemError } from '../accounting/future-items';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -21,6 +22,9 @@ function actorId(req: Request): string | null {
   return user?.userId == null ? null : String(user.userId);
 }
 function respondError(res: Response, error: any): void {
+  if (error instanceof FutureItemError) {
+    res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
+  }
   if (error instanceof AccountingExpenseError) {
     res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
   }
@@ -34,6 +38,34 @@ function respondError(res: Response, error: any): void {
   console.error('[API] Accounting expense request failed:', error);
   res.status(500).json({ error: 'Unable to process accounting request.' });
 }
+router.get('/future-items', managerOnly, (req, res) => {
+  try { res.json(listFutureItems(getDatabase(), req.query)); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/future-items', managerOnly, (req, res) => {
+  try {
+    res.status(201).json({
+      item: createFutureItem(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')),
+    });
+  } catch (error) { respondError(res, error); }
+});
+router.post('/future-items/:id/register', managerOnly, (req, res) => {
+  try {
+    res.json({ item: registerFutureItem(getDatabase(), String(req.params.id), actorId(req)) });
+  } catch (error) { respondError(res, error); }
+});
+router.post('/future-items/:id/settle', managerOnly, (req, res) => {
+  try {
+    res.json({
+      item: settleFutureItem(getDatabase(), String(req.params.id), req.body, actorId(req), req.get('Idempotency-Key')),
+    });
+  } catch (error) { respondError(res, error); }
+});
+router.post('/future-items/:id/cancel', managerOnly, (req, res) => {
+  try {
+    res.json({ item: cancelFutureItem(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) });
+  } catch (error) { respondError(res, error); }
+});
 router.get('/activities', managerOnly, (req, res) => {
   try { res.json({ activities: listManualAccountingActivities(getDatabase(), req.query) }); }
   catch (error) { respondError(res, error); }
