@@ -899,10 +899,16 @@ async function main(): Promise<void> {
     equal(dueLines.reduce((n, line) => n + line.credit_minor, 0), 5000, 'due registration credits the exact amount');
     ok(dueLines.some((line) => line.account_id === 'acct-receivables' && line.debit_minor === 5000),
       'incoming due registration debits receivables rather than pretending cash arrived');
-    ok(dueLines.some((line) => line.account_id === 'acct-other-income' && line.credit_minor === 5000),
-      'incoming due registration credits the configured revenue account');
+    ok(dueLines.some((line) => line.account_id === 'acct-future-receipt-clearing' && line.credit_minor === 5000),
+      'incoming due registration offsets receivables to the future-receipt liability clearing account');
+    ok(!dueLines.some((line) => line.account_id === 'acct-other-income' || line.account_id === 'acct-sales-revenue'),
+      'incoming due registration does not recognize income before actual settlement');
     ok(!dueLines.some((line) => line.account_id === 'acct-bank' || line.account_id === 'acct-cash-drawer'),
       'due registration does not change a cash or bank account before actual settlement');
+    const futureIncomeBeforeSettlement = await request(app).get('/api/accounting/reports?from=2099-10-21&to=2099-10-21').set(manager);
+    equal(futureIncomeBeforeSettlement.status, 200, 'manager can inspect the report on a future-item due date');
+    equal(futureIncomeBeforeSettlement.body.summary.other_income_minor, 0,
+      'future receipt due registration is excluded from reported income until actual settlement');
     const managerFutureList = await request(app).get('/api/accounting/future-items?from=2099-10-21&to=2099-10-21').set(manager);
     equal(managerFutureList.status, 200, 'manager can filter future items by their due-date range');
     equal(managerFutureList.body.items?.find((item: any) => item.id === futureIncomingId)?.status, 'registered',
@@ -922,6 +928,14 @@ async function main(): Promise<void> {
       'actual incoming settlement debits the chosen bank account');
     ok(settlementLines.some((line) => line.account_id === 'acct-receivables' && line.credit_minor === 5000),
       'actual incoming settlement clears receivables');
+    ok(settlementLines.some((line) => line.account_id === 'acct-future-receipt-clearing' && line.debit_minor === 5000),
+      'actual incoming settlement releases the deferred-receipt clearing liability');
+    ok(settlementLines.some((line) => line.account_id === 'acct-other-income' && line.credit_minor === 5000),
+      'actual incoming settlement recognizes income in its configured revenue account');
+    const futureIncomeAfterSettlement = await request(app).get('/api/accounting/reports?from=2099-10-22&to=2099-10-22').set(manager);
+    equal(futureIncomeAfterSettlement.status, 200, 'manager can inspect the report on the actual-settlement date');
+    equal(futureIncomeAfterSettlement.body.summary.other_income_minor, 5000,
+      'future receipt is counted as other income on the date actual settlement is confirmed');
     const settlementRetry = await request(app).post('/api/accounting/future-items/' + futureIncomingId + '/settle')
       .set(manager).set('Idempotency-Key', 'future-incoming-settlement-001').send(settlementPayload);
     equal(settlementRetry.status, 200, 'identical actual-settlement retry is accepted');
