@@ -134,6 +134,9 @@ export function createFutureItem(db: DB, input: any, actorId: string | null, ide
   if (recordType !== 'receipt' && recordType !== 'cheque') fail('invalid_record_type', 'Record type must be receipt or cheque.');
   const direction = input?.direction;
   if (direction !== 'incoming' && direction !== 'outgoing') fail('invalid_direction', 'Direction must be incoming or outgoing.');
+  if (recordType === 'receipt' && direction !== 'incoming') {
+    fail('invalid_direction', 'A receipt must be incoming; use a cheque record for a future payment.');
+  }
   const dueDate = accountingDateValue(input?.due_date, 'due_date');
   const amountMinor = input?.amount_minor;
   if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
