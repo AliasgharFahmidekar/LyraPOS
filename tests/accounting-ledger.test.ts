@@ -141,7 +141,7 @@ function freshInstallChecks(): void {
     'accounting_journal_lines', 'accounting_audit_log', 'accounting_opening_balances', 'accounting_reconciliation_adjustments', 'accounting_period_closures', 'accounting_future_items',
     'accounting_loans', 'accounting_loan_installment_batches', 'accounting_loan_installments',
   ]) check(tableExists(db, table), 'fresh install creates ' + table);
-  for (const trigger of ['accounting_loans_no_delete','accounting_loans_status_guard','accounting_loan_installment_no_delete','accounting_loan_installment_state_guard','accounting_loan_installment_settled_immutable']) {
+  for (const trigger of ['accounting_loans_no_delete','accounting_loans_status_guard','accounting_loan_installment_no_delete','accounting_loan_installment_registration_guard','accounting_loan_installment_state_guard','accounting_loan_installment_settled_immutable']) {
     check(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger), 'migration v116 creates ' + trigger);
   }
   const loanInstallmentColumns = (db.pragma('table_info(accounting_loan_installments)') as Array<{name:string}>).map(column=>column.name);
