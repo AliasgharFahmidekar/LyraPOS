@@ -6962,6 +6962,142 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 116,
+    name: 'accounting_loans_and_installments',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_loans (
+          id TEXT PRIMARY KEY,
+          mode TEXT NOT NULL CHECK (mode IN ('new','opening')),
+          lender TEXT NOT NULL CHECK (length(trim(lender)) BETWEEN 1 AND 200),
+          description TEXT CHECK (description IS NULL OR length(trim(description)) <= 500),
+          reference_number TEXT CHECK (reference_number IS NULL OR length(trim(reference_number)) <= 160),
+          loan_date TEXT NOT NULL CHECK (length(loan_date)=10 AND loan_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          original_principal_minor INTEGER NOT NULL CHECK (typeof(original_principal_minor)='integer' AND original_principal_minor > 0 AND original_principal_minor <= 9007199254740991),
+          initial_outstanding_minor INTEGER NOT NULL CHECK (typeof(initial_outstanding_minor)='integer' AND initial_outstanding_minor > 0 AND initial_outstanding_minor <= original_principal_minor),
+          liability_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          cash_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          initial_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK ((mode='new' AND cash_account_id IS NOT NULL AND initial_outstanding_minor=original_principal_minor)
+            OR (mode='opening' AND cash_account_id IS NULL))
+        );
+        CREATE TABLE accounting_loan_installment_batches (
+          id TEXT PRIMARY KEY,
+          loan_id TEXT NOT NULL REFERENCES accounting_loans(id) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE accounting_loan_installments (
+          id TEXT PRIMARY KEY,
+          batch_id TEXT NOT NULL REFERENCES accounting_loan_installment_batches(id) ON DELETE RESTRICT,
+          loan_id TEXT NOT NULL REFERENCES accounting_loans(id) ON DELETE RESTRICT,
+          due_date TEXT NOT NULL CHECK (length(due_date)=10 AND due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          principal_minor INTEGER NOT NULL CHECK (typeof(principal_minor)='integer' AND principal_minor >= 0 AND principal_minor <= 9007199254740991),
+          interest_minor INTEGER NOT NULL CHECK (typeof(interest_minor)='integer' AND interest_minor >= 0 AND interest_minor <= 9007199254740991),
+          fees_minor INTEGER NOT NULL CHECK (typeof(fees_minor)='integer' AND fees_minor >= 0 AND fees_minor <= 9007199254740991),
+          interest_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          fees_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          auto_register INTEGER NOT NULL CHECK (auto_register IN (0,1)),
+          status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled')),
+          registered_at TEXT,
+          registered_by TEXT,
+          settlement_date TEXT CHECK (settlement_date IS NULL OR (length(settlement_date)=10 AND settlement_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')),
+          settlement_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          settlement_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          settlement_idempotency_key TEXT UNIQUE,
+          settled_at TEXT,
+          settled_by TEXT,
+          cancellation_reason TEXT CHECK (cancellation_reason IS NULL OR length(trim(cancellation_reason)) BETWEEN 1 AND 500),
+          cancelled_by TEXT,
+          cancelled_at TEXT,
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (principal_minor + interest_minor + fees_minor > 0),
+          CHECK ((interest_minor=0 AND interest_account_id IS NULL) OR (interest_minor>0 AND interest_account_id IS NOT NULL)),
+          CHECK ((fees_minor=0 AND fees_account_id IS NULL) OR (fees_minor>0 AND fees_account_id IS NOT NULL)),
+          CHECK ((status='scheduled' AND registered_at IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL)
+            OR (status='awaiting_confirmation' AND registered_at IS NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL)
+            OR (status='registered' AND registered_at IS NOT NULL AND settlement_date IS NULL AND settlement_journal_entry_id IS NULL AND cancelled_at IS NULL)
+            OR (status='settled' AND settlement_date IS NOT NULL AND settlement_account_id IS NOT NULL AND settlement_journal_entry_id IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL AND cancelled_at IS NULL)
+            OR (status='cancelled' AND cancellation_reason IS NOT NULL AND cancelled_by IS NOT NULL AND cancelled_at IS NOT NULL AND settlement_journal_entry_id IS NULL))
+        );
+        CREATE INDEX accounting_loans_status_date ON accounting_loans(mode,loan_date);
+        CREATE INDEX accounting_loan_installments_due ON accounting_loan_installments(status,due_date,auto_register);
+        CREATE INDEX accounting_loan_installments_loan_due ON accounting_loan_installments(loan_id,due_date);
+        CREATE TRIGGER accounting_loans_no_delete BEFORE DELETE ON accounting_loans
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loans_identity_guard BEFORE UPDATE ON accounting_loans
+          WHEN NEW.id<>OLD.id OR NEW.mode<>OLD.mode OR NEW.lender<>OLD.lender
+            OR COALESCE(NEW.description,'')<>COALESCE(OLD.description,'')
+            OR COALESCE(NEW.reference_number,'')<>COALESCE(OLD.reference_number,'')
+            OR NEW.loan_date<>OLD.loan_date OR NEW.currency_code<>OLD.currency_code
+            OR NEW.original_principal_minor<>OLD.original_principal_minor
+            OR NEW.initial_outstanding_minor<>OLD.initial_outstanding_minor
+            OR NEW.liability_account_id<>OLD.liability_account_id
+            OR COALESCE(NEW.cash_account_id,'')<>COALESCE(OLD.cash_account_id,'')
+            OR NEW.idempotency_key<>OLD.idempotency_key OR NEW.payload_hash<>OLD.payload_hash
+            OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
+            OR (OLD.initial_journal_entry_id IS NOT NULL AND NEW.initial_journal_entry_id<>OLD.initial_journal_entry_id)
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IDENTITY_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_batch_no_update BEFORE UPDATE ON accounting_loan_installment_batches
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_batch_no_delete BEFORE DELETE ON accounting_loan_installment_batches
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_installment_no_delete BEFORE DELETE ON accounting_loan_installments
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments
+          WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR NEW.due_date<>OLD.due_date
+            OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor
+            OR COALESCE(NEW.interest_account_id,'')<>COALESCE(OLD.interest_account_id,'')
+            OR COALESCE(NEW.fees_account_id,'')<>COALESCE(OLD.fees_account_id,'')
+            OR NEW.auto_register<>OLD.auto_register OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
+            OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') AND NEW.status<>'settled'
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loans_audit_insert AFTER INSERT ON accounting_loans
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan',NEW.id,'created',NEW.created_by,NULL,json_object('mode',NEW.mode,'lender',NEW.lender,
+              'loan_date',NEW.loan_date,'original_principal_minor',NEW.original_principal_minor,
+              'initial_outstanding_minor',NEW.initial_outstanding_minor,'currency_code',NEW.currency_code,
+              'liability_account_id',NEW.liability_account_id,'cash_account_id',NEW.cash_account_id)); END;
+        CREATE TRIGGER accounting_loans_audit_update AFTER UPDATE ON accounting_loans
+          WHEN OLD.initial_journal_entry_id IS NULL AND NEW.initial_journal_entry_id IS NOT NULL
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan',NEW.id,'initial_journal_linked',NEW.created_by,
+              json_object('initial_journal_entry_id',OLD.initial_journal_entry_id),
+              json_object('initial_journal_entry_id',NEW.initial_journal_entry_id)); END;
+        CREATE TRIGGER accounting_loan_batch_audit_insert AFTER INSERT ON accounting_loan_installment_batches
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan_installment_batch',NEW.id,'created',NEW.created_by,NULL,
+              json_object('loan_id',NEW.loan_id,'idempotency_key',NEW.idempotency_key)); END;
+        CREATE TRIGGER accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
+          WHEN NOT (
+            (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled')) OR
+            (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled')) OR
+            (OLD.status='registered' AND NEW.status IN ('settled')) OR
+            (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled'))
+          )
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_INVALID_TRANSITION'); END;
+        CREATE TRIGGER accounting_loan_installment_audit_insert AFTER INSERT ON accounting_loan_installments
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan_installment',NEW.id,'scheduled',NEW.created_by,NULL,
+              json_object('loan_id',NEW.loan_id,'due_date',NEW.due_date,'principal_minor',NEW.principal_minor,
+                'interest_minor',NEW.interest_minor,'fees_minor',NEW.fees_minor,'auto_register',NEW.auto_register)); END;
+        CREATE TRIGGER accounting_loan_installment_audit_update AFTER UPDATE ON accounting_loan_installments
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan_installment',NEW.id,NEW.status,COALESCE(NEW.settled_by,NEW.cancelled_by,NEW.registered_by),
+              json_object('status',OLD.status),json_object('status',NEW.status,'settlement_date',NEW.settlement_date,
+                'settlement_journal_entry_id',NEW.settlement_journal_entry_id,'cancellation_reason',NEW.cancellation_reason)); END;
+      `);
+    },
+  },
 ] ; 
  
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
