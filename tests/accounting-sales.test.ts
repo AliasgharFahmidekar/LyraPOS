@@ -170,7 +170,29 @@ try {
     closeDatabase();
   }
 
-  // Scenario 6: Monetary refunds reverse revenue; wallet refunds are ignored.
+  // Scenario 6: A corrupted/stale cash-method mapping must not post receipts to non-liquid assets.
+  {
+    const db = freshDb();
+    const { billId } = makeBill(db, 'INVALID-LIQUID-MAPPING');
+    db.prepare(`
+      INSERT INTO accounting_accounts
+        (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable)
+      VALUES ('acct-sales-nonliquid', NULL, '1199', 'Unclassified asset', 'asset', 'debit', 'acct-assets', 0, 1, 1)
+    `).run();
+    // Simulate legacy/corrupted persisted state; the settings API itself refuses this mapping.
+    db.prepare("UPDATE accounting_payment_method_mappings SET account_id='acct-sales-nonliquid' WHERE payment_method_key='cash'").run();
+    const payment = { payment_event_id: 'payment-invalid-liquid-target-001', method: 'cash', amount: 100, timestamp: '2026-10-14T08:00:00.000Z' };
+    throws(() => db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))(),
+      /must target an active postable cash, bank, or payment-clearing account/i,
+      'POS receipt posting revalidates persisted payment mappings instead of trusting old settings');
+    equal(db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get().n, 0,
+      'invalid non-liquid payment mapping is rejected before any receipt journal is created');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill_payment' AND source_event='money_received'").get().n, 0,
+      'rejected non-liquid mapping cannot recognize revenue');
+    closeDatabase();
+  }
+
+  // Scenario 7: Monetary refunds reverse revenue; wallet refunds are ignored.
   {
     const db = freshDb();
     const { billId } = makeBill(db, 'REFUND');
@@ -206,7 +228,7 @@ try {
     closeDatabase();
   }
 
-  // Scenario 7: pre-cutover bills keep POS behavior but are not silently backfilled.
+  // Scenario 8: pre-cutover bills keep POS behavior but are not silently backfilled.
   {
     const db = freshDb();
     const legacyStamp = '2024-01-01T10:00:00.000Z';
@@ -222,7 +244,7 @@ try {
     closeDatabase();
   }
 
-  // Scenario 8: post-cutover money events on legacy bills are recognized by event time.
+  // Scenario 9: post-cutover money events on legacy bills are recognized by event time.
   {
     const db = freshDb();
     const legacyStamp = '2024-01-01T10:00:00.000Z';
