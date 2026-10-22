@@ -7218,6 +7218,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         AND COALESCE(NEW.registered_at,'')=COALESCE(OLD.registered_at,'')
         AND COALESCE(NEW.registered_by,'')=COALESCE(OLD.registered_by,'')
         AND COALESCE(NEW.settlement_date,'')=COALESCE(OLD.settlement_date,'')
+        AND COALESCE(NEW.due_journal_entry_id,'')=COALESCE(OLD.due_journal_entry_id,'')
         AND COALESCE(NEW.settlement_account_id,'')=COALESCE(OLD.settlement_account_id,'')
         AND COALESCE(NEW.settlement_journal_entry_id,'')=COALESCE(OLD.settlement_journal_entry_id,'')
         AND COALESCE(NEW.settlement_idempotency_key,'')=COALESCE(OLD.settlement_idempotency_key,'')
