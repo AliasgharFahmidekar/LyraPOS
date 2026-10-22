@@ -6817,6 +6817,33 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
     },
   },
+  {
+    version: 113,
+    name: 'accounting_future_receipt_clearing_account',
+    up: () => {
+      // Keep due-but-uncollected receipts out of profit/loss. The balance is
+      // released to revenue only in the actual-settlement journal.
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1)',
+      ).run(
+        'acct-future-receipt-clearing', 'future_receipt_clearing', '2050',
+        'Future receipts pending settlement', 'liability', 'credit', 'acct-liabilities',
+      );
+      const account = db.prepare(
+        'SELECT id, system_key, account_code, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable FROM accounting_accounts WHERE id = ?',
+      ).get('acct-future-receipt-clearing') as {
+        id: string; system_key: string | null; account_code: string; account_type: string;
+        normal_balance: string; parent_account_id: string | null; is_system: number;
+        is_active: number; is_postable: number;
+      } | undefined;
+      if (!account || account.system_key !== 'future_receipt_clearing' || account.account_code !== '2050'
+        || account.account_type !== 'liability' || account.normal_balance !== 'credit'
+        || account.parent_account_id !== 'acct-liabilities' || account.is_system !== 1
+        || account.is_active !== 1 || account.is_postable !== 1) {
+        throw new Error('ACCOUNTING_FUTURE_RECEIPT_CLEARING_ACCOUNT_INVALID');
+      }
+    },
+  },
 ] ; 
  
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
