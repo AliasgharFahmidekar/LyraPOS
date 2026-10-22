@@ -202,22 +202,57 @@ export function registerLoanInstallment(db: DB, installmentIdInput: unknown, act
     if(['registered','settled'].includes(item.status)) return {...item,duplicate:true};
     if(item.status==='cancelled') fail('installment_cancelled','Cancelled instalment cannot be registered.',409);
     if(item.due_date>asOf) fail('installment_not_due','Instalment cannot be registered before its due date.',409);
-    db.prepare("UPDATE accounting_loan_installments SET status='registered',registered_at=CURRENT_TIMESTAMP,registered_by=? WHERE id=?")
-      .run(actor(actorId),id);
-    return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false};
+    const loan=loanRow(db,item.loan_id);
+    const dueLines:any[]=[];
+    if(item.interest_minor>0) {
+      account(db,item.interest_account_id,['expense'],'interest_account_id');
+      dueLines.push({accountId:item.interest_account_id,debitMinor:item.interest_minor,creditMinor:0,description:'Loan interest accrued at installment due date'});
+    }
+    if(item.fees_minor>0) {
+      account(db,item.fees_account_id,['expense'],'fees_account_id');
+      dueLines.push({accountId:item.fees_account_id,debitMinor:item.fees_minor,creditMinor:0,description:'Loan fees accrued at installment due date'});
+    }
+    let dueJournal:any=null;
+    const accrued=Number(item.interest_minor)+Number(item.fees_minor);
+    if(!Number.isSafeInteger(accrued)) fail('invalid_installment_amount','Interest and fee total is invalid.');
+    if(accrued>0) {
+      dueLines.push({accountId:loan.liability_account_id,debitMinor:0,creditMinor:accrued,description:'Interest/fees added to amount owed; no cash movement'});
+      dueJournal=post(db,{entryDate:item.due_date,description:'Loan installment due accrual: '+loan.lender,currencyCode:loan.currency_code,
+        lines:dueLines,actorId,sourceId:id,sourceEvent:'installment_due_registration',idempotencyKey:'loan-installment:'+id+':due-registration'});
+    }
+    db.prepare("UPDATE accounting_loan_installments SET status='registered',registered_at=CURRENT_TIMESTAMP,registered_by=?,due_journal_entry_id=?,last_error_code=NULL,last_error_message=NULL WHERE id=?")
+      .run(actor(actorId),dueJournal?.id??null,id);
+    return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false,due_entry_number:dueJournal?.entryNumber??null};
   })();
 }
-export function processDueLoanInstallments(db: DB, asOfInput?: unknown): {checked:number;registered:number;awaitingConfirmation:number} {
-  const asOf=asOfInput===undefined?new Date().toISOString().slice(0,10):date(asOfInput,'as_of_date');
-  const due=db.prepare("SELECT id,auto_register,status FROM accounting_loan_installments WHERE due_date<=? AND status='scheduled' ORDER BY due_date,created_at,id").all(asOf) as any[];
-  let registered=0,awaitingConfirmation=0;
+export function processDueLoanInstallments(db: DB, asOfInput?: unknown): {checked:number;registered:number;awaitingConfirmation:number;failed:number} {
+  const asOf=asOfInput===undefined?accountingDate(db,new Date().toISOString()):date(asOfInput,'as_of_date');
+  const due=db.prepare("SELECT id,auto_register,status FROM accounting_loan_installments WHERE due_date<=? AND status IN ('scheduled','failed') ORDER BY due_date,created_at,id").all(asOf) as any[];
+  let registered=0,awaitingConfirmation=0,failed=0;
   for(const item of due) {
-    const next=item.auto_register===1?'registered':'awaiting_confirmation';
-    const changed=db.prepare("UPDATE accounting_loan_installments SET status=?,registered_at=CASE WHEN ?='registered' THEN CURRENT_TIMESTAMP ELSE registered_at END,registered_by=CASE WHEN ?='registered' THEN 'system' ELSE registered_by END WHERE id=? AND status='scheduled'")
-      .run(next,next,next,item.id);
-    if(changed.changes) { if(next==='registered') registered++; else awaitingConfirmation++; }
+    if(item.status==='failed' && item.auto_register!==1) continue;
+    if(item.auto_register===1) {
+      try {
+        const result=registerLoanInstallment(db,item.id,'system',asOf);
+        if(!result.duplicate) registered++;
+      } catch(error:any) {
+        const code=typeof error?.code==='string'&&error.code.trim()?String(error.code).slice(0,100):'loan_installment_registration_failed';
+        const message=String(error?.message||'Loan installment due registration failed.').slice(0,500);
+        try {
+          db.prepare("UPDATE accounting_loan_installments SET status='failed',last_error_code=?,last_error_message=? WHERE id=? AND status IN ('scheduled','failed')")
+            .run(code,message,item.id);
+        } catch { /* preserve the original posting failure; the row remains visible for review */ }
+        failed++;
+      }
+      continue;
+    }
+    if(item.status==='scheduled') {
+      const changed=db.prepare("UPDATE accounting_loan_installments SET status='awaiting_confirmation' WHERE id=? AND status='scheduled'")
+        .run(item.id);
+      if(changed.changes) awaitingConfirmation++;
+    }
   }
-  return {checked:due.length,registered,awaitingConfirmation};
+  return {checked:due.length,registered,awaitingConfirmation,failed};
 }
 export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input: any, actorId: string | null, idempotencyInput: unknown): any {
   const id=text(installmentIdInput,'installment_id',100);
@@ -232,23 +267,19 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
       if(item.settlement_idempotency_key===idempotencyKey && item.settlement_date===settlementDate && item.settlement_account_id===settlementAccountId) return {...item,duplicate:true};
       fail('installment_already_settled','Instalment is already settled.',409);
     }
+    if(item.status!=='registered') fail('installment_not_registered','Register the due installment before confirming its actual payment.',409);
     const cash=liquid(db,settlementAccountId);
     const loan=loanRow(db,item.loan_id);
     if(settlementDate<loan.loan_date) fail('settlement_before_loan_date','Settlement date cannot precede the loan date.');
     if(item.principal_minor>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Principal payment exceeds current outstanding principal.',409);
     const total=Number(item.principal_minor)+Number(item.interest_minor)+Number(item.fees_minor);
     if(!Number.isSafeInteger(total)||total<=0) fail('invalid_installment_amount','Instalment total is invalid.');
-    const lines:any[]=[];
-    if(item.principal_minor>0) lines.push({accountId:loan.liability_account_id,debitMinor:item.principal_minor,creditMinor:0,description:'Loan principal repayment; not an expense'});
-    if(item.interest_minor>0) {
-      account(db,item.interest_account_id,['expense'],'interest_account_id');
-      lines.push({accountId:item.interest_account_id,debitMinor:item.interest_minor,creditMinor:0,description:'Loan interest expense'});
-    }
-    if(item.fees_minor>0) {
-      account(db,item.fees_account_id,['expense'],'fees_account_id');
-      lines.push({accountId:item.fees_account_id,debitMinor:item.fees_minor,creditMinor:0,description:'Loan fee expense'});
-    }
-    lines.push({accountId:cash.id,debitMinor:0,creditMinor:total,description:'Actual loan instalment payment'});
+    const liabilityReduction=Number(item.principal_minor)+Number(item.interest_minor)+Number(item.fees_minor);
+    if(!Number.isSafeInteger(liabilityReduction)||liabilityReduction<=0) fail('invalid_installment_amount','Liability reduction is invalid.');
+    const lines:any[]=[
+      {accountId:loan.liability_account_id,debitMinor:liabilityReduction,creditMinor:0,description:'Loan amount owed reduced by principal, accrued interest and fees'},
+      {accountId:cash.id,debitMinor:0,creditMinor:total,description:'Actual loan instalment payment'},
+    ];
     const journal=post(db,{entryDate:settlementDate,description:'Loan instalment payment: '+loan.lender,currencyCode:loan.currency_code,lines,actorId,sourceId:id,sourceEvent:'installment_settlement',idempotencyKey:'loan-installment:'+id+':settlement'});
     db.prepare("UPDATE accounting_loan_installments SET status='settled',settlement_date=?,settlement_account_id=?,settlement_journal_entry_id=?,settled_at=CURRENT_TIMESTAMP,settled_by=?,settlement_idempotency_key=? WHERE id=?")
       .run(settlementDate,cash.id,journal.id,actor(actorId),idempotencyKey,id);
