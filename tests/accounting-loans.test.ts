@@ -110,13 +110,19 @@ function main(): void {
     equal(openingLines.find((line:any)=>line.account_id==='acct-payables')?.credit_minor, 700, 'existing loan opening credits only remaining liability');
     ok(!openingLines.some((line:any)=>line.account_id==='acct-bank' || line.account_id==='acct-cash-drawer'), 'existing loan opening does not invent cash received');
 
-    const schedule = loans.createLoanInstallments(db, opening.id, {installments:[{
-      due_date:'2026-12-01',principal_minor:700,interest_minor:0,fees_minor:0,auto_register:false,
-    }]}, 'test-owner', 'loan-installments-002');
-    const future = schedule.installments[0];
+    const schedule = loans.createLoanInstallments(db, opening.id, {installments:[
+      {due_date:'2026-12-01',principal_minor:600,interest_minor:0,fees_minor:0,auto_register:false},
+      {due_date:'2026-10-15',principal_minor:100,interest_minor:0,fees_minor:0,auto_register:false},
+    ]}, 'test-owner', 'loan-installments-002');
+    const future = schedule.installments.find((item:any)=>item.due_date==='2026-12-01');
+    const manual = schedule.installments.find((item:any)=>item.due_date==='2026-10-15');
     const manualDue = loans.processDueLoanInstallments(db, '2026-11-01');
-    equal(manualDue.awaitingConfirmation, 0, 'future installment is not registered early');
+    equal(manualDue.checked, 1, 'due processor catches up overdue manual-mode loan installment');
+    equal(manualDue.awaitingConfirmation, 1, 'manual mode waits for authorized due registration');
+    equal(db.prepare('SELECT status FROM accounting_loan_installments WHERE id=?').get(manual.id).status,'awaiting_confirmation','manual due remains unpaid and awaits registration');
     throws(() => loans.registerLoanInstallment(db, future.id, 'test-owner', '2026-11-01'), 'installment_not_due', 'manual due registration rejects early dates');
+    const manuallyRegistered = loans.registerLoanInstallment(db,manual.id,'test-owner','2026-11-01');
+    equal(manuallyRegistered.status,'registered','owner can register a due installment manually');
     const cancelled = loans.cancelLoanInstallment(db, future.id, 'Schedule corrected', 'test-owner');
     equal(cancelled.status, 'cancelled', 'unregistered installment can be cancelled with a reason');
     throws(() => loans.cancelLoanInstallment(db, installment.id, 'too late', 'test-owner'), 'installment_not_cancellable', 'settled installment cannot be cancelled');
