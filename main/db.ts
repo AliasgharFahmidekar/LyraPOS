@@ -6844,6 +6844,34 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       }
     },
   },
+
+  {
+    version: 114,
+    name: 'accounting_future_payment_clearing_account',
+    up: () => {
+      // Due-but-unpaid obligations must not be reported as paid expenses.
+      // This clearing asset offsets the payable until actual settlement.
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1)',
+      ).run(
+        'acct-future-payment-clearing', 'future_payment_clearing', '1150',
+        'Future payments pending settlement', 'asset', 'debit', 'acct-assets',
+      );
+      const account = db.prepare(
+        'SELECT id, system_key, account_code, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable FROM accounting_accounts WHERE id = ?',
+      ).get('acct-future-payment-clearing') as {
+        id: string; system_key: string | null; account_code: string; account_type: string;
+        normal_balance: string; parent_account_id: string | null; is_system: number;
+        is_active: number; is_postable: number;
+      } | undefined;
+      if (!account || account.system_key !== 'future_payment_clearing' || account.account_code !== '1150'
+        || account.account_type !== 'asset' || account.normal_balance !== 'debit'
+        || account.parent_account_id !== 'acct-assets' || account.is_system !== 1
+        || account.is_active !== 1 || account.is_postable !== 1) {
+        throw new Error('ACCOUNTING_FUTURE_PAYMENT_CLEARING_ACCOUNT_INVALID');
+      }
+    },
+  },
 ] ; 
  
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
