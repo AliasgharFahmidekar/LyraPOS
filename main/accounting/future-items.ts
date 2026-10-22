@@ -345,7 +345,7 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
       fail('future_item_already_settled', 'This item has already been settled.', 409);
     }
     if (item.status !== 'registered') fail('future_item_not_registered', 'Register the due event before recording its actual settlement.', 409);
-    if (settlementDate < item.due_date) fail('invalid_settlement_date', 'Settlement date cannot be before the item's due date.');
+    if (settlementDate < item.due_date) fail('invalid_settlement_date', "Settlement date cannot be before the item's due date.");
     const controlAccount = item.direction === 'incoming'
       ? systemAccount(db, 'accounts_receivable', 'asset')
       : systemAccount(db, 'accounts_payable', 'liability');
