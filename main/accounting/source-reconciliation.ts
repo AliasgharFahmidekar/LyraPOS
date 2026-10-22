@@ -130,20 +130,31 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       if (isWallet(method)) continue;
       const amount = Number(payment?.amount);
       if (!Number.isFinite(amount) || amount <= 0) continue;
-      const eventDate = typeof payment?.timestamp === 'string' ? payment.timestamp : bill.created_at;
+      const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
+      const sourceId = eventId ? String(bill.id) + ':' + eventId : 'bill:' + String(bill.id);
+      const eventDate = typeof payment?.timestamp === 'string' && payment.timestamp.trim() ? payment.timestamp.trim() : null;
+      if (!eventDate) {
+        // Bill creation time cannot prove when a payment was actually received.
+        // Do not silently classify a timestamp-less line as pre-cutover or in-range.
+        events.push({
+          event_type: 'receipt', source_id: sourceId, event_date: null, amount, method,
+          status: 'missing_source_identity', journal_entry_ids: [],
+          reason: 'Receipt event has no timestamp; its cutover status and accounting business date cannot be established safely.',
+        });
+        continue;
+      }
       const eventDay = accountingEventDate(db, eventDate);
       if (!inAccountingDateRange(db, eventDate, from, to)) continue;
       if (!eventDay) {
         events.push({
-          event_type: 'receipt', source_id: typeof payment?.payment_event_id === 'string' ? String(bill.id) + ':' + payment.payment_event_id.trim() : 'bill:' + String(bill.id),
+          event_type: 'receipt', source_id: sourceId,
           event_date: eventDate, amount, method, status: 'missing_source_identity', journal_entry_ids: [],
           reason: 'Receipt timestamp cannot be mapped to the tenant accounting business date; manual review is required.',
         });
         continue;
       }
-      const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
-      if (isPreCutover(bill.created_at)) {
-        events.push({ event_type: 'receipt', source_id: eventId ? String(bill.id) + ':' + eventId : 'bill:' + String(bill.id), event_date: eventDate, amount, method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Historical source event predates the accounting cutover and is not automatically backfilled.' });
+      if (isPreCutover(eventDate)) {
+        events.push({ event_type: 'receipt', source_id: sourceId, event_date: eventDate, amount, method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Receipt event timestamp predates the accounting cutover and is not automatically backfilled.' });
         continue;
       }
       if (!eventId) {
@@ -170,8 +181,8 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       });
       continue;
     }
-    if (isPreCutover(refund.bill_created_at)) {
-      events.push({ event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at, amount: Number(refund.amount_cents), method: refund.method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Refund belongs to a pre-cutover bill; historical refunds are not automatically backfilled.' });
+    if (isPreCutover(refund.created_at)) {
+      events.push({ event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at, amount: Number(refund.amount_cents), method: refund.method, status: 'skipped_pre_cutover', journal_entry_ids: [], reason: 'Refund event timestamp predates the accounting cutover and is not automatically backfilled.' });
       continue;
     }
     const match = statusFor(journalMatches(db, 'refund', String(refund.id), 'money_refunded'));
