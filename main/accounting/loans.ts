@@ -302,6 +302,9 @@ export function cancelLoanInstallment(db: DB, installmentIdInput: unknown, reaso
     if(item.status!=='scheduled' && item.status!=='awaiting_confirmation' && item.status!=='failed') fail('installment_not_cancellable','Only unregistered/unpaid instalments can be cancelled.',409);
     db.prepare("UPDATE accounting_loan_installments SET status='cancelled',cancellation_reason=?,cancelled_by=?,cancelled_at=CURRENT_TIMESTAMP,last_error_code=NULL,last_error_message=NULL WHERE id=?")
       .run(reason,actor(actorId),id);
+    const loan=loanRow(db,item.loan_id);
+    const pending=db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
+    if(outstanding(db,loan)===0 && Number(pending.count)===0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
     return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false};
   })();
 }
