@@ -488,7 +488,7 @@ For an Iran tenant, monthly recurrence uses the tenant's Jalali month sequence w
 - Each occurrence is represented by the existing future cheque/payable workflow. Due processing can register a payable, but actual cash/bank movement and expense recognition still require confirmed settlement. Cancelling a schedule cancels only unregistered occurrences; registered/settled entries and journals remain untouched.
 - Monthly dates are anchored to the original due date; shorter months clamp to their last day without permanent day-of-month drift. Iran uses the Persian calendar month sequence; stored due dates remain Gregorian ISO.
 - Focused tests cover exact N-day arithmetic, month-end/no-drift behavior, finite count, idempotent retry and changed-payload conflict, no journals at schedule creation, cancellation, and invalid account classification.
-- Remaining before acceptance: exact-head CI, integration with the main Accounting UI, cancellation/partial-posting regression, startup catch-up/restart behavior, and Windows offline verification.
+- The main Accounting page now has a bilingual RTL-compatible Recurring obligations tab with schedule creation, occurrence history/status, and schedule cancellation. Each occurrence can be settled through the existing Future receipts & cheques workflow. Remaining before acceptance: exact-head CI, cancellation/partial-posting regression, startup catch-up/restart behavior, and Windows offline verification.
 
 ### 7.3 — Loans (separate loan record and repayment workflow)
 
