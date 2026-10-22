@@ -15,6 +15,7 @@ import { getAccountingTrialBalance } from '../accounting/trial-balance';
 import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } from '../accounting/period-close';
 import { cancelFutureItem, createFutureItem, listFutureItems, registerFutureItem, settleFutureItem, FutureItemError } from '../accounting/future-items';
 import { cancelRecurringObligation, createRecurringObligation, listRecurringObligations, RecurringObligationError } from '../accounting/recurring-obligations';
+import { AccountingLoanError, cancelLoanInstallment, createLoan, createLoanInstallments, listLoans, registerLoanInstallment, settleLoanInstallment } from '../accounting/loans';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -23,6 +24,9 @@ function actorId(req: Request): string | null {
   return user?.userId == null ? null : String(user.userId);
 }
 function respondError(res: Response, error: any): void {
+  if (error instanceof AccountingLoanError) {
+    res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
+  }
   if (error instanceof RecurringObligationError) {
     res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
   }
@@ -42,6 +46,30 @@ function respondError(res: Response, error: any): void {
   console.error('[API] Accounting expense request failed:', error);
   res.status(500).json({ error: 'Unable to process accounting request.' });
 }
+router.get('/loans', managerOnly, (req, res) => {
+  try { res.json({ loans: listLoans(getDatabase(), req.query) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/loans', managerOnly, (req, res) => {
+  try { res.status(201).json({ loan: createLoan(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/loans/:id/installments', managerOnly, (req, res) => {
+  try { res.status(201).json(createLoanInstallments(getDatabase(), String(req.params.id), req.body, actorId(req), req.get('Idempotency-Key'))); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/loan-installments/:id/register', managerOnly, (req, res) => {
+  try { res.json({ installment: registerLoanInstallment(getDatabase(), String(req.params.id), actorId(req), req.body?.as_of_date) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/loan-installments/:id/settle', managerOnly, (req, res) => {
+  try { res.json({ installment: settleLoanInstallment(getDatabase(), String(req.params.id), req.body, actorId(req), req.get('Idempotency-Key')) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/loan-installments/:id/cancel', managerOnly, (req, res) => {
+  try { res.json({ installment: cancelLoanInstallment(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
 router.get('/recurring-obligations', managerOnly, (req, res) => {
   try { res.json({ schedules: listRecurringObligations(getDatabase(), req.query) }); }
   catch (error) { respondError(res, error); }
