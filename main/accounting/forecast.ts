@@ -85,14 +85,14 @@ export function getAccountingForecast(db: DB, filters: ForecastFilters = {}): an
     });
   }
   const loanRows = db.prepare(
-    "SELECT i.id, i.loan_id, i.due_date, i.principal_minor, i.interest_minor, i.fees_minor, i.currency_code, i.status, " +
+    "SELECT i.id, i.loan_id, i.due_date, i.principal_minor, i.interest_minor, i.fees_minor, i.status, " +
     "l.lender, l.currency_code AS loan_currency_code " +
     "FROM accounting_loan_installments i JOIN accounting_loans l ON l.id=i.loan_id " +
     "WHERE i.due_date>=? AND i.due_date<=? AND i.status IN ('scheduled','awaiting_confirmation','registered','failed') " +
     "ORDER BY i.due_date, i.created_at, i.id",
   ).all(range.from, range.to) as any[];
   for (const row of loanRows) {
-    if (row.currency_code !== currencyCode || row.loan_currency_code !== currencyCode) fail('forecast_currency_mismatch', 'A loan installment uses a currency different from the configured store currency.', 409);
+    if (row.loan_currency_code !== currencyCode) fail('forecast_currency_mismatch', 'A loan uses a currency different from the configured store currency.', 409);
     const principal = total(row.principal_minor, 'loan principal installment');
     const interest = total(row.interest_minor, 'loan interest installment');
     const fees = total(row.fees_minor, 'loan fee installment');
