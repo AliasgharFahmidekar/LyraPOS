@@ -345,7 +345,7 @@ async function main() {
 
     // Verify case-insensitive wallet input follows the canonical crediting path.
     resetPinRateLimitForTests();
-    db.prepare("UPDATE settings SET value='true' WHERE key='loyalty_enabled'").run();
+    db.prepare("INSERT INTO settings (key,value,updated_at) VALUES ('loyalty_enabled','true',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(now());
     seedCustomer(db, 'customer-wallet-refund', 'Wallet Refund Customer');
     const walletBill = await newPaidBill('prod-refund');
     db.prepare('UPDATE bills SET customer_id=? WHERE id=?').run('customer-wallet-refund', walletBill.bill.id);
