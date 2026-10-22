@@ -132,10 +132,10 @@ export function createRecurringObligation(db: DB, input: any, actorId: string | 
       return { ...old, duplicate: true };
     }
     const id = randomUUID();
-    db.prepare(\`INSERT INTO accounting_recurring_schedules
+    db.prepare(`INSERT INTO accounting_recurring_schedules
       (id, direction, frequency, interval_days, first_due_date, occurrence_count, amount_minor, currency_code,
        description, counterparty, classification_account_id, auto_register, idempotency_key, payload_hash, created_by)
-      VALUES (?, 'outgoing', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\`)
+      VALUES (?, 'outgoing', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, frequency, intervalDays, firstDueDate, count, amountMinor, currency, description, counterparty, accountId,
         autoRegister ? 1 : 0, idempotencyKey, payloadHash, actorId);
     const insertOccurrence = db.prepare('INSERT INTO accounting_recurring_occurrences (id, schedule_id, occurrence_number, due_date, future_item_id) VALUES (?, ?, ?, ?, ?)');
@@ -155,7 +155,7 @@ export function listRecurringObligations(db: DB, filters: any = {}): any[] {
   const status = filters?.status == null || filters.status === '' ? null : String(filters.status);
   if (status && !['active','cancelled'].includes(status)) fail('invalid_status','Unknown recurring schedule status.');
   const id = filters?.id == null || filters.id === '' ? null : textValue(filters.id,'id',100);
-  const rows = db.prepare(\`SELECT s.*, a.account_code AS classification_account_code, a.name AS classification_account_name,
+  const rows = db.prepare(`SELECT s.*, a.account_code AS classification_account_code, a.name AS classification_account_name,
     COUNT(o.id) AS generated_occurrences,
     SUM(CASE WHEN f.status='settled' THEN 1 ELSE 0 END) AS settled_occurrences,
     SUM(CASE WHEN f.status='registered' THEN 1 ELSE 0 END) AS registered_occurrences,
@@ -165,12 +165,12 @@ export function listRecurringObligations(db: DB, filters: any = {}): any[] {
     LEFT JOIN accounting_recurring_occurrences o ON o.schedule_id=s.id
     LEFT JOIN accounting_future_items f ON f.id=o.future_item_id
     WHERE (? IS NULL OR s.status=?) AND (? IS NULL OR s.id=?)
-    GROUP BY s.id ORDER BY s.first_due_date, s.created_at, s.id\`)
+    GROUP BY s.id ORDER BY s.first_due_date, s.created_at, s.id`)
     .all(status,status,id,id) as any[];
-  return rows.map(row => ({...row, occurrences: db.prepare(\`SELECT o.id, o.occurrence_number, o.due_date, f.id AS future_item_id,
+  return rows.map(row => ({...row, occurrences: db.prepare(`SELECT o.id, o.occurrence_number, o.due_date, f.id AS future_item_id,
       f.status AS status, f.due_journal_entry_id, f.settlement_journal_entry_id, f.last_error_code, f.last_error_message
       FROM accounting_recurring_occurrences o JOIN accounting_future_items f ON f.id=o.future_item_id
-      WHERE o.schedule_id=? ORDER BY o.occurrence_number\`).all(row.id)}));
+      WHERE o.schedule_id=? ORDER BY o.occurrence_number`).all(row.id)}));
 }
 export function cancelRecurringObligation(db: DB, idInput: unknown, reasonInput: unknown, actorId: string | null): any {
   const id = textValue(idInput,'id',100);
