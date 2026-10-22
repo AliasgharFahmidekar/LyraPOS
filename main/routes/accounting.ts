@@ -59,7 +59,7 @@ router.post('/loans/:id/installments', managerOnly, (req, res) => {
   catch (error) { respondError(res, error); }
 });
 router.post('/loan-installments/:id/register', managerOnly, (req, res) => {
-  try { res.json({ installment: registerLoanInstallment(getDatabase(), String(req.params.id), actorId(req), req.body?.as_of_date) }); }
+  try { res.json({ installment: registerLoanInstallment(getDatabase(), String(req.params.id), actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.post('/loan-installments/:id/settle', managerOnly, (req, res) => {
