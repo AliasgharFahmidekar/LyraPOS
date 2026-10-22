@@ -1,4 +1,4 @@
-**Status on PR #19 as of 2026-10-22:** Phases 0–6 passed their acceptance gates. Phase 7.2 recurring obligations passed the full CI workflow on exact head `ce2b0e48f066113a16459dab4277056533097bf1` in run [#39843475494](https://github.com/AliasgharFahmidekar/LyraPOS/actions/runs/39843475494). Phase 7.3 loan origination/installments is now implemented on the branch with migration v116, ledger-backed new-loan and opening-balance journals, principal/interest/fee separation, due-event processing, actual-payment confirmation, owner/manager routes, Persian/English Accounting UI, backup-restore trigger reinstatement, and focused regressions. The new Phase 7.3 code is **pending exact-head CI verification**; do not claim acceptance until the full suite/build/lint/i18n workflow passes. Do not merge this PR.
+**Status on PR #19:** Phases 0–6 passed their acceptance gates. Phase 7.2 recurring obligations passed on its exact accepted head. Phase 7.3 loans passed the current branch's latest available full CI run before the Phase 7.4 changes; these new Phase 7.4 changes are implemented but **pending a fresh exact-head CI run**. Do not mark Phase 7.4 accepted or merge this PR until the full test/build/lint/i18n/print-label workflow passes on the exact head.
 
 **Latest Phase 6 audit and regression work:**
 - Cutover classification now follows the actual receipt/refund event timestamp, not merely the parent bill's creation date. A post-cutover payment/refund on an older bill is therefore recognized correctly without backfilling the historical bill itself. A receipt with no timestamp remains unresolved unless it has the unambiguous legacy shape (pre-cutover bill plus no event ID and no timestamp), which is visibly classified as excluded under the explicit no-backfill policy; inconsistent/newer rows remain unresolved and block close.
@@ -531,6 +531,17 @@ A loan schedule can generate due instalment occurrences automatically, but a due
 A loan record must show original principal, principal repaid, current remaining principal, next due date, missed/overdue instalments, and remaining scheduled principal/interest/fees. Principal outstanding is a liability and never income. Forecast views show principal repayments as future cash outflows/liability reduction and interest/fees as projected expenses; never subtract the entire loan instalment from projected net profit.
 
 ### 7.4 — Forecast and report semantics
+
+**Implementation status:** read-only forecast API and Persian/English Accounting UI implemented on PR #19; exact-head CI verification is pending.
+
+- Adds manager/owner-only `GET /api/accounting/forecast`, with validated ISO date ranges capped at 366 days and a default 90-day horizon.
+- Aggregates future receipt/cheque occurrences and loan installments from the existing records; recurring schedules are not queried separately because their occurrences already use the shared future-item records. This avoids double counting.
+- Shows starting and projected ending liquid-account balances, expected inflows/outflows, projected income/expenses, registered-but-unsettled obligations, loan principal due, and a dated event ledger with running projected cash balance.
+- Registered-but-unsettled receipts/payments are shown separately from future projections and never recognized as projected income/expense. Scheduled future receipts/payments remain projections. Loan principal is a cash outflow and liability reduction, not a profit-and-loss expense; interest/fees are separate costs. Actual posted ledger reports remain unchanged.
+- Forecast requests are read-only: they do not register due events, settle items, or create journal entries. Manager-only authorization, impossible-date/range checks, horizon limits, no-journal-side-effect, scheduled receipt, and registered-unpaid receipt semantics have regression assertions in the existing route suite.
+- Scope/limitation: the projected ending balance assumes every listed receipt/payment settles at its due date and excludes unregistered cash events or future sales not explicitly scheduled. It is a forecast, not bank reconciliation or a guarantee of available funds.
+
+Forecasts must include scheduled occurrences within the selected date range, while keeping these groups distinguishable:
 
 Forecasts must include scheduled occurrences within the selected date range, while keeping these groups distinguishable:
 - Actual posted income/expenses from the existing ledger.
