@@ -3369,7 +3369,18 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
       (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','settled','cancelled')) OR
       (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','settled','cancelled')) OR
       (OLD.status='registered' AND NEW.status IN ('settled')) OR
-      (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled'))
+      (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled')
+              AND COALESCE(NEW.registered_at,'')=COALESCE(OLD.registered_at,'')
+              AND COALESCE(NEW.registered_by,'')=COALESCE(OLD.registered_by,'')
+              AND COALESCE(NEW.settlement_date,'')=COALESCE(OLD.settlement_date,'')
+              AND COALESCE(NEW.settlement_account_id,'')=COALESCE(OLD.settlement_account_id,'')
+              AND COALESCE(NEW.settlement_journal_entry_id,'')=COALESCE(OLD.settlement_journal_entry_id,'')
+              AND COALESCE(NEW.settlement_idempotency_key,'')=COALESCE(OLD.settlement_idempotency_key,'')
+              AND COALESCE(NEW.settled_at,'')=COALESCE(OLD.settled_at,'')
+              AND COALESCE(NEW.settled_by,'')=COALESCE(OLD.settled_by,'')
+              AND COALESCE(NEW.cancellation_reason,'')=COALESCE(OLD.cancellation_reason,'')
+              AND COALESCE(NEW.cancelled_by,'')=COALESCE(OLD.cancelled_by,'')
+              AND COALESCE(NEW.cancelled_at,'')=COALESCE(OLD.cancelled_at,''))
     )
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_INVALID_TRANSITION'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loans_audit_insert AFTER INSERT ON accounting_loans
@@ -7058,6 +7069,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE TABLE accounting_loans (
           id TEXT PRIMARY KEY,
           mode TEXT NOT NULL CHECK (mode IN ('new','opening')),
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','closed')),
           lender TEXT NOT NULL CHECK (length(trim(lender)) BETWEEN 1 AND 200),
           description TEXT CHECK (description IS NULL OR length(trim(description)) <= 500),
           reference_number TEXT CHECK (reference_number IS NULL OR length(trim(reference_number)) <= 160),
@@ -7122,6 +7134,9 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE INDEX accounting_loan_installments_loan_due ON accounting_loan_installments(loan_id,due_date);
         CREATE TRIGGER accounting_loans_no_delete BEFORE DELETE ON accounting_loans
           BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loans_status_guard BEFORE UPDATE ON accounting_loans
+          WHEN NOT (OLD.status=NEW.status OR (OLD.status='active' AND NEW.status='closed'))
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INVALID_STATUS_TRANSITION'); END;
         CREATE TRIGGER accounting_loans_identity_guard BEFORE UPDATE ON accounting_loans
           WHEN NEW.id<>OLD.id OR NEW.mode<>OLD.mode OR NEW.lender<>OLD.lender
             OR COALESCE(NEW.description,'')<>COALESCE(OLD.description,'')
@@ -7141,6 +7156,15 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
         CREATE TRIGGER accounting_loan_installment_no_delete BEFORE DELETE ON accounting_loan_installments
           BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments
+          WHEN OLD.status='settled' AND (
+            NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'')
+            OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'')
+            OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'')
+            OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'')
+            OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'') OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,'')
+          )
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
         CREATE TRIGGER accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments
           WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR NEW.due_date<>OLD.due_date
             OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor
@@ -7161,6 +7185,10 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
             VALUES('accounting_loan',NEW.id,'initial_journal_linked',NEW.created_by,
               json_object('initial_journal_entry_id',OLD.initial_journal_entry_id),
               json_object('initial_journal_entry_id',NEW.initial_journal_entry_id)); END;
+        CREATE TRIGGER accounting_loans_status_audit AFTER UPDATE OF status ON accounting_loans
+          WHEN OLD.status<>NEW.status
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan',NEW.id,'closed',NEW.created_by,json_object('status',OLD.status),json_object('status',NEW.status)); END;
         CREATE TRIGGER accounting_loan_batch_audit_insert AFTER INSERT ON accounting_loan_installment_batches
           BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
             VALUES('accounting_loan_installment_batch',NEW.id,'created',NEW.created_by,NULL,
