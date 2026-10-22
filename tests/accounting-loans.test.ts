@@ -138,6 +138,13 @@ function main(): void {
     equal(afterSettlementReport.summary.posted_expenses_minor,60,'paid loan interest and fees enter expense totals on settlement date');
     equal(afterSettlementReport.summary.loan_interest_fees_paid_minor,60,'report identifies paid loan costs as a subset of expenses');
     equal(afterSettlementReport.summary.tax_payments_expense_minor,0,'loan interest is not misclassified as tax paid');
+    const settledLoanForecast = getAccountingForecast(db, {from:'2026-10-10',to:'2026-10-22'});
+    equal(settledLoanForecast.summary.actual_outflows_minor,460,'actual loan settlement appears once in the forecast window as a real cash outflow');
+    ok(settledLoanForecast.events.some((event:any)=>event.source==='ledger' && event.id===settled.settlement_journal_entry_id && event.actual_cash_out_minor===460),
+      'settled loan installment is represented by its actual posted cash journal');
+    equal(settledLoanForecast.events.some((event:any)=>event.source==='loan' && event.id===installment.id),false,
+      'settled loan installment is excluded from future projection after its actual settlement');
+    equal(settledLoanForecast.projected_ending_liquid_balance_minor,540,'settled loan installment is not double-counted against the projected ending balance');
     equal(loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-settle-001').duplicate, true, 'identical settlement retry is idempotent');
 
     const retryBatch=loans.createLoanInstallments(db,created.id,{installments:[{
