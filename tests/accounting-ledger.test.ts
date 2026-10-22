@@ -144,6 +144,9 @@ function freshInstallChecks(): void {
   for (const trigger of ['accounting_loans_no_delete','accounting_loans_status_guard','accounting_loan_installment_no_delete','accounting_loan_installment_state_guard','accounting_loan_installment_settled_immutable']) {
     check(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger), 'migration v116 creates ' + trigger);
   }
+  const loanInstallmentColumns = (db.pragma('table_info(accounting_loan_installments)') as Array<{name:string}>).map(column=>column.name);
+  check(loanInstallmentColumns.includes('due_journal_entry_id'), 'migration v116 links due-accrual journals');
+  check(loanInstallmentColumns.includes('last_error_message'), 'migration v116 persists retryable due-registration failures');
   const billColumns = (db.pragma('table_info(bills)') as Array<{ name: string }>).map((column) => column.name);
   check(billColumns.includes('accounting_finalized_at'), 'migration v105 adds bill accounting finalization field');
   check(billColumns.includes('accounting_snapshot_json'), 'migration v105 adds immutable bill accounting snapshot');
