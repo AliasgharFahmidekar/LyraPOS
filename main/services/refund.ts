@@ -80,7 +80,7 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
   if (!suppliedMethod || suppliedMethod.length > 60) {
     throw httpError('Refund method is required and must not exceed 60 characters', 400);
   }
-  const normalizedMethod = suppliedMethod.toLowerCase().replace(/[\\s-]+/g, '_');
+  const normalizedMethod = suppliedMethod.toLowerCase().replace(/[\s-]+/g, '_');
   // Historical non-monetary labels remain excluded by the posting layer, but must not
   // be accepted as new refund methods: only the canonical wallet flow actually credits
   // customer value. Otherwise the bill could be marked refunded without money or credit.
