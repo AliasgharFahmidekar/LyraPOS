@@ -87,6 +87,10 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
   const description = optionalText(input?.description, 'description', 500);
   const reference = optionalText(input?.reference_number, 'reference_number', 160);
   const loanDate = date(input?.loan_date, 'loan_date');
+  const currentBusinessDate = accountingDate(db, new Date().toISOString());
+  if (loanDate > currentBusinessDate) {
+    fail('loan_date_in_future', 'Loan receipt/opening date cannot be in the future. Record the loan when it actually exists.', 400);
+  }
   const currencyCode = currency(db);
   if (input?.currency_code !== undefined && String(input.currency_code).trim().toUpperCase() !== currencyCode) fail('currency_mismatch', 'Loan must use the configured store currency.', 409);
   const liability = account(db, input?.liability_account_id, ['liability'], 'liability_account_id');
@@ -157,6 +161,7 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
   const idempotencyKey=key(idempotencyInput);
   const normalized: Array<{dueDate:string;principal:number;interest:number;fees:number;interestAccountId:string|null;feesAccountId:string|null;auto:boolean;index:number}> = input.installments.map((item:any,index:number)=>{
     const dueDate=date(item?.due_date,'due_date');
+    if (dueDate < loan.loan_date) fail('installment_before_loan_date','An installment due date cannot precede the loan date.');
     const principal=item?.principal_minor, interest=item?.interest_minor ?? 0, fees=item?.fees_minor ?? 0;
     for(const [field,value] of [['principal_minor',principal],['interest_minor',interest],['fees_minor',fees]] as [string,any][]) {
       if(!Number.isSafeInteger(value)||value<0) fail('invalid_'+field,field+' must be a non-negative integer.');
@@ -180,7 +185,8 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
     }
     const currentLoan = loanRow(db,loan.id);
     if (currentLoan.status !== 'active') fail('loan_not_active','Cannot add instalments to a closed loan.',409);
-    const alreadyScheduled = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered')").get(currentLoan.id) as {total:number};
+    // Failed auto-registration is still an outstanding contractual installment until it is retried or cancelled.
+    const alreadyScheduled = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(currentLoan.id) as {total:number};
     if(!Number.isSafeInteger(principalTotal) || principalTotal + Number(alreadyScheduled.total) > outstanding(db,currentLoan)) fail('principal_schedule_exceeds_balance','Combined scheduled principal exceeds the loan remaining principal.',409);
     const batchId=randomUUID();
     db.prepare('INSERT INTO accounting_loan_installment_batches (id,loan_id,idempotency_key,payload_hash,created_by) VALUES (?,?,?,?,?)')
@@ -207,6 +213,7 @@ export function registerLoanInstallment(db: DB, installmentIdInput: unknown, act
     if(item.status==='cancelled') fail('installment_cancelled','Cancelled instalment cannot be registered.',409);
     if(item.due_date>asOf) fail('installment_not_due','Instalment cannot be registered before its due date.',409);
     const loan=loanRow(db,item.loan_id);
+    if (item.due_date < loan.loan_date) fail('installment_before_loan_date','An installment due date cannot precede the loan date.',409);
     const dueLines:any[]=[];
     if(item.interest_minor>0) {
       account(db,item.interest_account_id,['expense'],'interest_account_id');
