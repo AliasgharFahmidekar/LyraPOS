@@ -2739,7 +2739,6 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_loan_batch_audit_insert',
   'accounting_loan_installment_audit_insert',
   'accounting_loan_installment_audit_update',
-  'accounting_loan_installment_settled_immutable',
 ] as const;
 
 /**
@@ -3365,10 +3364,10 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments
     WHEN OLD.status='settled' AND (
-      NEW.status<>OLD.status OR NEW.settlement_date<>OLD.settlement_date OR NEW.settlement_account_id<>OLD.settlement_account_id
-      OR NEW.settlement_journal_entry_id<>OLD.settlement_journal_entry_id
-      OR NEW.settlement_idempotency_key<>OLD.settlement_idempotency_key OR NEW.settled_at<>OLD.settled_at
-      OR NEW.settled_by<>OLD.settled_by)
+      NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'')
+      OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'')
+      OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'') OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'')
+      OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,''))
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
     WHEN NOT (
