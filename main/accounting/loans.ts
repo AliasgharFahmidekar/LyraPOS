@@ -271,6 +271,7 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
     const cash=liquid(db,settlementAccountId);
     const loan=loanRow(db,item.loan_id);
     if(settlementDate<loan.loan_date) fail('settlement_before_loan_date','Settlement date cannot precede the loan date.');
+    if(settlementDate<item.due_date) fail('settlement_before_due_date','Settlement date cannot precede the installment due date.');
     if(item.principal_minor>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Principal payment exceeds current outstanding principal.',409);
     const total=Number(item.principal_minor)+Number(item.interest_minor)+Number(item.fees_minor);
     if(!Number.isSafeInteger(total)||total<=0) fail('invalid_installment_amount','Instalment total is invalid.');
@@ -295,7 +296,7 @@ export function cancelLoanInstallment(db: DB, installmentIdInput: unknown, reaso
     const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
     if(!item) fail('installment_not_found','Loan instalment was not found.',404);
     if(item.status==='cancelled' && item.cancellation_reason===reason) return {...item,duplicate:true};
-    if(item.status!=='scheduled' && item.status!=='awaiting_confirmation') fail('installment_not_cancellable','Only unregistered/unpaid instalments can be cancelled.',409);
+    if(item.status!=='scheduled' && item.status!=='awaiting_confirmation' && item.status!=='failed') fail('installment_not_cancellable','Only unregistered/unpaid instalments can be cancelled.',409);
     db.prepare("UPDATE accounting_loan_installments SET status='cancelled',cancellation_reason=?,cancelled_by=?,cancelled_at=CURRENT_TIMESTAMP WHERE id=?")
       .run(reason,actor(actorId),id);
     return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false};
