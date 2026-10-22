@@ -921,7 +921,7 @@ async function main(): Promise<void> {
     ok(!dueLines.some((line) => line.account_id === 'acct-bank' || line.account_id === 'acct-cash-drawer'),
       'due registration does not change a cash or bank account before actual settlement');
     const futureIncomeBeforeSettlement = await request(app).get('/api/accounting/reports?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
-    equal(futureIncomeBeforeSettlement.status, 200, 'manager can inspect the report on the future item's due date');
+    equal(futureIncomeBeforeSettlement.status, 200, "manager can inspect the report on the future item's due date");
     equal(futureIncomeBeforeSettlement.body.summary.other_income_minor, 0,
       'future receipt due registration is excluded from reported income until actual settlement');
     const managerFutureList = await request(app).get('/api/accounting/future-items?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
