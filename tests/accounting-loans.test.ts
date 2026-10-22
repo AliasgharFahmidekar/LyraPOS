@@ -15,6 +15,7 @@ const dbModule = require('../main/db');
 const { initDatabase, getDatabase, getCurrentSchemaVersion, closeDatabase } = dbModule;
 const loans = require('../main/accounting/loans');
 const { getAccountingManagementReport } = require('../main/accounting/reports');
+const { getAccountingForecast } = require('../main/accounting/forecast');
 let assertions = 0;
 function ok(value: unknown, message: string): void { assert.ok(value, message); assertions++; }
 function equal(actual: unknown, expected: unknown, message: string): void { assert.equal(actual, expected, message); assertions++; }
@@ -47,6 +48,14 @@ function main(): void {
       liability_account_id: 'acct-loans-payable', cash_account_id: 'acct-bank', currency_code: 'IRR',
       reference_number: 'LN-001',
     };
+    const journalsBeforeFutureLoan = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
+    const loansBeforeFutureLoan = (db.prepare('SELECT COUNT(*) AS n FROM accounting_loans').get() as any).n;
+    throws(() => loans.createLoan(db, {...loanInput, loan_date:'2099-01-01'}, 'test-owner', 'loan-future-date'),
+      'loan_date_in_future', 'actual loan receipt/opening cannot be dated in the future');
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, journalsBeforeFutureLoan,
+      'rejecting a future-dated loan creates no journal');
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_loans').get() as any).n, loansBeforeFutureLoan,
+      'rejecting a future-dated loan creates no loan record');
     const created = loans.createLoan(db, loanInput, 'test-owner', 'loan-create-001');
     equal(created.mode, 'new', 'new borrowing creates a loan record');
     equal(created.remaining_principal_minor, 1000, 'new loan outstanding principal equals received principal');
@@ -60,6 +69,14 @@ function main(): void {
     equal(receiptLines.find((line:any)=>line.account_id==='acct-bank')?.debit_minor, 1000, 'new loan debits actual destination bank');
     equal(receiptLines.find((line:any)=>line.account_id==='acct-loans-payable')?.credit_minor, 1000, 'new loan credits liability, not revenue');
     ok(!receiptLines.some((line:any)=>line.account_id==='acct-sales-revenue' || line.account_id==='acct-other-income'), 'loan proceeds are not posted as income');
+
+    const batchesBeforeEarlyInstallment = (db.prepare('SELECT COUNT(*) AS n FROM accounting_loan_installment_batches').get() as any).n;
+    throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
+      due_date:'2026-09-30', principal_minor:1, interest_minor:0, fees_minor:0, auto_register:false,
+    }]}, 'test-owner', 'loan-installment-before-origination'), 'installment_before_loan_date',
+      'an installment cannot be scheduled before the loan date');
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_loan_installment_batches').get() as any).n, batchesBeforeEarlyInstallment,
+      'rejected pre-origination installment leaves no schedule batch');
 
     const batch = loans.createLoanInstallments(db, created.id, {installments:[{
       due_date:'2026-10-10', principal_minor:400, interest_minor:50, fees_minor:10,
@@ -82,8 +99,28 @@ function main(): void {
     const beforeSettlementReport = getAccountingManagementReport(db,{from:'2026-10-01',to:'2026-10-31'});
     equal(beforeSettlementReport.summary.posted_expenses_minor,0,'unpaid loan accrual is excluded from cash-basis paid expenses');
     equal(beforeSettlementReport.summary.loan_interest_fees_paid_minor,0,'unpaid interest and fees are not reported as paid');
+    const journalsBeforeLoanForecast = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
+    const forecastBeforeLoanSettlement = getAccountingForecast(db, {from:'2026-10-10',to:'2026-10-10'});
+    equal(forecastBeforeLoanSettlement.summary.expected_outflows_minor,460,'registered installment predicts the full principal plus interest and fees cash outflow');
+    equal(forecastBeforeLoanSettlement.summary.projected_expense_minor,0,'registered unpaid loan costs are not counted again as projected expenses');
+    equal(forecastBeforeLoanSettlement.summary.recognized_unpaid_minor,60,'registered unpaid interest and fees are shown separately');
+    equal(forecastBeforeLoanSettlement.summary.loan_principal_due_minor,400,'loan principal is separately identified in the forecast');
+    equal(forecastBeforeLoanSettlement.projected_ending_liquid_balance_minor,540,'forecast ending balance subtracts the unpaid installment from received loan cash');
+    ok(forecastBeforeLoanSettlement.events.some((event:any)=>event.source==='loan' && event.id===installment.id && event.principal_minor===400),
+      'forecast exposes the matching loan installment event');
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, journalsBeforeLoanForecast,
+      'reading the loan forecast creates no journal entries');
 
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-09',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-before-due'), 'settlement_before_due_date', 'actual loan payment cannot precede its due date');
+    const journalsBeforeInactiveSettlement = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
+    db.prepare("UPDATE accounting_accounts SET is_active=0 WHERE id='acct-bank'").run();
+    throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-settlement-inactive-account'),
+      'account_inactive', 'settlement cannot use an inactive bank account');
+    equal((db.prepare('SELECT status FROM accounting_loan_installments WHERE id=?').get(installment.id) as any).status, 'registered',
+      'failed settlement leaves the installment registered and unpaid');
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, journalsBeforeInactiveSettlement,
+      'failed settlement creates no partial journal');
+    db.prepare("UPDATE accounting_accounts SET is_active=1 WHERE id='acct-bank'").run();
     const settled = loans.settleLoanInstallment(db, installment.id, {
       settlement_date:'2026-10-22', settlement_account_id:'acct-bank',
     }, 'test-owner', 'loan-settle-001');
@@ -121,6 +158,25 @@ function main(): void {
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'loan-settle-001'), 'idempotency_conflict', 'changed settlement payload under the same key conflicts');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'different-key'), 'installment_already_settled', 'settled installment cannot be paid twice');
     throws(() => db.prepare('UPDATE accounting_loan_installments SET settlement_payload_hash=? WHERE id=?').run('a'.repeat(64),installment.id), 'ACCOUNTING_LOAN_INSTALLMENT_', 'settled loan settlement payload is immutable');
+
+    const constrainedLoan = loans.createLoan(db, {...loanInput, principal_minor:1000, reference_number:'LN-FAILED-SCHEDULE'}, 'test-owner', 'loan-failed-schedule-create');
+    const failedPrincipalBatch = loans.createLoanInstallments(db, constrainedLoan.id, {installments:[{
+      due_date:'2026-10-20', principal_minor:700, interest_minor:5, fees_minor:0,
+      interest_account_id:'acct-operating-expenses', auto_register:true,
+    }]}, 'test-owner', 'loan-failed-principal-batch');
+    db.prepare("UPDATE accounting_accounts SET is_active=0 WHERE id='acct-operating-expenses'").run();
+    const failedPrincipalPass = loans.processDueLoanInstallments(db, '2026-10-22');
+    equal(failedPrincipalPass.failed,1,'failed auto-registration keeps an installment pending for review');
+    const failedPrincipalId = failedPrincipalBatch.installments[0].id;
+    equal((db.prepare('SELECT status FROM accounting_loan_installments WHERE id=?').get(failedPrincipalId) as any).status,'failed',
+      'failed principal installment remains an outstanding scheduled obligation');
+    throws(() => loans.createLoanInstallments(db, constrainedLoan.id, {installments:[{
+      due_date:'2026-11-10', principal_minor:400, interest_minor:0, fees_minor:0, auto_register:false,
+    }]}, 'test-owner', 'loan-overbook-after-failure'), 'principal_schedule_exceeds_balance',
+      'failed installment principal still counts against remaining principal and blocks over-scheduling');
+    db.prepare("UPDATE accounting_accounts SET is_active=1 WHERE id='acct-operating-expenses'").run();
+    const recoveredFailedPrincipal = loans.registerLoanInstallment(db, failedPrincipalId, 'test-owner', '2026-10-22');
+    equal(recoveredFailedPrincipal.status,'registered','failed principal installment can be retried once its account is repaired');
 
     throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
       due_date:'2026-11-10', principal_minor:700, interest_minor:0, fees_minor:0, auto_register:false,
