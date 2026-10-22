@@ -223,7 +223,7 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
     if(item.status==='cancelled') fail('installment_cancelled','Cancelled instalment cannot be settled.',409);
     if(item.status==='settled') {
       const old=db.prepare('SELECT * FROM accounting_journal_entries WHERE id=?').get(item.settlement_journal_entry_id) as any;
-      if(item.settlement_idempotency_key===idempotencyKey && item.settlement_date===settlementDate && item.settlement_account_id===cash.id) return {...item,duplicate:true};
+      if(item.settlement_idempotency_key===idempotencyKey && item.settlement_date===settlementDate && item.settlement_account_id===settlementAccountId) return {...item,duplicate:true};
       fail('installment_already_settled','Instalment is already settled.',409);
     }
     const cash=liquid(db,settlementAccountId);
