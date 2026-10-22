@@ -10,6 +10,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 const { initTestDb, closeDatabase, now } = require('./helpers/test-setup');
 const { createRecurringObligation, listRecurringObligations, cancelRecurringObligation } = require('../main/accounting/recurring-obligations');
+const { registerFutureItem } = require('../main/accounting/future-items');
 let assertions=0;
 function equal(actual: unknown, expected: unknown, message: string) { require('node:assert/strict').equal(actual,expected,message); assertions++; }
 function ok(value: unknown, message: string) { require('node:assert/strict').ok(value,message); assertions++; }
@@ -45,13 +46,37 @@ function main() {
   equal(months[1],'2026-02-28','monthly schedule clamps 31st to shorter month');
   equal(months[2],'2026-03-31','monthly schedule returns to original anchor day without drift');
   equal(months[3],'2026-04-30','monthly schedule clamps 31st in a 30-day month');
+  const firstOccurrence=listRecurringObligations(db,{id:created.id})[0].occurrences[0];
+  const postedDue=registerFutureItem(db,firstOccurrence.future_item_id,'test-manager','2026-10-22');
+  equal(postedDue.status,'registered','test setup registers one occurrence before schedule cancellation');
+  const dueJournalId=postedDue.due_journal_entry_id;
   const cancelled=cancelRecurringObligation(db,created.id,'No longer needed','test-manager');
   equal(cancelled.status,'cancelled','schedule cancellation is recorded');
-  equal(listRecurringObligations(db,{id:created.id})[0].occurrences.every((o:any)=>o.status==='cancelled'),true,'cancellation cancels unregistered future occurrences');
+  const cancelledOccurrences=listRecurringObligations(db,{id:created.id})[0].occurrences;
+  equal(cancelledOccurrences.find((o:any)=>o.future_item_id===firstOccurrence.future_item_id)?.status,'registered',
+    'cancelling a recurring schedule preserves an already-registered occurrence');
+  equal(cancelledOccurrences.filter((o:any)=>o.status==='cancelled').length,2,
+    'cancellation cancels only the still-unregistered occurrences');
+  equal((db.prepare('SELECT status FROM accounting_journal_entries WHERE id=?').get(dueJournalId) as any).status,'posted',
+    'cancelling a schedule cannot remove or reverse an already-posted due journal');
   const account=db.prepare("SELECT id FROM accounting_accounts WHERE account_type='asset' AND is_active=1 AND is_postable=1 LIMIT 1").get() as any;
   let invalid=false;
   try { createRecurringObligation(db,{...payload,classification_account_id:account.id},'test-manager','recurring-invalid-account'); } catch(e:any) { invalid=e.code==='invalid_expense_account'; }
   ok(invalid,'asset/liquid account cannot be used as expense classification');
+
+  // Cover the Jalali leap-year boundary: Esfand 30 exists in 1403, but the following Esfand clamps to 29.
+  db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('country','IR',CURRENT_TIMESTAMP)").run();
+  db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('currency','IRR',CURRENT_TIMESTAMP)").run();
+  equal((db.prepare("SELECT value FROM settings WHERE key='country'").get() as any).value,'IR','Jalali recurrence fixture configures Iran');
+  const jalali=createRecurringObligation(db,{
+    frequency:'monthly',first_due_date:'2025-03-20',occurrence_count:14,amount_minor:500,
+    currency_code:'IRR',description:'Jalali Esfand boundary',classification_account_id:expense.id,auto_register:false,
+  },'test-manager','recurring-jalali-esfand-001');
+  const jalaliDates=listRecurringObligations(db,{id:jalali.id})[0].occurrences.map((o:any)=>o.due_date);
+  equal(jalaliDates[0],'2025-03-20','Jalali schedule retains Esfand 30 anchor in leap year 1403');
+  equal(jalaliDates[1],'2025-04-19','Jalali schedule advances to Farvardin 30 after leap Esfand');
+  equal(jalaliDates[12],'2026-03-20','non-leap Esfand clamps the original day 30 to day 29');
+  equal(jalaliDates[13],'2026-04-19','monthly recurrence returns to original day 30 after Esfand clamp without drift');
   console.log('PASS accounting recurring obligations: '+assertions+' assertions');
  } finally { closeDatabase(); }
 }
