@@ -90,6 +90,7 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
   const currencyCode = currency(db);
   if (input?.currency_code !== undefined && String(input.currency_code).trim().toUpperCase() !== currencyCode) fail('currency_mismatch', 'Loan must use the configured store currency.', 409);
   const liability = account(db, input?.liability_account_id, ['liability'], 'liability_account_id');
+  if (liability.system_key && liability.system_key !== 'loans_payable') fail('invalid_loan_liability_account','Use the dedicated Loans payable account or a custom liability account, not general payables or customer advances.');
   const rawRemaining = mode === 'new' ? undefined : input?.remaining_principal_minor;
   const rawOriginal = input?.original_principal_minor === undefined || input?.original_principal_minor === null || input?.original_principal_minor === ''
     ? (mode === 'opening' ? rawRemaining : input?.principal_minor)
