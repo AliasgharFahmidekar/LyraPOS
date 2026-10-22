@@ -49,8 +49,8 @@ function assertAccountingSeedAccounts(db: any, context: string): void {
   }>;
 
   // A required-subset assertion alone can silently permit accidental extra
-  // seeded/system accounts. Keep a complete allowlist for the v108 system
-  // chart while still allowing owners to create their own non-system accounts.
+  // seeded/system accounts. Keep a complete allowlist for the current v114
+  // system chart while still allowing owners to create their own non-system accounts.
   const expectedSystemAccountIds = [
     'acct-assets',
     'acct-cash-drawer',
