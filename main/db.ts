@@ -7240,7 +7240,8 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
           BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
             VALUES('accounting_loan_installment',NEW.id,NEW.status,COALESCE(NEW.settled_by,NEW.cancelled_by,NEW.registered_by),
               json_object('status',OLD.status),json_object('status',NEW.status,'settlement_date',NEW.settlement_date,
-                'settlement_journal_entry_id',NEW.settlement_journal_entry_id,'cancellation_reason',NEW.cancellation_reason)); END;
+                'due_journal_entry_id',NEW.due_journal_entry_id,'settlement_journal_entry_id',NEW.settlement_journal_entry_id,
+                'cancellation_reason',NEW.cancellation_reason,'last_error_code',NEW.last_error_code,'last_error_message',NEW.last_error_message)); END;
       `);
     },
   },
