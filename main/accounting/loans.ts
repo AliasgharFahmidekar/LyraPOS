@@ -145,8 +145,9 @@ export function listLoans(db: DB, filters: any = {}): any[] {
       LEFT JOIN accounting_journal_entries due ON due.id=i.due_journal_entry_id
       LEFT JOIN accounting_journal_entries settlement ON settlement.id=i.settlement_journal_entry_id
       WHERE i.loan_id=? ORDER BY i.due_date,i.created_at,i.id`).all(loan.id) as any[];
+    const pending = db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
     return {...loan,remaining_principal_minor:remaining,principal_repaid_minor:Number(loan.initial_outstanding_minor)-remaining,
-      status:remaining===0?'closed':loan.status,installments};
+      status:remaining===0 && Number(pending.count)===0?'closed':loan.status,installments};
   });
 }
 export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any, actorId: string | null, idempotencyInput: unknown): any {
@@ -287,7 +288,8 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
       .run(settlementDate,cash.id,journal.id,actor(actorId),idempotencyKey,id);
     const updated=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
     const remaining = outstanding(db,loan);
-    if (remaining === 0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
+    const pending = db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
+    if (remaining === 0 && Number(pending.count) === 0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
     return {...updated,duplicate:false,entry_number:journal.entryNumber,remaining_principal_minor:remaining};
   })();
 }
