@@ -39,10 +39,10 @@ export function AccountingLoans() {
   const [busy,setBusy]=useState(false);
   const t=fa?{
     title:'وام‌ها',note:'دریافت وام درآمد نیست. بازپرداخت اصل وام بدهی را کم می‌کند و فقط سود و کارمزد در حساب هزینه ثبت می‌شوند. ثبت خودکار یعنی ثبت سررسید، نه پرداخت خودکار؛ خروج وجه فقط پس از تأیید پرداخت واقعی ثبت می‌شود.',
-    newLoan:'ثبت وام',mode:'نوع ثبت',newMode:'وام جدید و دریافت وجه',openingMode:'وام قبلی؛ ثبت مانده بدهی',lender:'وام‌دهنده',date:'تاریخ دریافت / تاریخ مبنا',original:'اصل اولیه وام',remaining:'مانده اصل بدهی فعلی',liability:'حساب بدهی وام',cash:'حساب واقعی دریافت وجه',create:'ثبت وام',loans:'وام‌های ثبت‌شده',empty:'وامی ثبت نشده است',remainingLabel:'مانده اصل',repaid:'اصل بازپرداخت‌شده',reference:'سند اولیه',schedule:'ثبت قسط از برنامه وام‌دهنده',selectLoan:'انتخاب وام',due:'سررسید قسط',principal:'اصل قسط',interest:'سود قسط',fees:'کارمزد',interestAccount:'حساب هزینه سود',feesAccount:'حساب هزینه کارمزد',auto:'ثبت خودکار سررسید',addInstallment:'ثبت قسط',installments:'اقساط',status:'وضعیت',total:'مجموع قسط',register:'ثبت سررسید',settle:'تأیید پرداخت واقعی',settlementDate:'تاریخ پرداخت واقعی',settlementAccount:'حساب صندوق / بانک پرداخت',cancel:'لغو قسط',cancelReason:'دلیل لغو قسط',dueEntry:'سند سررسید',settlementEntry:'سند پرداخت',actions:'عملیات',active:'فعال',closed:'تسویه‌شده',scheduled:'در انتظار سررسید',awaiting_confirmation:'در انتظار تأیید ثبت سررسید',registered:'سررسید ثبت‌شده؛ پرداخت نشده',failed:'خطای ثبت؛ نیازمند تلاش مجدد',settled:'پرداخت‌شده',cancelled:'لغوشده',required:'اطلاعات ضروری و مبلغ معتبر را وارد کنید.',saved:'ثبت شد.',failed:'عملیات انجام نشد؛ اطلاعات و وضعیت حسابداری را بررسی کنید.',noInstallments:'قسطی ثبت نشده است.'
+    newLoan:'ثبت وام',mode:'نوع ثبت',newMode:'وام جدید و دریافت وجه',openingMode:'وام قبلی؛ ثبت مانده بدهی',lender:'وام‌دهنده',date:'تاریخ دریافت / تاریخ مبنا',original:'اصل اولیه وام',remaining:'مانده اصل بدهی فعلی',liability:'حساب بدهی وام',cash:'حساب واقعی دریافت وجه',create:'ثبت وام',loans:'وام‌های ثبت‌شده',empty:'وامی ثبت نشده است',remainingLabel:'مانده اصل',repaid:'اصل بازپرداخت‌شده',reference:'سند اولیه',schedule:'ثبت قسط از برنامه وام‌دهنده',selectLoan:'انتخاب وام',due:'سررسید قسط',principal:'اصل قسط',interest:'سود قسط',fees:'کارمزد',interestAccount:'حساب هزینه سود',feesAccount:'حساب هزینه کارمزد',auto:'ثبت خودکار سررسید',addInstallment:'ثبت قسط',installments:'اقساط',status:'وضعیت',total:'مجموع قسط',register:'ثبت سررسید',settle:'تأیید پرداخت واقعی',settlementDate:'تاریخ پرداخت واقعی',settlementAccount:'حساب صندوق / بانک پرداخت',cancel:'لغو قسط',cancelReason:'دلیل لغو قسط',dueEntry:'سند سررسید',settlementEntry:'سند پرداخت',actions:'عملیات',active:'فعال',closed:'تسویه‌شده',scheduled:'در انتظار سررسید',awaiting_confirmation:'در انتظار تأیید ثبت سررسید',registered:'سررسید ثبت‌شده؛ پرداخت نشده',failed:'خطای ثبت؛ نیازمند تلاش مجدد',settled:'پرداخت‌شده',cancelled:'لغوشده',required:'اطلاعات ضروری و مبلغ معتبر را وارد کنید.',saved:'ثبت شد.',error:'عملیات انجام نشد؛ اطلاعات و وضعیت حسابداری را بررسی کنید.',noInstallments:'قسطی ثبت نشده است.'
   }:{
     title:'Loans',note:'Loan proceeds are not income. Principal repayment reduces the liability; only interest and fees post to expense accounts. Automatic mode registers a due event, not an automatic payment. Cash/bank outflow is recorded only after actual payment is confirmed.',
-    newLoan:'Register loan',mode:'Record type',newMode:'New loan; funds received',openingMode:'Existing loan; opening liability',lender:'Lender',date:'Receipt / opening date',original:'Original principal',remaining:'Current remaining principal',liability:'Loan liability account',cash:'Actual proceeds account',create:'Save loan',loans:'Registered loans',empty:'No loans recorded',remainingLabel:'Remaining principal',repaid:'Principal repaid',reference:'Initial journal',schedule:'Add installment from lender schedule',selectLoan:'Select loan',due:'Installment due date',principal:'Principal',interest:'Interest',fees:'Fees',interestAccount:'Interest expense account',feesAccount:'Fee expense account',auto:'Automatically register due event',addInstallment:'Add installment',installments:'Installments',status:'Status',total:'Installment total',register:'Register due event',settle:'Confirm actual payment',settlementDate:'Actual payment date',settlementAccount:'Actual cash / bank account',cancel:'Cancel installment',cancelReason:'Cancellation reason',dueEntry:'Due journal',settlementEntry:'Payment journal',actions:'Actions',active:'Active',closed:'Paid off',scheduled:'Scheduled',awaiting_confirmation:'Awaiting due registration',registered:'Due registered; unpaid',failed:'Registration failed; retry required',settled:'Paid',cancelled:'Cancelled',required:'Enter valid required fields and amounts.',saved:'Saved.',failed:'Operation failed. Check inputs and accounting state.',noInstallments:'No installments recorded.'
+    newLoan:'Register loan',mode:'Record type',newMode:'New loan; funds received',openingMode:'Existing loan; opening liability',lender:'Lender',date:'Receipt / opening date',original:'Original principal',remaining:'Current remaining principal',liability:'Loan liability account',cash:'Actual proceeds account',create:'Save loan',loans:'Registered loans',empty:'No loans recorded',remainingLabel:'Remaining principal',repaid:'Principal repaid',reference:'Initial journal',schedule:'Add installment from lender schedule',selectLoan:'Select loan',due:'Installment due date',principal:'Principal',interest:'Interest',fees:'Fees',interestAccount:'Interest expense account',feesAccount:'Fee expense account',auto:'Automatically register due event',addInstallment:'Add installment',installments:'Installments',status:'Status',total:'Installment total',register:'Register due event',settle:'Confirm actual payment',settlementDate:'Actual payment date',settlementAccount:'Actual cash / bank account',cancel:'Cancel installment',cancelReason:'Cancellation reason',dueEntry:'Due journal',settlementEntry:'Payment journal',actions:'Actions',active:'Active',closed:'Paid off',scheduled:'Scheduled',awaiting_confirmation:'Awaiting due registration',registered:'Due registered; unpaid',failed:'Registration failed; retry required',settled:'Paid',cancelled:'Cancelled',required:'Enter valid required fields and amounts.',saved:'Saved.',error:'Operation failed. Check inputs and accounting state.',noInstallments:'No installments recorded.'
   };
   const load=useCallback(async()=>{
     const [a,l]=await Promise.all([api.get('/accounting/accounts'),api.get('/accounting/loans')]);
@@ -60,7 +60,7 @@ export function AccountingLoans() {
     setFeesAccount(current=>expenses.some(x=>x.id===current)?current:(expenses[0]?.id||''));
     setSelectedLoan(current=>l.data.loans?.some((x:Loan)=>x.id===current&&x.status==='active')?current:(l.data.loans?.find((x:Loan)=>x.status==='active')?.id||''));
   },[locale]);
-  useEffect(()=>{void Promise.resolve().then(()=>load()).catch(()=>toast.error(t.failed));},[load,t.failed]);
+  useEffect(()=>{void Promise.resolve().then(()=>load()).catch(()=>toast.error(t.error));},[load,t.error]);
   const money=useMemo(()=> (value:number)=>new Intl.NumberFormat(locale,{style:'currency',currency,maximumFractionDigits:digits}).format(value/(10**digits)),[locale,currency,digits]);
   const liquidAccounts=accounts.filter(a=>a.account_type==='asset'&&a.is_active===1&&a.is_postable===1&&['cash_drawer','bank_accounts','payment_clearing'].includes(a.system_key||''));
   const liabilityAccounts=accounts.filter(a=>a.account_type==='liability'&&a.is_active===1&&a.is_postable===1&&(!a.system_key||a.system_key==='loans_payable'));
@@ -82,7 +82,7 @@ export function AccountingLoans() {
     try{
       await api.post('/accounting/loans',{mode,lender:lender.trim(),loan_date:loanDate,original_principal_minor:original,principal_minor:original,remaining_principal_minor:remaining,liability_account_id:liabilityAccount,cash_account_id:mode==='new'?cashAccount:null,currency_code:currency},{headers:{'Idempotency-Key':token()}});
       setLender('');setOriginalAmount('');setRemainingAmount('');toast.success(t.saved);await load();
-    }catch{toast.error(t.failed);}finally{setBusy(false);}
+    }catch{toast.error(t.error);}finally{setBusy(false);}
   }
   async function addInstallment(e:FormEvent){
     e.preventDefault();
@@ -92,18 +92,18 @@ export function AccountingLoans() {
     try{
       await api.post('/accounting/loans/'+encodeURIComponent(selectedLoan)+'/installments',{installments:[{due_date:dueDate,principal_minor:p,interest_minor:i,fees_minor:f,interest_account_id:i>0?interestAccount:null,fees_account_id:f>0?feesAccount:null,auto_register:autoRegister}]},{headers:{'Idempotency-Key':token()}});
       setPrincipal('');setInterest('');setFees('');toast.success(t.saved);await load();
-    }catch{toast.error(t.failed);}finally{setBusy(false);}
+    }catch{toast.error(t.error);}finally{setBusy(false);}
   }
   async function registerInstallment(item:Installment){
-    setBusy(true);try{await api.post('/accounting/loan-installments/'+encodeURIComponent(item.id)+'/register',{});await load();}catch{toast.error(t.failed);}finally{setBusy(false);}
+    setBusy(true);try{await api.post('/accounting/loan-installments/'+encodeURIComponent(item.id)+'/register',{});await load();}catch{toast.error(t.error);}finally{setBusy(false);}
   }
   async function settleInstallment(item:Installment){
     if(!settlementDate||!settlementAccount){toast.error(t.required);return;}
-    setBusy(true);try{await api.post('/accounting/loan-installments/'+encodeURIComponent(item.id)+'/settle',{settlement_date:settlementDate,settlement_account_id:settlementAccount},{headers:{'Idempotency-Key':token()}});await load();}catch{toast.error(t.failed);}finally{setBusy(false);}
+    setBusy(true);try{await api.post('/accounting/loan-installments/'+encodeURIComponent(item.id)+'/settle',{settlement_date:settlementDate,settlement_account_id:settlementAccount},{headers:{'Idempotency-Key':token()}});await load();}catch{toast.error(t.error);}finally{setBusy(false);}
   }
   async function cancelInstallment(item:Installment){
     const reason=window.prompt(t.cancelReason);if(!reason?.trim())return;
-    setBusy(true);try{await api.post('/accounting/loan-installments/'+encodeURIComponent(item.id)+'/cancel',{reason:reason.trim()});await load();}catch{toast.error(t.failed);}finally{setBusy(false);}
+    setBusy(true);try{await api.post('/accounting/loan-installments/'+encodeURIComponent(item.id)+'/cancel',{reason:reason.trim()});await load();}catch{toast.error(t.error);}finally{setBusy(false);}
   }
   const statusText=(status:string)=>(t as Record<string,string>)[status]||status;
   const card='rounded-xl border border-border bg-card p-4 space-y-3';
