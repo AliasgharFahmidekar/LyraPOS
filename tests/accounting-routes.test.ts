@@ -884,6 +884,12 @@ async function main(): Promise<void> {
     equal((await request(app).post('/api/accounting/future-items').set(manager).set('Idempotency-Key', 'future-invalid-account')
       .send({ ...futureIncomingPayload, classification_account_id: 'acct-operating-expenses' })).status, 400,
       'incoming future items cannot be mapped to an expense account');
+    for (const prohibitedIncomeAccount of ['acct-sales-revenue', 'acct-sales-returns', 'acct-sales-discounts']) {
+      equal((await request(app).post('/api/accounting/future-items').set(manager)
+        .set('Idempotency-Key', 'future-prohibited-income-' + prohibitedIncomeAccount)
+        .send({ ...futureIncomingPayload, classification_account_id: prohibitedIncomeAccount })).status, 400,
+      'future receipts cannot bypass POS posting rules through ' + prohibitedIncomeAccount);
+    }
     equal((await request(app).post('/api/accounting/future-items').set(manager).set('Idempotency-Key', 'future-invalid-receipt-direction')
       .send({ ...futureIncomingPayload, direction: 'outgoing', classification_account_id: 'acct-operating-expenses' })).status, 400,
       'a receipt record cannot represent an outgoing payment; outgoing instruments must use the cheque type');
