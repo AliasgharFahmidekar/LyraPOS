@@ -684,6 +684,15 @@ async function main(): Promise<void> {
     }
     equal(directPeriodRangeMutationBlocked, true, 'database trigger makes closed period identity and date range immutable');
 
+    let directReopenedInsertBlocked = false;
+    try {
+      db.prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by, reopen_reason, reopened_by, reopened_at) VALUES (?, '2018-01-01', '2018-01-01', 'reopened', 'bypassed close', 'accounting-api-owner', 'fake reopen', 'sql-test', CURRENT_TIMESTAMP)")
+        .run('closed-period-direct-reopen');
+    } catch (error: any) {
+      directReopenedInsertBlocked = String(error?.message || '').includes('ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION');
+    }
+    equal(directReopenedInsertBlocked, true, 'database trigger rejects inserting an already-reopened period without a close transition');
+
     let directOverlapInsertBlocked = false;
     try {
       db.prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES (?, '2019-12-31', '2020-01-02', 'closed', 'SQL overlap attempt', 'accounting-api-owner')")
