@@ -14,6 +14,13 @@ type FutureItem = {
   settlement_account_name: string | null; auto_register: number; status: string; last_error_message: string | null;
   due_entry_number: string | null; settlement_entry_number: string | null;
 };
+const isSettlementAccount = (account: Account) => {
+  if (account.account_type !== 'asset' || account.is_active !== 1 || account.is_postable !== 1) return false;
+  const key = account.system_key || '';
+  return ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(key)
+    || key.startsWith('custom_liquid:cash:')
+    || key.startsWith('custom_liquid:bank:');
+};
 const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 const labels = {
   fa: {
@@ -74,7 +81,7 @@ export function AccountingFutureItems() {
     setCurrency(code);
     try { setDigits(new Intl.NumberFormat(locale, { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits ?? 0); } catch { setDigits(0); }
     setItems(itemResponse.data.items || []);
-    const liquid = rows.filter((a) => a.account_type === 'asset' && a.is_active === 1 && a.is_postable === 1 && ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(a.system_key || ''));
+    const liquid = rows.filter(isSettlementAccount);
     setSettlementAccount((current) => liquid.some((a) => a.id === current) ? current : (liquid[0]?.id || ''));
     const income = rows.find((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['sales_revenue', 'sales_returns', 'sales_discounts'].includes(a.system_key || ''));
     const expense = rows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1);
@@ -132,7 +139,7 @@ export function AccountingFutureItems() {
     catch { toast.error(t.failedMessage); } finally { setBusy(false); }
   }
   const classificationAccounts = accounts.filter((a) => a.account_type === (direction === 'incoming' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1 && (direction !== 'incoming' || !['sales_revenue', 'sales_returns', 'sales_discounts'].includes(a.system_key || '')));
-  const settlementAccounts = accounts.filter((a) => a.account_type === 'asset' && a.is_active === 1 && a.is_postable === 1 && ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(a.system_key || ''));
+  const settlementAccounts = accounts.filter(isSettlementAccount);
   const statusLabel = (status: string) => (t as Record<string, string>)[status] || status;
   return <section dir={fa ? 'rtl' : 'ltr'} className="w-full max-w-6xl space-y-5">
     <h2 className="text-xl font-semibold">{t.title}</h2>
