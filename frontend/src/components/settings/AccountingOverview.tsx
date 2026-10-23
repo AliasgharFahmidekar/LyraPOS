@@ -137,8 +137,8 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
   const unitAdapter = useMemo(() => getCurrencyUnitAdapter(currency, tenant?.country, {
     currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar,
   }), [currency, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
-  const rawTrend = report?.daily_trend?.points || [];
   const groupedTrend = useMemo(() => {
+    const rawTrend = report?.daily_trend?.points || [];
     if (report?.daily_trend?.granularity === 'month') {
       return rawTrend.map((point) => ({ ...point, label: (() => { try { return new Intl.DateTimeFormat(locale, { month: 'short', year: '2-digit' }).format(new Date(point.period + '-01T12:00:00')); } catch { return point.period; } })() }));
     }
@@ -165,7 +165,7 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
         } catch { return point.period; }
       })(),
     }));
-  }, [rawTrend, report?.daily_trend?.granularity, trendMode, locale]);
+  }, [report?.daily_trend?.points, report?.daily_trend?.granularity, trendMode, locale]);
   const attentionStatusText = (status: string) => {
     const faStatus: Record<string, string> = { scheduled: 'در انتظار سررسید', awaiting_confirmation: 'در انتظار تأیید', registered: 'سررسیدشده؛ پرداخت نشده', failed: 'نیازمند بررسی' };
     const enStatus: Record<string, string> = { scheduled: 'Scheduled', awaiting_confirmation: 'Awaiting confirmation', registered: 'Due; unpaid', failed: 'Needs review' };
