@@ -71,6 +71,28 @@ function main(): void {
     equal(receiptLines.find((line:any)=>line.account_id==='acct-loans-payable')?.credit_minor, 1000, 'new loan credits liability, not revenue');
     ok(!receiptLines.some((line:any)=>line.account_id==='acct-sales-revenue' || line.account_id==='acct-other-income'), 'loan proceeds are not posted as income');
 
+    const batchesBeforeValidationCases = (db.prepare('SELECT COUNT(*) AS n FROM accounting_loan_installment_batches').get() as any).n;
+    throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
+      due_date:'2026-10-12', principal_minor:-1, interest_minor:0, fees_minor:0, auto_register:false,
+    }]}, 'test-owner', 'loan-negative-principal'), 'invalid_principal_minor', 'negative principal is rejected');
+    throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
+      due_date:'2026-02-30', principal_minor:1, interest_minor:0, fees_minor:0, auto_register:false,
+    }]}, 'test-owner', 'loan-invalid-calendar-date'), 'invalid_due_date', 'impossible calendar dates are rejected');
+    throws(() => loans.createLoanInstallments(db, created.id, {installments:[
+      {due_date:'2026-10-12', principal_minor:1, interest_minor:0, fees_minor:0, auto_register:false},
+      {due_date:'2026-10-12', principal_minor:1, interest_minor:0, fees_minor:0, auto_register:false},
+    ]}, 'test-owner', 'loan-duplicate-dates'), 'duplicate_installment_due_date', 'duplicate due dates within a batch are rejected');
+    throws(() => loans.createLoanInstallments(db, created.id, {installments:Array.from({length:121}, (_, index) => ({
+      due_date:'2027-01-01', principal_minor:1, interest_minor:0, fees_minor:0, auto_register:false,
+    }))}, 'test-owner', 'loan-too-many-installments'), 'invalid_installments', 'a batch above 120 installments is rejected');
+    db.prepare("UPDATE accounting_accounts SET is_active=0 WHERE id='acct-operating-expenses'").run();
+    throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
+      due_date:'2026-10-12', principal_minor:1, interest_minor:1, fees_minor:0,
+      interest_account_id:'acct-operating-expenses', auto_register:false,
+    }]}, 'test-owner', 'loan-inactive-expense-account'), 'account_inactive', 'inactive expense accounts are rejected for installment accrual');
+    db.prepare("UPDATE accounting_accounts SET is_active=1 WHERE id='acct-operating-expenses'").run();
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_loan_installment_batches').get() as any).n, batchesBeforeValidationCases,
+      'invalid batch requests do not create a partial batch');
     const batchesBeforeEarlyInstallment = (db.prepare('SELECT COUNT(*) AS n FROM accounting_loan_installment_batches').get() as any).n;
     throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
       due_date:'2026-09-30', principal_minor:1, interest_minor:0, fees_minor:0, auto_register:false,
@@ -84,6 +106,15 @@ function main(): void {
       interest_account_id:'acct-operating-expenses', fees_account_id:'acct-payment-fees', auto_register:true,
     }]}, 'test-owner', 'loan-installments-001');
     equal(batch.installments.length, 1, 'lender-provided repayment schedule creates one installment occurrence');
+    const sameBatchRetry = loans.createLoanInstallments(db, created.id, {installments:[{
+      due_date:'2026-10-10', principal_minor:400, interest_minor:50, fees_minor:10,
+      interest_account_id:'acct-operating-expenses', fees_account_id:'acct-payment-fees', auto_register:true,
+    }]}, 'test-owner', 'loan-installments-001');
+    equal(sameBatchRetry.duplicate, true, 'identical group submission returns the original batch without adding installments');
+    throws(() => loans.createLoanInstallments(db, created.id, {installments:[{
+      due_date:'2026-10-10', principal_minor:401, interest_minor:50, fees_minor:10,
+      interest_account_id:'acct-operating-expenses', fees_account_id:'acct-payment-fees', auto_register:true,
+    }]}, 'test-owner', 'loan-installments-001'), 'idempotency_conflict', 'changed batch payload under the same key is rejected');
     const installment = batch.installments[0];
     const dueResult = loans.processDueLoanInstallments(db, '2026-10-22');
     equal(dueResult.checked, 1, 'due processor checks the overdue loan installment');
