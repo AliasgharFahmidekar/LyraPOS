@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatCurrency, formatCurrencyForTenant, getCurrencyFractionDigits } from '../main/countries';
+import { formatAccountingAmountInput, formatAccountingMoney, formatCurrency, formatCurrencyForTenant, getCurrencyFractionDigits, parseAccountingAmountToMinor } from '../main/countries';
 
 test('formatCurrency: en-US / USD', () => {
   assert.equal(formatCurrency(1234.5, 'USD', 'en-US'), '$1,234.50');
@@ -129,4 +129,23 @@ test('getCurrencyUnitAdapter: zero-decimal currencies use whole integer steps', 
   assert.equal(usdAdapter.toDisplay(12.34), 12.34);
   assert.equal(usdAdapter.toStored(12.34), 12.34);
   assert.equal(usdAdapter.formatInput(12.34), '12.34');
+});
+
+
+test('accounting money display honors the tenant toman preference without changing stored rials', () => {
+  const prefs = { currencyDisplay: 'toman' as const, digits: 'latin' as const, calendar: 'gregorian' as const };
+  assert.match(formatAccountingMoney(123450, { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR', countryCode: 'IR', preferences: prefs }), /تومان/);
+  assert.doesNotMatch(formatAccountingMoney(123450, { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR', countryCode: 'IR', preferences: prefs }), /ریال/);
+  assert.equal(formatAccountingAmountInput(1234, { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR', countryCode: 'IR', preferences: prefs }), '123.4');
+  assert.equal(parseAccountingAmountToMinor('۱۲۳٫۴', { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR', countryCode: 'IR', preferences: prefs }), 1234);
+  assert.equal(parseAccountingAmountToMinor('1234', { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR', preferences: { currencyDisplay: 'rial', digits: 'latin', calendar: 'gregorian' } }), 1234);
+});
+
+test('accounting money parser preserves ISO minor units for non-IRR currencies and rejects inexact values', () => {
+  assert.equal(parseAccountingAmountToMinor('12.34', { currency: 'USD', fractionDigits: 2, locale: 'en-US' }), 1234);
+  assert.equal(formatAccountingMoney(1234, { currency: 'USD', fractionDigits: 2, locale: 'en-US' }), '$12.34');
+  assert.equal(parseAccountingAmountToMinor('-1', { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR' }), null);
+  assert.equal(parseAccountingAmountToMinor('0', { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR' }), null);
+  assert.equal(parseAccountingAmountToMinor('0', { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR' }, true), 0);
+  assert.equal(parseAccountingAmountToMinor('1.001', { currency: 'USD', fractionDigits: 2, locale: 'en-US' }), null);
 });
