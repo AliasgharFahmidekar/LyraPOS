@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale } from 'use-intl';
+import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
+import { formatAccountingMoney } from '@/lib/countries';
 
 type ReportLine = {
   journal_entry_id: string;
@@ -68,6 +70,7 @@ const monthStart = () => today().slice(0, 8) + '01';
 
 export function AccountingReports() {
   const locale = useLocale();
+  const tenant = useAuthStore((state) => state.currentTenant);
   const isPersian = locale.toLowerCase().startsWith('fa');
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
@@ -178,14 +181,14 @@ export function AccountingReports() {
 
   const money = useCallback((minor: number) => {
     if (!report) return '—';
-    const digits = report.accounting_fraction_digits;
-    return new Intl.NumberFormat(locale, {
-      style: 'currency',
+    return formatAccountingMoney(minor, {
       currency: report.currency_code,
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
-    }).format(minor / (10 ** digits));
-  }, [locale, report]);
+      fractionDigits: report.accounting_fraction_digits,
+      locale,
+      countryCode: tenant?.country,
+      preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
+    });
+  }, [locale, report, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
 
   const cardClass = 'rounded-xl border border-border bg-card p-4 space-y-3';
   const inputClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
