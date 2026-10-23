@@ -6,17 +6,17 @@ import {
   Pencil, Plus, Search, Wallet, X,
 } from 'lucide-react';
 import { useLocale } from 'use-intl';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
-import { formatMoney, getAccountingMinorUnitFactor } from '@/lib/countries';
+import { formatMoney } from '@/lib/countries';
 
 type AccountKind = 'cash' | 'bank' | 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 type Account = {
   id: string; system_key: string | null; account_code: string; name: string; account_type: string;
   normal_balance: string; parent_account_id: string | null; is_system: number; is_active: number;
   is_postable: number; description: string | null; balance_minor: number; transaction_count: number;
-  is_liquid: boolean; account_kind: AccountKind; balance_minor: number;
+  is_liquid: boolean; account_kind: AccountKind;
 };
 type LedgerLine = {
   journal_entry_id: string; entry_number: string; entry_date: string; description: string;
@@ -31,6 +31,7 @@ export function AccountingAccounts() {
   const fa = locale.toLowerCase().startsWith('fa');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [currency, setCurrency] = useState(tenant?.currency || 'IRR');
+  const [fractionDigits, setFractionDigits] = useState(0);
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState<'all' | AccountKind>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
@@ -103,7 +104,7 @@ export function AccountingAccounts() {
     typeCashBank: 'Cash/bank account', typeOther: 'General ledger account',
   };
 
-  const unitFactor = getAccountingMinorUnitFactor(currency);
+  const unitFactor = 10 ** fractionDigits;
   const money = useCallback((minor: number) => formatMoney(
     minor / unitFactor, currency, locale,
     { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
@@ -119,6 +120,7 @@ export function AccountingAccounts() {
       ]);
       setAccounts((listResponse.data.accounts || []) as Account[]);
       setCurrency(standardResponse.data.currency_code || tenant?.currency || 'IRR');
+      setFractionDigits(Number(standardResponse.data.accounting_fraction_digits ?? 0));
     } catch {
       setError(true);
     } finally {

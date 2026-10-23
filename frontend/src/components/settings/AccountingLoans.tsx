@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { CalendarClock, CircleCheck, Plus } from 'lucide-react';
-import { formatMoney, getAccountingMinorUnitFactor, getCurrencyUnitAdapter } from '@/lib/countries';
+import { formatMoney, getCurrencyUnitAdapter } from '@/lib/countries';
 
 type Account = { id:string; account_code:string; name:string; account_type:string; system_key:string|null; is_active:number; is_postable:number };
 type Installment = { id:string; due_date:string; principal_minor:number; interest_minor:number; fees_minor:number; status:string; auto_register:number; last_error_message?:string|null; due_entry_number?:string|null; settlement_entry_number?:string|null; settlement_journal_entry_id?:string|null };
@@ -23,6 +23,7 @@ export function AccountingLoans() {
   const [accounts,setAccounts]=useState<Account[]>([]);
   const [loans,setLoans]=useState<Loan[]>([]);
   const [currency,setCurrency]=useState(tenant?.currency || 'IRR');
+  const [fractionDigits,setFractionDigits]=useState(0);
   const [mode,setMode]=useState<'new'|'opening'>('new');
   const [lender,setLender]=useState('');
   const [loanDate,setLoanDate]=useState(today());
@@ -56,7 +57,7 @@ export function AccountingLoans() {
     const [a,l]=await Promise.all([api.get('/accounting/accounts'),api.get('/accounting/loans')]);
     const rows:Account[]=a.data.accounts||[];
     setAccounts(rows); setLoans(l.data.loans||[]);
-    const code=a.data.currency_code||'IRR'; setCurrency(code);
+    const code=a.data.currency_code||'IRR'; setCurrency(code); setFractionDigits(Number(a.data.accounting_fraction_digits ?? 0));
     const liquid=rows.filter(x=>x.account_type==='asset'&&x.is_active===1&&x.is_postable===1&&(['cash_drawer','bank_accounts','payment_clearing'].includes(x.system_key||'')||(x.system_key||'').startsWith('custom_liquid:cash:')||(x.system_key||'').startsWith('custom_liquid:bank:')));
     setCashAccount(current=>liquid.some(x=>x.id===current)?current:(liquid[0]?.id||''));
     setSettlementAccount(current=>liquid.some(x=>x.id===current)?current:(liquid[0]?.id||''));
@@ -68,7 +69,7 @@ export function AccountingLoans() {
     setSelectedLoan(current=>l.data.loans?.some((x:Loan)=>x.id===current&&x.status==='active')?current:(l.data.loans?.find((x:Loan)=>x.status==='active')?.id||''));
   },[locale]);
   useEffect(()=>{void Promise.resolve().then(()=>load()).catch(()=>toast.error(t.error));},[load,t.error]);
-  const unitFactor=getAccountingMinorUnitFactor(currency);
+  const unitFactor=10**fractionDigits;
   const unitAdapter=useMemo(()=>getCurrencyUnitAdapter(currency,tenant?.country,{currencyDisplay:tenant?.currency_display,digits:tenant?.number_digits,calendar:tenant?.calendar}),[currency,tenant?.country,tenant?.currency_display,tenant?.number_digits,tenant?.calendar]);
   const money=useMemo(()=> (value:number)=>formatMoney(value/unitFactor,currency,locale,{currencyDisplay:tenant?.currency_display,digits:tenant?.number_digits,calendar:tenant?.calendar}),[locale,currency,unitFactor,tenant?.currency_display,tenant?.number_digits,tenant?.calendar]);
   const liquidAccounts=accounts.filter(a=>a.account_type==='asset'&&a.is_active===1&&a.is_postable===1&&(['cash_drawer','bank_accounts','payment_clearing'].includes(a.system_key||'')||(a.system_key||'').startsWith('custom_liquid:cash:')||(a.system_key||'').startsWith('custom_liquid:bank:')));

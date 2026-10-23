@@ -8,7 +8,7 @@ import {
 import { useLocale } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
-import { formatMoney, getAccountingMinorUnitFactor, getCurrencyUnitAdapter } from '@/lib/countries';
+import { formatMoney, getCurrencyUnitAdapter } from '@/lib/countries';
 
 type ReportLine = {
   journal_entry_id: string; entry_number: string; entry_date: string; description: string;
@@ -102,7 +102,7 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
   useEffect(() => { void load(); }, [load]);
 
   const currency = report?.currency_code || forecast?.currency_code || tenant?.currency || 'IRR';
-  const unitFactor = getAccountingMinorUnitFactor(currency);
+  const unitFactor = 10 ** (report?.accounting_fraction_digits ?? 0);
   const money = useCallback((minor: number) => formatMoney(
     minor / unitFactor, currency, locale,
     { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
@@ -363,7 +363,7 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
             </div>
             {loading && !forecast ? <p className="acct-empty">{text.loading}</p> : upcoming.length === 0 ? <p className="acct-empty">{text.noUpcoming}</p> :
               <div className="acct-due-list">
-                {upcoming.map((event) => <article className="acct-due-row" key={event.source + ':' + event.id}>
+                {upcoming.map((event) => <article className="acct-due-row" key={event.kind + ':' + event.id}>
                   <span className="acct-due-icon"><CalendarClock size={17} /></span>
                   <div className="acct-due-main"><strong>{event.description}</strong><span>{dateText(event.date)}{event.counterparty ? ' · ' + event.counterparty : ''}</span></div>
                   <div className="acct-due-amount"><strong>{money(event.amount_minor)}</strong><span>{event.direction === 'incoming' ? text.incomeKind : text.expenseKind}</span></div>
