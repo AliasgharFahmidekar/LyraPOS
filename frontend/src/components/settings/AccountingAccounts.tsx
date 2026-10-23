@@ -9,7 +9,7 @@ import { useLocale } from 'use-intl';
 import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
-import { formatMoney } from '@/lib/countries';
+import { formatAccountingMoney } from '@/lib/countries';
 
 type AccountKind = 'cash' | 'bank' | 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 type Account = {
@@ -104,11 +104,10 @@ export function AccountingAccounts() {
     typeCashBank: 'Cash/bank account', typeOther: 'General ledger account',
   };
 
-  const unitFactor = 10 ** fractionDigits;
-  const money = useCallback((minor: number) => formatMoney(
-    minor / unitFactor, currency, locale,
-    { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
-  ), [unitFactor, currency, locale, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  const money = useCallback((minor: number) => formatAccountingMoney(minor, {
+    currency, fractionDigits, locale, countryCode: tenant?.country,
+    preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
+  }), [fractionDigits, currency, locale, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
 
   const load = useCallback(async () => {
     setLoading(true);
