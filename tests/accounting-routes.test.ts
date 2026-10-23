@@ -641,6 +641,11 @@ async function main(): Promise<void> {
     equal(periodReport.body.reporting_policy.tax_treatment, 'tax_payments_are_expenses_when_paid', 'report follows the policy that taxes are expenses when paid');
     ok(Array.isArray(periodReport.body.liquid_accounts), 'management report returns cash, bank and clearing account balances');
     ok(Array.isArray(periodReport.body.movements?.lines), 'management report returns posted ledger movement lines');
+    ok(Array.isArray(periodReport.body.daily_trend?.points), 'management report returns data-backed income and expense trend points');
+    const trendForReportDate = periodReport.body.daily_trend.points.find((point: any) => point.period === '2026-10-15');
+    ok(Boolean(trendForReportDate), 'daily trend includes the requested report date');
+    equal(trendForReportDate.income_minor, 20500, 'daily trend reconciles actual sales receipts, monetary refunds, and other income');
+    equal(trendForReportDate.expense_minor, 2200, 'daily trend counts posted expenses once and excludes COGS and internal transfers');
     equal((await request(app).get('/api/accounting/reports?from=2026-10-16&to=2026-10-15').set(manager)).status, 400,
       'management report rejects a reversed date range');
     equal((await request(app).get('/api/accounting/reports?limit=101').set(manager)).status, 400,

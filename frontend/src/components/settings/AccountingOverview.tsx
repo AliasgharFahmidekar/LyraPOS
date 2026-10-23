@@ -172,6 +172,11 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
     return (fa ? faStatus : enStatus)[status] || status;
   };
   const trendMax = Math.max(0, ...groupedTrend.map((point) => Math.max(point.income_minor, point.expense_minor)));
+  const trendMin = Math.min(0, ...groupedTrend.map((point) => Math.min(point.income_minor, point.expense_minor)));
+  const trendRange = trendMax === trendMin ? 1 : trendMax - trendMin;
+  const trendBaseline = trendMax === trendMin ? 190 : 20 + (trendMax / trendRange) * 170;
+  const trendY = (value: number) => 20 + ((trendMax - value) / trendRange) * 170;
+  const barGeometry = (value: number) => ({ y: Math.min(trendBaseline, trendY(value)), height: Math.max(0, Math.abs(trendBaseline - trendY(value))) });
   const trendGrid = [1, 0.75, 0.5, 0.25, 0];
   const compactTrend = (minor: number) => new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 })
     .format(unitAdapter.toDisplay(minor / unitFactor));
@@ -316,26 +321,27 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
             <svg className="acct-trend-chart" viewBox="0 0 840 250" role="img" aria-label={text.trend} preserveAspectRatio="xMidYMid meet">
               {trendGrid.map((factor) => {
                 const y = 20 + (1 - factor) * 170;
+                const value = trendMax === trendMin ? 0 : trendMax - trendRange * (1 - factor);
                 return <g key={factor}><line className="acct-chart-gridline" x1="78" x2="820" y1={y} y2={y} />
-                  <text className="acct-chart-tick" x="68" y={y + 4} textAnchor="end">{compactTrend(trendMax * factor)}</text></g>;
+                  <text className="acct-chart-tick" x="68" y={y + 4} textAnchor="end">{compactTrend(value)}</text></g>;
               })}
               {groupedTrend.map((point, index) => {
                 const plotWidth = 720 / groupedTrend.length;
                 const center = 92 + plotWidth * (index + 0.5);
                 const width = Math.min(23, plotWidth * 0.28);
-                const incomeHeight = trendMax > 0 ? point.income_minor / trendMax * 170 : 0;
-                const expenseHeight = trendMax > 0 ? point.expense_minor / trendMax * 170 : 0;
+                const incomeBar = barGeometry(point.income_minor);
+                const expenseBar = barGeometry(point.expense_minor);
                 return <g key={point.period}>
-                  <rect className="acct-chart-income" x={center - width - 2} y={190 - incomeHeight} width={width} height={incomeHeight} rx="3">
+                  <rect className="acct-chart-income" x={center - width - 2} y={incomeBar.y} width={width} height={incomeBar.height} rx="3">
                     <title>{point.label} · {text.incoming}: {money(point.income_minor)}</title>
                   </rect>
-                  <rect className="acct-chart-expense" x={center + 2} y={190 - expenseHeight} width={width} height={expenseHeight} rx="3">
+                  <rect className="acct-chart-expense" x={center + 2} y={expenseBar.y} width={width} height={expenseBar.height} rx="3">
                     <title>{point.label} · {text.outgoing}: {money(point.expense_minor)}</title>
                   </rect>
                   <text className="acct-chart-label" x={center} y="218" textAnchor="middle">{point.label}</text>
                 </g>;
               })}
-              <line className="acct-chart-axis" x1="78" x2="820" y1="190" y2="190" />
+              <line className="acct-chart-axis" x1="78" x2="820" y1={trendBaseline} y2={trendBaseline} />
             </svg>
           </div>}
         </section>

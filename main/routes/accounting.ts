@@ -6,7 +6,7 @@ import { AccountingExpenseError, createExpense, getExpense, listExpenseCategorie
 import { AccountingAccountError, createManagedAccountingAccount, listManagedAccountingAccounts, updateManagedAccountingAccount } from '../accounting/chart-of-accounts';
 import { AccountingLedgerError } from '../accounting/ledger';
 import { createCashBankTransfer, listCashBankTransfers } from '../accounting/transfers';
-import { resolveTenantCurrency } from '../countries';
+import { getAccountingMinorUnitFactor, resolveTenantCurrency } from '../countries';
 import { createManualAccountingActivity, listManualAccountingActivities } from '../accounting/manual-activities';
 import { createOpeningBalance, listAccountTransactionHistory, listOpeningBalances } from '../accounting/opening-balances';
 import { createReconciliationAdjustment, getAccountingReconciliationOverview } from '../accounting/reconciliation';
@@ -242,7 +242,10 @@ router.get('/accounts', managerOnly, (req, res) => {
     const db = getDatabase();
     const regionalRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency')").all() as { key: string; value: string | null }[];
     const regional = Object.fromEntries(regionalRows.map((row) => [row.key, row.value ?? undefined]));
-    res.json({ accounts: listPostingAccounts(db, types), currency_code: resolveTenantCurrency(regional.currency, regional.country ?? '') });
+    const currencyCode = resolveTenantCurrency(regional.currency, regional.country ?? '');
+    const accountingFactor = getAccountingMinorUnitFactor(currencyCode);
+    const accountingFractionDigits = Math.round(Math.log10(accountingFactor));
+    res.json({ accounts: listPostingAccounts(db, types), currency_code: currencyCode, accounting_fraction_digits: accountingFractionDigits });
   } catch (error) { respondError(res, error); }
 });
 router.get('/expense-categories', managerOnly, (req, res) => {
