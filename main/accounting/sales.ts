@@ -52,7 +52,7 @@ function toMinorUnits(value: unknown, currency: string, label: string): number {
   // cannot be represented exactly instead of silently rounding a payment.
   const scaled = numeric * factor;
   const minor = Math.round(scaled);
-  const floatingPointTolerance = Number.EPSILON * Math.max(1, Math.abs(scaled)) * 8;
+  const floatingPointTolerance = Math.min(1e-7, Number.EPSILON * Math.max(1, Math.abs(scaled)) * 8);
   if (!Number.isSafeInteger(minor) || Math.abs(scaled - minor) > floatingPointTolerance) {
     fail('accounting_amount_invalid', label + ' exceeds the precision supported by the configured store currency.', 409);
   }
