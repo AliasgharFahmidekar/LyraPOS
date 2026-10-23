@@ -56,16 +56,16 @@ export function AccountingRecurringObligations() {
     setAccountId(current => rows.some(a=>a.id===current && a.is_active===1 && a.is_postable===1) ? current : (rows.find(a=>a.is_active===1 && a.is_postable===1)?.id || ''));
   },[]);
   useEffect(() => { void Promise.resolve().then(()=>load()).catch(()=>toast.error(t.failedMessage)); },[load,t.failedMessage]);
-  const preferences = { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar };
-  const unitAdapter = useMemo(() => getCurrencyUnitAdapter(currency, tenant?.country, preferences), [currency, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  const preferences = useMemo(() => ({ currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar }), [tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  const unitAdapter = useMemo(() => getCurrencyUnitAdapter(currency, tenant?.country, preferences), [currency, tenant?.country, preferences]);
   const money = useCallback((minor: number) => formatAccountingMoney(minor, {
     currency, fractionDigits, locale, countryCode: tenant?.country, preferences,
-  }), [currency, fractionDigits, locale, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  }), [currency, fractionDigits, locale, tenant?.country, preferences]);
   const expenseAccounts=accounts.filter(a=>a.account_type==='expense' && a.is_active===1 && a.is_postable===1);
   function amountMinor(value: string): number | null {
     return parseAccountingAmountToMinor(value, {
       currency, fractionDigits, locale, countryCode: tenant?.country,
-      preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
+      preferences,
     });
   }
   async function create(e:FormEvent) {
