@@ -130,8 +130,8 @@ export function accountingDiagnosticText(value: string | null | undefined, local
 
 export function accountingPaymentMethodName(name: string, locale: string): string {
   if (!isPersianAccountingLocale(locale)) return name;
-  if (name === 'Cash') return 'نقدی';
-  if (name === 'Card') return 'کارت‌خوان';
+  if (name.trim().toLowerCase() === 'cash') return 'نقدی';
+  if (name.trim().toLowerCase() === 'card') return 'کارت‌خوان';
   return name;
 }
 

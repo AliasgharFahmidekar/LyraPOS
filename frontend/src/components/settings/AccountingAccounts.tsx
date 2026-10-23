@@ -244,7 +244,7 @@ export function AccountingAccounts() {
               <table className="acct-table">
                 <thead><tr><th>{text.name}</th><th>{text.type}</th><th>{text.code}</th><th className="text-end">{text.balance}</th><th>{text.status}</th><th>{text.actions}</th></tr></thead>
                 <tbody>{filtered.map((account) => <tr key={account.id}>
-                  <td><div className="acct-account-cell"><span className={account.is_liquid ? 'acct-account-icon' : 'acct-account-icon is-muted'}>{account.account_kind === 'bank' ? <Landmark size={17} /> : account.account_kind === 'cash' ? <Banknote size={17} /> : <Wallet size={17} />}</span><span><strong>{accountingSystemAccountName(account.system_key, account.name, locale)}</strong>{account.description && <span className="acct-subtext block">{account.description}</span>}</span></div></td>
+                  <td><div className="acct-account-cell"><span className={account.is_liquid ? 'acct-account-icon' : 'acct-account-icon is-muted'}>{account.account_kind === 'bank' ? <Landmark size={17} /> : account.account_kind === 'cash' ? <Banknote size={17} /> : <Wallet size={17} />}</span><span><strong>{accountingSystemAccountName(account.system_key, account.name, locale)}</strong>{account.description && <span className="acct-subtext block">{accountingSystemDescription(account.description, locale)}</span>}</span></div></td>
                   <td>{kindName(account)}</td>
                   <td><span className="acct-code">{account.account_code}</span></td>
                   <td className="text-end whitespace-nowrap tabular-nums acct-money">{money(account.balance_minor)}</td>
