@@ -170,7 +170,38 @@ try {
     closeDatabase();
   }
 
-  // Scenario 6: A corrupted/stale cash-method mapping must not post receipts to non-liquid assets.
+  // Scenario 6: Toman is a display preference; POS sale receipts remain canonical rials.
+  {
+    const db = freshDb();
+    const stamp = now();
+    db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('currency_display','toman',?)").run(stamp);
+    const { billId } = makeBill(db, 'IRR-TOMAN-CANONICAL', 1500000, 0);
+    const payment = {
+      payment_event_id: 'payment-event-irr-toman-001',
+      method: 'cash',
+      amount: 1234500,
+      timestamp: '2026-10-14T08:00:00.000Z',
+    };
+    db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
+    const receipt = journalForSource(db, 'bill_payment', String(billId) + ':' + payment.payment_event_id, 'money_received');
+    ok(receipt, 'IRR sale receipt with toman display preference is journaled');
+    const receiptLines = linesForJournal(db, receipt.id);
+    equal(receiptLines.find((line: any) => line.system_key === 'cash_drawer')?.debit_minor, 1234500,
+      'toman display preference does not divide or multiply the POS rial amount');
+    equal(receiptLines.find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 1234500,
+      'sales revenue is credited in the same canonical rial units as the actual payment');
+    balanced(db, receipt.id);
+
+    const journalsBeforeInvalidPrecision = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
+    const invalidPayment = { ...payment, payment_event_id: 'payment-event-irr-fractional-rial', amount: 1234500.5 };
+    throws(() => db.transaction(() => sales.postCollectionPaymentLines(db, billId, [invalidPayment], 'test-owner-accounting'))(),
+      /accounting_amount_invalid/, 'fractional-rial POS receipt is rejected instead of rounded');
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, journalsBeforeInvalidPrecision,
+      'rejecting out-of-precision sale receipt creates no partial journal');
+    closeDatabase();
+  }
+
+  // Scenario 7: A corrupted/stale cash-method mapping must not post receipts to non-liquid assets.
   {
     const db = freshDb();
     const { billId } = makeBill(db, 'INVALID-LIQUID-MAPPING');
