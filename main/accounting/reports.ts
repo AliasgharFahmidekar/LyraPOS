@@ -8,6 +8,7 @@ type ReportFilters = {
   from?: unknown;
   to?: unknown;
   limit?: unknown;
+  page?: unknown;
 };
 
 function fail(code: string, message: string, statusCode = 400): never {
@@ -38,7 +39,7 @@ function configuredRegion(db: DB): { currencyCode: string; fractionDigits: numbe
   }
 }
 
-function dateRange(filters: ReportFilters): { from: string | null; to: string | null; limit: number } {
+function dateRange(filters: ReportFilters): { from: string | null; to: string | null; limit: number; page: number; offset: number } {
   const from = filters.from == null || filters.from === '' ? null : assertAccountingDate(filters.from, 'from');
   const to = filters.to == null || filters.to === '' ? null : assertAccountingDate(filters.to, 'to');
   if (from && to && from > to) fail('invalid_date_range', 'The start date must not be later than the end date.');
@@ -46,7 +47,15 @@ function dateRange(filters: ReportFilters): { from: string | null; to: string | 
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
     fail('invalid_limit', 'Report movement limit must be an integer from 1 to 100.');
   }
-  return { from, to, limit };
+  const page = filters.page === undefined ? 1 : Number(filters.page);
+  if (!Number.isSafeInteger(page) || page < 1) {
+    fail('invalid_page', 'Report page must be a positive integer.');
+  }
+  const offset = (page - 1) * limit;
+  if (!Number.isSafeInteger(offset)) {
+    fail('invalid_page', 'Report page is outside the supported range.');
+  }
+  return { from, to, limit, page, offset };
 }
 
 function periodWhere(alias: string, range: { from: string | null; to: string | null }): { sql: string; values: string[] } {
@@ -128,6 +137,27 @@ function liquidAccountBalances(db: DB, range: { from: string | null; to: string 
       period_net_movement_minor: safeTotal(Number(movement.debit_minor) - Number(movement.credit_minor), 'liquid account net movement'),
     };
   });
+}
+
+function recentLiquidMovements(db: DB, range: { from: string | null; to: string | null }): any[] {
+  const dates = periodWhere('entry', range);
+  return db.prepare(
+    'SELECT entry.id AS journal_entry_id, entry.entry_number, entry.entry_date, entry.description, ' +
+    'line.line_no, line.description AS line_description, account.id AS account_id, account.system_key, ' +
+    'account.account_code, account.name AS account_name, account.normal_balance, ' +
+    'CASE WHEN account.normal_balance = \'debit\' THEN line.debit_minor-line.credit_minor ELSE line.credit_minor-line.debit_minor END AS change_minor ' +
+    'FROM accounting_journal_entries entry ' +
+    'JOIN accounting_journal_lines line ON line.journal_entry_id=entry.id ' +
+    'JOIN accounting_accounts account ON account.id=line.account_id ' +
+    'WHERE entry.status=\'posted\' AND (account.system_key IN (\'cash_drawer\',\'bank_accounts\',\'payment_clearing\') ' +
+    'OR account.system_key LIKE \'custom_liquid:%\') AND line.debit_minor <> line.credit_minor' +
+    dates.sql +
+    ' ORDER BY entry.entry_date DESC, entry.entry_number DESC, line.line_no ASC LIMIT 6',
+  ).all(...dates.values) as Array<{
+    journal_entry_id: string; entry_number: string; entry_date: string; description: string;
+    line_no: number; line_description: string | null; account_id: string; system_key: string;
+    account_code: string; account_name: string; normal_balance: string; change_minor: number;
+  }>;
 }
 
 function dailyTrend(
@@ -260,9 +290,9 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
     'JOIN accounting_journal_lines line ON line.journal_entry_id=entry.id ' +
     'JOIN accounting_accounts account ON account.id=line.account_id ' +
     'WHERE entry.id IN (SELECT selected.id FROM accounting_journal_entries selected WHERE selected.status=\'posted\'' +
-    dates.sql + ' ORDER BY selected.entry_date DESC, selected.entry_number DESC LIMIT ?) ' +
+    dates.sql + ' ORDER BY selected.entry_date DESC, selected.entry_number DESC LIMIT ? OFFSET ?) ' +
     'ORDER BY entry.entry_date DESC, entry.entry_number DESC, line.line_no ASC',
-  ).all(...dates.values, range.limit);
+  ).all(...dates.values, range.limit, range.offset);
 
   return {
     from: range.from,
@@ -292,11 +322,15 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
       message: 'This management result is before inventory cost/COGS. Inventory value and cost of goods sold are not calculated yet, so this result is not net profit.',
     },
     liquid_accounts: liquidAccountBalances(db, range),
+    recent_liquid_movements: recentLiquidMovements(db, range),
     daily_trend: dailyTrend(db, range),
     movements: {
       entries_count: movementCount,
       limit: range.limit,
-      truncated: movementCount > range.limit,
+      page: range.page,
+      page_size: range.limit,
+      total_pages: Math.max(1, Math.ceil(movementCount / range.limit)),
+      truncated: movementCount > range.offset + range.limit,
       lines: movements,
     },
     pre_cutover_exceptions: preCutoverExceptions(db),
