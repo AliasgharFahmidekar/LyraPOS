@@ -24,6 +24,7 @@ const isSettlementAccount = (account: Account) => {
     || key.startsWith('custom_liquid:bank:');
 };
 const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+const token = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random());
 const labels = {
   fa: {
     title: 'دریافت‌ها و چک‌های آتی', add: 'ثبت مورد جدید', type: 'نوع سند', receipt: 'دریافت آتی', cheque: 'چک',
@@ -73,7 +74,6 @@ export function AccountingFutureItems() {
   const [settlementDate, setSettlementDate] = useState(today());
   const [settlementAccount, setSettlementAccount] = useState('');
   const [busy, setBusy] = useState(false);
-  const token = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random());
   const load = useCallback(async () => {
     const [accountResponse, itemResponse] = await Promise.all([
       api.get('/accounting/accounts'), api.get('/accounting/future-items?limit=500'),
@@ -89,20 +89,20 @@ export function AccountingFutureItems() {
     const income = rows.find((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['sales_revenue', 'sales_returns', 'sales_discounts'].includes(a.system_key || ''));
     const expense = rows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1);
     setClassificationAccount((current) => rows.some((a) => a.id === current && a.account_type === (direction === 'incoming' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1) ? current : (direction === 'incoming' ? income?.id : expense?.id) || '');
-  }, [recordType, direction]);
+  }, [direction]);
   useEffect(() => { void Promise.resolve().then(() => load()).catch(() => toast.error(t.failedMessage)); }, [load, t.failedMessage]);
-  const preferences = { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar };
-  const unitAdapter = useMemo(() => getCurrencyUnitAdapter(currency, tenant?.country, preferences), [currency, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  const preferences = useMemo(() => ({ currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar }), [tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  const unitAdapter = useMemo(() => getCurrencyUnitAdapter(currency, tenant?.country, preferences), [currency, tenant?.country, preferences]);
   const money = useMemo(() => (minor: number) => formatAccountingMoney(minor, {
     currency, fractionDigits, locale, countryCode: tenant?.country, preferences,
-  }), [locale, currency, fractionDigits, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  }), [locale, currency, fractionDigits, tenant?.country, preferences]);
   const selectClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
   const inputClass = selectClass;
   const cardClass = 'rounded-xl border border-border bg-card p-4 space-y-3';
   function amountToMinor(value: string): number | null {
     return parseAccountingAmountToMinor(value, {
       currency, fractionDigits, locale, countryCode: tenant?.country,
-      preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
+      preferences,
     });
   }
   async function createItem(e: FormEvent) {
