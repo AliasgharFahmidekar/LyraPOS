@@ -1150,6 +1150,28 @@ async function main(): Promise<void> {
     equal((db.prepare('SELECT is_active FROM accounting_accounts WHERE id=?').get(dependentExpense.body.account.id) as any).is_active, 1,
       'blocked deactivation leaves the dependent account active');
 
+    // Management reports page posted journal entries, not individual lines, so every line
+    // in a journal remains together while older entries stay accessible by page.
+    const ledgerPageOne = await request(app).get('/api/accounting/reports?limit=1&page=1').set(manager);
+    equal(ledgerPageOne.status, 200, 'management report accepts the first ledger page');
+    equal(ledgerPageOne.body.movements.page, 1, 'ledger report returns the requested page number');
+    equal(ledgerPageOne.body.movements.page_size, 1, 'ledger report reflects the requested page size');
+    ok(ledgerPageOne.body.movements.entries_count > 1, 'ledger pagination reports all posted entries, not just the current page');
+    equal(ledgerPageOne.body.movements.total_pages, ledgerPageOne.body.movements.entries_count,
+      'a one-entry page size yields one page for each posted entry');
+    ok(Array.isArray(ledgerPageOne.body.recent_liquid_movements),
+      'management report supplies the simplified liquid-account movement feed');
+    ok(ledgerPageOne.body.recent_liquid_movements.some((movement: any) =>
+      movement.account_id === customBank.id && movement.change_minor === 5000),
+    'simplified movement feed represents an increase to the selected bank account without debit/credit presentation');
+    const ledgerPageTwo = await request(app).get('/api/accounting/reports?limit=1&page=2').set(manager);
+    equal(ledgerPageTwo.status, 200, 'management report accepts later ledger pages');
+    equal(ledgerPageTwo.body.movements.page, 2, 'later ledger page is reflected in the response');
+    ok(ledgerPageOne.body.movements.lines[0]?.journal_entry_id !== ledgerPageTwo.body.movements.lines[0]?.journal_entry_id,
+      'successive ledger pages expose different entries without skipping the page boundary');
+    equal((await request(app).get('/api/accounting/reports?limit=1&page=0').set(manager)).status, 400,
+      'ledger report rejects a non-positive page number');
+
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
     try { closeDatabase(); } catch {}
