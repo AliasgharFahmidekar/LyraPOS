@@ -96,7 +96,7 @@ function postedEntryCount(db: DB, range: { from: string | null; to: string | nul
 function liquidAccountBalances(db: DB, range: { from: string | null; to: string | null }): any[] {
   const accounts = db.prepare(
     "SELECT id, system_key, account_code, name, account_type, normal_balance FROM accounting_accounts " +
-    "WHERE system_key IN ('cash_drawer','bank_accounts','payment_clearing') ORDER BY account_code",
+    "WHERE (system_key IN ('cash_drawer','bank_accounts','payment_clearing') OR system_key LIKE 'custom_liquid:%') ORDER BY account_code",
   ).all() as Array<{ id: string; system_key: string; account_code: string; name: string; account_type: string; normal_balance: string }>;
 
   const balanceQuery = db.prepare(

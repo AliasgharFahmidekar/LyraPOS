@@ -50,7 +50,7 @@ export function AccountingLoans() {
     setAccounts(rows); setLoans(l.data.loans||[]);
     const code=a.data.currency_code||'IRR'; setCurrency(code);
     try{setDigits(new Intl.NumberFormat(locale,{style:'currency',currency:code}).resolvedOptions().maximumFractionDigits??0);}catch{setDigits(0);}
-    const liquid=rows.filter(x=>x.account_type==='asset'&&x.is_active===1&&x.is_postable===1&&['cash_drawer','bank_accounts','payment_clearing'].includes(x.system_key||''));
+    const liquid=rows.filter(x=>x.account_type==='asset'&&x.is_active===1&&x.is_postable===1&&(['cash_drawer','bank_accounts','payment_clearing'].includes(x.system_key||'')||(x.system_key||'').startsWith('custom_liquid:cash:')||(x.system_key||'').startsWith('custom_liquid:bank:')));
     setCashAccount(current=>liquid.some(x=>x.id===current)?current:(liquid[0]?.id||''));
     setSettlementAccount(current=>liquid.some(x=>x.id===current)?current:(liquid[0]?.id||''));
     const liabilities=rows.filter(x=>x.account_type==='liability'&&x.is_active===1&&x.is_postable===1&&(!x.system_key||x.system_key==='loans_payable'));

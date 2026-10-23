@@ -73,6 +73,8 @@ function expectedClassification(account: any): SourceClassification {
     accounts_payable: 'accounts_payable',
     owner_capital: 'owner_equity',
   };
+  if (typeof account.system_key === 'string' && account.system_key.startsWith('custom_liquid:cash:')) return 'cash_on_hand';
+  if (typeof account.system_key === 'string' && account.system_key.startsWith('custom_liquid:bank:')) return 'bank_balance';
   return mapped[account.system_key] || (
     account.account_type === 'asset' ? 'other_asset' :
       account.account_type === 'liability' ? 'other_liability' : 'other_equity'

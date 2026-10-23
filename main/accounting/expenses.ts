@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { RegionalNotConfiguredError, resolveTenantCurrency } from '../countries';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
+import { isLiquidAccountSystemKey } from './chart-of-accounts';
 type DB = Database.Database;
 
 export class AccountingExpenseError extends Error {
@@ -79,7 +80,7 @@ export function listPostingAccounts(db: DB, accountTypes?: string[]): any[] {
     .filter((account) => types === null || types.includes(account.account_type))
     .map((account) => ({
       ...account,
-      is_liquid: ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(account.system_key ?? ''),
+      is_liquid: isLiquidAccountSystemKey(account.system_key),
     }));
 }
 export function listExpenseCategories(db: DB, includeInactive = false): any[] {
@@ -127,7 +128,7 @@ function paymentKey(db: DB, value: unknown, requireActive = false): string {
 function mappedAccount(db: DB, key: string, accountId: unknown): string {
   const account = postingAccount(db, accountId, ['asset']);
   const details = db.prepare('SELECT system_key FROM accounting_accounts WHERE id = ?').get(account.id) as { system_key: string | null };
-  if (!['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(details.system_key ?? '')) {
+  if (!isLiquidAccountSystemKey(details.system_key)) {
     fail('invalid_payment_account', 'Payment-account mappings must target configured cash, bank, or payment-clearing accounts; unclassified custom assets are not eligible.');
   }
   return account.id;

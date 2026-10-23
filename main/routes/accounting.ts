@@ -3,6 +3,7 @@ import { getDatabase } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
 import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, updateDraftExpense, postExpense, reverseExpense } from '../accounting/expenses';
+import { AccountingAccountError, createManagedAccountingAccount, listManagedAccountingAccounts, updateManagedAccountingAccount } from '../accounting/chart-of-accounts';
 import { AccountingLedgerError } from '../accounting/ledger';
 import { createCashBankTransfer, listCashBankTransfers } from '../accounting/transfers';
 import { resolveTenantCurrency } from '../countries';
@@ -25,6 +26,9 @@ function actorId(req: Request): string | null {
   return user?.userId == null ? null : String(user.userId);
 }
 function respondError(res: Response, error: any): void {
+  if (error instanceof AccountingAccountError) {
+    res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
+  }
   if (error instanceof AccountingLoanError) {
     res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
   }
@@ -136,6 +140,18 @@ router.post('/opening-balances', managerOnly, (req, res) => {
   try {
     res.status(201).json({ opening_balance: createOpeningBalance(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) });
   } catch (error) { respondError(res, error); }
+});
+router.get('/accounts/managed', managerOnly, (req, res) => {
+  try { res.json({ accounts: listManagedAccountingAccounts(getDatabase()) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/accounts', managerOnly, (req, res) => {
+  try { res.status(201).json({ account: createManagedAccountingAccount(getDatabase(), req.body, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.put('/accounts/:id', managerOnly, (req, res) => {
+  try { res.json({ account: updateManagedAccountingAccount(getDatabase(), String(req.params.id), req.body, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
 });
 router.get('/accounts/:accountId/transactions', managerOnly, (req, res) => {
   try { res.json(listAccountTransactionHistory(getDatabase(), String(req.params.accountId), req.query)); }

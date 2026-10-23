@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { resolveTenantCurrency } from '../countries';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
+import { isLiquidAccountSystemKey } from './chart-of-accounts';
 import { accountingDate } from './sales';
 
 type DB = Database.Database;
@@ -98,7 +99,7 @@ function systemAccount(db: DB, systemKey: string, expectedType: string): string 
 
 function assertLiquidSettlementAccount(db: DB, accountId: unknown): string {
   const account = assertAccount(db, accountId, ['asset']);
-  if (!['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(account.system_key ?? '')) {
+  if (!isLiquidAccountSystemKey(account.system_key)) {
     fail('invalid_settlement_account', 'Settlement must use an active cash, bank, or payment-clearing account.', 400);
   }
   return account.id;

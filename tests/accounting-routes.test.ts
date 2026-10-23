@@ -1085,6 +1085,45 @@ async function main(): Promise<void> {
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=?").get(closedDueItem.body.item?.id) as any).count, 0,
       'closed-period failure creates no partial journal');
 
+    // Custom chart-of-accounts management: create, rename, classify cash/bank as liquid, and preserve ledger identity.
+    equal((await request(app).get('/api/accounting/accounts/managed')).status, 401, 'managed account list denies unauthenticated access');
+    equal((await request(app).get('/api/accounting/accounts/managed').set(cashier)).status, 403, 'cashier cannot manage chart-of-accounts records');
+    equal((await request(app).post('/api/accounting/accounts').set(cashier).send({ name: 'Blocked account', account_kind: 'bank' })).status, 403,
+      'cashier cannot create accounting accounts');
+    const createdBank = await request(app).post('/api/accounting/accounts').set(manager)
+      .send({ name: 'Test bank account', account_kind: 'bank', description: 'Created by route test', is_active: true });
+    equal(createdBank.status, 201, 'manager can create a custom bank account');
+    const customBank = createdBank.body.account;
+    ok(typeof customBank.id === 'string' && customBank.id.length > 10, 'custom account has a stable generated id');
+    equal(customBank.account_type, 'asset', 'custom bank is represented as an asset account');
+    equal(customBank.is_liquid, true, 'custom bank is explicitly marked as a liquid account');
+    ok(String(customBank.system_key).startsWith('custom_liquid:bank:'), 'custom bank has a dedicated non-colliding liquid classification');
+    equal(customBank.balance_minor, 0, 'new account starts with a zero ledger balance, not a fabricated opening balance');
+    const renamedBank = await request(app).put('/api/accounting/accounts/' + customBank.id).set(manager)
+      .send({ name: 'Renamed test bank', description: 'Renamed without changing chart identity', account_type: 'expense', account_code: '5999', is_active: true });
+    equal(renamedBank.status, 200, 'manager can rename a chart-of-accounts entry');
+    equal(renamedBank.body.account.name, 'Renamed test bank', 'account display name is updated');
+    equal(renamedBank.body.account.account_code, customBank.account_code, 'rename cannot change the account code');
+    equal(renamedBank.body.account.account_type, 'asset', 'rename cannot change the account type');
+    equal(renamedBank.body.account.system_key, customBank.system_key, 'rename cannot change the protected account classification');
+    const managedList = await request(app).get('/api/accounting/accounts/managed').set(manager);
+    equal(managedList.status, 200, 'manager can read the managed chart of accounts');
+    equal(managedList.body.accounts.find((a: any) => a.id === customBank.id)?.name, 'Renamed test bank', 'renamed account appears in the account list');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_account' AND entity_id=?").get(customBank.id) as any).count, 2,
+      'account create and rename both append audit records');
+    const customBankTransfer = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'custom-bank-transfer-ui-test')
+      .send({ source_account_id: 'acct-cash-drawer', destination_account_id: customBank.id, amount_minor: 5000, entry_date: todayAccountingDate, description: 'Custom bank transfer test' });
+    equal(customBankTransfer.status, 201, 'newly created bank account can receive a cash/bank transfer');
+    equal(customBankTransfer.body.transfer?.amount_minor, 5000, 'custom bank transfer preserves the exact stored amount');
+    const customBankLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
+      .all(customBankTransfer.body.transfer?.id) as any[];
+    equal(customBankLines.length, 2, 'custom bank transfer has exactly two ledger lines');
+    equal(customBankLines.reduce((sum, line) => sum + line.debit_minor, 0), customBankLines.reduce((sum, line) => sum + line.credit_minor, 0),
+      'custom bank transfer remains balanced');
+    const disabledSystemAccount = await request(app).put('/api/accounting/accounts/acct-bank').set(manager)
+      .send({ name: 'Bank accounts', description: '', is_active: false });
+    equal(disabledSystemAccount.status, 409, 'system account cannot be deactivated through the management API');
+
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
     try { closeDatabase(); } catch {}

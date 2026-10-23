@@ -52,7 +52,7 @@ function liquidBalance(db: DB, asOf: string): number {
     "SELECT COALESCE(SUM(CASE WHEN a.normal_balance='debit' THEN l.debit_minor-l.credit_minor ELSE l.credit_minor-l.debit_minor END),0) AS balance " +
     "FROM accounting_journal_lines l JOIN accounting_journal_entries e ON e.id=l.journal_entry_id " +
     "JOIN accounting_accounts a ON a.id=l.account_id WHERE e.status='posted' AND e.entry_date<=? " +
-    "AND a.system_key IN ('cash_drawer','bank_accounts','payment_clearing')",
+    "AND (a.system_key IN ('cash_drawer','bank_accounts','payment_clearing') OR a.system_key LIKE 'custom_liquid:%')",
   ).get(asOf) as {balance:number};
   return total(row.balance, 'starting liquid balance');
 }
@@ -72,7 +72,7 @@ export function getAccountingForecast(db: DB, filters: ForecastFilters = {}): an
     "FROM accounting_journal_entries e JOIN accounting_journal_lines l ON l.journal_entry_id=e.id " +
     "JOIN accounting_accounts a ON a.id=l.account_id " +
     "WHERE e.status='posted' AND e.entry_date>? AND e.entry_date<=? " +
-    "AND a.system_key IN ('cash_drawer','bank_accounts','payment_clearing') " +
+    "AND (a.system_key IN ('cash_drawer','bank_accounts','payment_clearing') OR a.system_key LIKE 'custom_liquid:%') " +
     "GROUP BY e.id ORDER BY e.entry_date, e.entry_number, e.id",
   ).all(range.from, range.to) as any[];
   for (const row of actualRows) {

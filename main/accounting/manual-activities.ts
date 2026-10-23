@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { RegionalNotConfiguredError, resolveTenantCurrency } from '../countries';
 import { AccountingExpenseError, assertAccountingDate } from './expenses';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
+import { isLiquidAccountSystemKey } from './chart-of-accounts';
 
 type DB = Database.Database;
 type ActivityType = 'other_income' | 'owner_contribution' | 'owner_drawing';
@@ -35,7 +36,7 @@ function activeAccount(db: DB, value: unknown, types: string[], field: string): 
 }
 function liquidAsset(db: DB, value: unknown): string {
   const account = activeAccount(db, value, ['asset'], 'asset_account_id');
-  if (!['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(account.system_key ?? '')) {
+  if (!isLiquidAccountSystemKey(account.system_key)) {
     fail('invalid_liquid_asset', 'Use a configured cash, bank, or payment-clearing account. Unclassified custom assets, inventory, and receivables are not payment accounts.');
   }
   return account.id;

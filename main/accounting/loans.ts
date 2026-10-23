@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { resolveTenantCurrency } from '../countries';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
+import { isLiquidAccountSystemKey } from './chart-of-accounts';
 import { accountingDate } from './sales';
 
 type DB = Database.Database;
@@ -52,7 +53,7 @@ function account(db: DB, idInput: unknown, types: string[], field: string): any 
 }
 function liquid(db: DB, idInput: unknown): any {
   const row = account(db, idInput, ['asset'], 'cash_account_id');
-  if (!['cash_drawer','bank_accounts','payment_clearing'].includes(row.system_key ?? '')) {
+  if (!isLiquidAccountSystemKey(row.system_key)) {
     fail('invalid_cash_account', 'Loan proceeds and repayments must use a cash, bank, or payment-clearing account.');
   }
   return row;
