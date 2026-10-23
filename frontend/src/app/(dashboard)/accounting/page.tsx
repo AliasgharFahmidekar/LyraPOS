@@ -6,7 +6,7 @@ import { useAuthStore } from '@/store/auth';
 import { hasRole, ROLE_ACCESS } from '@shared/role-permissions';
 import {
   ArrowLeftRight, CalendarClock, BarChart3, FileBarChart2,
-  LayoutDashboard, Landmark, ReceiptText, Settings2, Wallet, WalletCards,
+  LayoutDashboard, ReceiptText, Settings2, Wallet, WalletCards,
 } from 'lucide-react';
 import { AccountingSettings } from '@/components/settings/AccountingSettings';
 import { AccountingReports } from '@/components/settings/AccountingReports';

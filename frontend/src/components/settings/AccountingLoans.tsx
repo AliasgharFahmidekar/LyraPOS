@@ -117,7 +117,7 @@ export function AccountingLoans() {
     const payload={installments:installments.map((row)=>({...row,interest_account_id:(row.interest_minor||0)>0?interestAccount:null,fees_account_id:(row.fees_minor||0)>0?feesAccount:null,auto_register:autoRegister}))};
     const fingerprint=JSON.stringify({loanId:selectedLoan,payload});const requestKey=scheduleRetry?.fingerprint===fingerprint?scheduleRetry.key:token();setScheduleRetry({fingerprint,key:requestKey});setBusy(true);
     try{await api.post('/accounting/loans/'+encodeURIComponent(selectedLoan)+'/installments',payload,{headers:{'Idempotency-Key':requestKey}});setInstallmentDrafts([]);setScheduleRetry(null);setSchedulePrincipalTotal('');toast.success(t.saved);await load();}
-    catch(error:any){toast.error(error?.response?.data?.error||t.error);}finally{setBusy(false);}
+    catch(error:unknown){const message=(error as {response?:{data?:{error?:unknown}}})?.response?.data?.error;toast.error(typeof message==='string'?message:t.error);}finally{setBusy(false);}
   }
   async function createLoan(e:FormEvent){
     e.preventDefault();

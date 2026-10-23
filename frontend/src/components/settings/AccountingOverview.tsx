@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownLeft, ArrowUpRight, Banknote, CalendarClock, CircleAlert,
-  Landmark, RefreshCw, Wallet, ArrowLeftRight, FileBarChart2, BarChart3,
+  Landmark, RefreshCw, Wallet, ArrowLeftRight, FileBarChart2,
 } from 'lucide-react';
 import { useLocale } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
@@ -99,7 +99,7 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
     }
   }, [range.from, range.to]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void Promise.resolve().then(() => load()); }, [load]);
 
   const currency = report?.currency_code || forecast?.currency_code || tenant?.currency || 'IRR';
   const unitFactor = 10 ** (report?.accounting_fraction_digits ?? 0);

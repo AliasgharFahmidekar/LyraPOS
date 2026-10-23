@@ -126,9 +126,9 @@ export function AccountingAccounts() {
     } finally {
       setLoading(false);
     }
-  }, [tenant?.currency]);
+  }, [tenant]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void Promise.resolve().then(() => load()); }, [load]);
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase(locale);
@@ -183,9 +183,9 @@ export function AccountingAccounts() {
       }
       setModalOpen(false);
       await load();
-    } catch (error: any) {
-      const message = error?.response?.data?.error;
-      toast.error(message || text.saveError);
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+      toast.error(typeof message === 'string' ? message : text.saveError);
     } finally {
       setSaving(false);
     }
