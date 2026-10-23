@@ -37,8 +37,11 @@ export function accountingSystemAccountName(
   locale: string,
 ): string {
   if (!isPersianAccountingLocale(locale) || !systemKey) return originalName;
-  if (systemKey.startsWith('custom_liquid:cash:')) return 'صندوق نقدی';
-  if (systemKey.startsWith('custom_liquid:bank:')) return 'حساب بانکی';
+  // Custom liquid-account names are entered by the user and must never be replaced.
+  if (systemKey.startsWith('custom_liquid:')) return originalName;
+  // System accounts can be renamed by the store owner. Translate only untouched
+  // canonical labels; preserve any name the user has customized.
+  if (SYSTEM_ACCOUNT_CANONICAL_ENGLISH[systemKey] !== originalName) return originalName;
   return SYSTEM_ACCOUNT_NAMES[systemKey] || originalName;
 }
 
@@ -50,6 +53,21 @@ const SYSTEM_ACCOUNT_CODES: Record<string, string> = {
   '4000': 'درآمدها', '4010': 'درآمد فروش', '4020': 'تخفیف فروش',
   '4030': 'سایر درآمدها', '5000': 'هزینه‌ها', '5010': 'بهای تمام‌شده کالای فروش‌رفته',
   '5020': 'هزینه‌های عملیاتی', '5030': 'کارمزدهای پرداخت',
+};
+
+const SYSTEM_ACCOUNT_CANONICAL_ENGLISH: Record<string, string> = {
+  assets: 'Assets', cash_drawer: 'Cash drawer', bank_accounts: 'Bank accounts',
+  payment_clearing: 'Payment clearing', accounts_receivable: 'Accounts receivable',
+  inventory: 'Inventory', liabilities: 'Liabilities', accounts_payable: 'Accounts payable',
+  customer_advances: 'Customer advances', equity: 'Equity', owner_capital: 'Owner capital',
+  owner_drawings: 'Owner drawings', income: 'Income', sales_revenue: 'Sales revenue',
+  sales_discounts: 'Sales discounts', sales_returns: 'Sales returns', other_income: 'Other income',
+  expenses: 'Expenses', cost_of_goods_sold: 'Cost of goods sold',
+  operating_expenses: 'Operating expenses', payment_processing_fees: 'Payment processing fees',
+  opening_balance_equity: 'Opening balance equity',
+  reconciliation_adjustment_equity: 'Reconciliation adjustment equity',
+  future_receipt_clearing: 'Future receipts pending settlement',
+  future_payment_clearing: 'Future payments pending settlement',
 };
 
 const SYSTEM_ACCOUNT_NAMES_BY_ENGLISH: Record<string, string> = {
@@ -80,7 +98,11 @@ export function accountingSystemAccountNameByCode(
   locale: string,
 ): string {
   if (!isPersianAccountingLocale(locale) || !accountCode) return originalName;
-  return SYSTEM_ACCOUNT_CODES[accountCode] || originalName;
+  const translated = SYSTEM_ACCOUNT_CODES[accountCode];
+  if (!translated) return originalName;
+  // Report rows carry a code rather than system_key; translate only the known
+  // stock label for that code, not account names customized by the user.
+  return SYSTEM_ACCOUNT_NAMES_BY_ENGLISH[originalName] === translated ? translated : originalName;
 }
 
 export function accountingAuditActionLabel(action: string, locale: string): string {
