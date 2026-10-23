@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useLocale } from 'use-intl';
+import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
+import { formatAccountingMoney, getCurrencyUnitAdapter, parseAccountingAmountToMinor } from '@/lib/countries';
 import toast from 'react-hot-toast';
 
 type Account = { id: string; account_code: string; name: string; account_type: string; system_key?: string | null; is_active: number; is_postable: number; is_liquid?: boolean };
@@ -52,12 +54,13 @@ const labels = {
 };
 export function AccountingFutureItems() {
   const locale = useLocale();
+  const tenant = useAuthStore((state) => state.currentTenant);
   const fa = locale.toLowerCase().startsWith('fa');
   const t = fa ? labels.fa : labels.en;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [items, setItems] = useState<FutureItem[]>([]);
   const [currency, setCurrency] = useState('IRR');
-  const [digits, setDigits] = useState(0);
+  const [fractionDigits, setFractionDigits] = useState(0);
   const [recordType, setRecordType] = useState<'receipt' | 'cheque'>('receipt');
   const [direction, setDirection] = useState<'incoming' | 'outgoing'>('incoming');
   const [dueDate, setDueDate] = useState(today());
@@ -79,26 +82,28 @@ export function AccountingFutureItems() {
     setAccounts(rows);
     const code = accountResponse.data.currency_code || 'IRR';
     setCurrency(code);
-    try { setDigits(new Intl.NumberFormat(locale, { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits ?? 0); } catch { setDigits(0); }
+    setFractionDigits(Number(accountResponse.data.accounting_fraction_digits ?? 0));
     setItems(itemResponse.data.items || []);
     const liquid = rows.filter(isSettlementAccount);
     setSettlementAccount((current) => liquid.some((a) => a.id === current) ? current : (liquid[0]?.id || ''));
     const income = rows.find((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['sales_revenue', 'sales_returns', 'sales_discounts'].includes(a.system_key || ''));
     const expense = rows.find((a) => a.account_type === 'expense' && a.is_active === 1 && a.is_postable === 1);
     setClassificationAccount((current) => rows.some((a) => a.id === current && a.account_type === (direction === 'incoming' ? 'revenue' : 'expense') && a.is_active === 1 && a.is_postable === 1) ? current : (direction === 'incoming' ? income?.id : expense?.id) || '');
-  }, [locale, recordType, direction]);
+  }, [recordType, direction]);
   useEffect(() => { void Promise.resolve().then(() => load()).catch(() => toast.error(t.failedMessage)); }, [load, t.failedMessage]);
-  const money = useMemo(() => (minor: number) => new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: digits }).format(minor / (10 ** digits)), [locale, currency, digits]);
+  const preferences = { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar };
+  const unitAdapter = useMemo(() => getCurrencyUnitAdapter(currency, tenant?.country, preferences), [currency, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  const money = useMemo(() => (minor: number) => formatAccountingMoney(minor, {
+    currency, fractionDigits, locale, countryCode: tenant?.country, preferences,
+  }), [locale, currency, fractionDigits, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
   const selectClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
   const inputClass = selectClass;
   const cardClass = 'rounded-xl border border-border bg-card p-4 space-y-3';
   function amountToMinor(value: string): number | null {
-    const normalized = value.trim().replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٬,]/g, '').replace(/٫/g, '.');
-    if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
-    const [whole, fraction = ''] = normalized.split('.');
-    if (fraction.length > digits) return null;
-    const result = Number(whole) * (10 ** digits) + Number((fraction + '0'.repeat(digits)).slice(0, digits) || '0');
-    return Number.isSafeInteger(result) && result > 0 ? result : null;
+    return parseAccountingAmountToMinor(value, {
+      currency, fractionDigits, locale, countryCode: tenant?.country,
+      preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
+    });
   }
   async function createItem(e: FormEvent) {
     e.preventDefault();
@@ -149,7 +154,7 @@ export function AccountingFutureItems() {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <label className="space-y-1 text-sm"><span>{t.type}</span><select value={recordType} onChange={(e) => { const next = e.target.value as 'receipt' | 'cheque'; setRecordType(next); if (next === 'receipt') setDirection('incoming'); }} className={selectClass}><option value="receipt">{t.receipt}</option><option value="cheque">{t.cheque}</option></select></label>{recordType === 'cheque' && <label className="space-y-1 text-sm"><span>{t.direction}</span><select value={direction} onChange={(e) => setDirection(e.target.value as 'incoming' | 'outgoing')} className={selectClass}><option value="incoming">{t.incoming}</option><option value="outgoing">{t.outgoing}</option></select></label>}
         <label className="space-y-1 text-sm"><span>{t.due}</span><input required type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputClass} /></label>
-        <label className="space-y-1 text-sm"><span>{t.amount} · {currency}</span><input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} /></label>
+        <label className="space-y-1 text-sm"><span>{t.amount} · {unitAdapter.label}</span><input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} /></label>
         <label className="space-y-1 text-sm"><span>{t.description}</span><input required value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass} /></label>
         <label className="space-y-1 text-sm"><span>{t.counterparty}</span><input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} className={inputClass} /></label>
         <label className="space-y-1 text-sm"><span>{t.reference}</span><input value={reference} onChange={(e) => setReference(e.target.value)} className={inputClass} /></label>
