@@ -445,6 +445,63 @@ export const getCurrencyUnitAdapter = (
   };
 };
 
+export interface AccountingMoneyOptions {
+  currency: string;
+  /** Decimal places in stored accounting minor-unit amounts (IRR uses 0: one unit is one rial). */
+  fractionDigits: number;
+  locale?: string;
+  countryCode?: string;
+  preferences?: LocalePreferences;
+}
+
+/** Format canonical ledger minor units using the tenant's configured currency display preference. */
+export function formatAccountingMoney(amountMinor: number, options: AccountingMoneyOptions): string {
+  const fractionDigits = Number.isInteger(options.fractionDigits) && options.fractionDigits >= 0 && options.fractionDigits <= 6
+    ? options.fractionDigits : 0;
+  return formatMoney(
+    amountMinor / (10 ** fractionDigits),
+    options.currency,
+    options.locale ?? 'en-US',
+    options.preferences,
+  );
+}
+
+/** Render a stored ledger amount as an editable value in the configured display unit (e.g. toman). */
+export function formatAccountingAmountInput(amountMinor: number, options: AccountingMoneyOptions): string {
+  const fractionDigits = Number.isInteger(options.fractionDigits) && options.fractionDigits >= 0 && options.fractionDigits <= 6
+    ? options.fractionDigits : 0;
+  const adapter = getCurrencyUnitAdapter(options.currency, options.countryCode, options.preferences);
+  return adapter.formatInput(adapter.toDisplay(amountMinor / (10 ** fractionDigits)));
+}
+
+/**
+ * Parse a user-entered amount in the displayed unit into canonical integer ledger units.
+ * For IRR this converts toman back to rial when the tenant chose toman display; no stored
+ * ledger amount is divided or rewritten. Values that cannot map exactly to integer units fail closed.
+ */
+export function parseAccountingAmountToMinor(
+  rawValue: unknown,
+  options: AccountingMoneyOptions,
+  allowZero = false,
+): number | null {
+  if (typeof rawValue !== 'string') return null;
+  const normalized = rawValue.trim()
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[٬,]/g, '')
+    .replace(/٫/g, '.');
+  if (!/^\d+(\.\d+)?$/.test(normalized)) return null;
+  const fraction = normalized.split('.')[1] || '';
+  const adapter = getCurrencyUnitAdapter(options.currency, options.countryCode, options.preferences);
+  if (fraction.length > adapter.maxDecimals) return null;
+  const displayAmount = Number(normalized);
+  if (!Number.isFinite(displayAmount)) return null;
+  const fractionDigits = Number.isInteger(options.fractionDigits) && options.fractionDigits >= 0 && options.fractionDigits <= 6
+    ? options.fractionDigits : 0;
+  const result = adapter.toStored(displayAmount) * (10 ** fractionDigits);
+  return Number.isSafeInteger(result) && (allowZero ? result >= 0 : result > 0) ? result : null;
+}
+
 export const formatCurrencyForTenant = (
   amount: number,
   countryCode: string,
