@@ -193,7 +193,7 @@ export function AccountingLoans() {
         <div className="acct-kpi-card"><p className="acct-kpi-heading">{t.sumAll}</p><p className="acct-money">{money(installmentDrafts.reduce((s,row)=>s+(amountMinor(row.principal,true)||0)+(amountMinor(row.interest||'0',true)||0)+(amountMinor(row.fees||'0',true)||0),0))}</p></div>
       </div>
       <div className="flex flex-wrap gap-2"><button type="button" className="acct-button acct-button-secondary" disabled={busy} onClick={addDraft}><Plus size={16}/>{t.addInstallment}</button><button type="submit" disabled={busy||!selectedLoan} className="acct-button acct-button-primary"><CircleCheck size={16}/>{t.registerAll} ({installmentDrafts.length.toLocaleString(locale)})</button></div>
-    </form>
+    </form>}
     <div className={card}>
       <h3 className="font-semibold">{t.loans}</h3>
       {!loans.length?<p className="text-sm text-muted-foreground">{t.empty}</p>:loans.map(loan=><article key={loan.id} className="rounded-lg border border-border p-3 space-y-3">
