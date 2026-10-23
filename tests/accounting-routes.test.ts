@@ -1129,6 +1129,27 @@ async function main(): Promise<void> {
       .send({ name: 'Bank accounts', description: '', is_active: false });
     equal(disabledSystemAccount.status, 409, 'system account cannot be deactivated through the management API');
 
+    const deactivatedBank = await request(app).put('/api/accounting/accounts/' + customBank.id).set(manager)
+      .send({ name: 'Renamed test bank', description: 'Retained after deactivation', is_active: false });
+    equal(deactivatedBank.status, 200, 'a custom account without active dependencies can be deactivated');
+    equal(deactivatedBank.body.account.is_active, 0, 'successful deactivation marks the custom account inactive');
+    equal(deactivatedBank.body.account.balance_minor, 5000, 'deactivation preserves posted account balance and history');
+    const afterDeactivationList = await request(app).get('/api/accounting/accounts/managed').set(manager);
+    equal(afterDeactivationList.body.accounts.find((a: any) => a.id === customBank.id)?.is_active, 0,
+      'inactive account remains visible in account management');
+
+    const dependentExpense = await request(app).post('/api/accounting/accounts').set(manager)
+      .send({ name: 'Expense with active category', account_kind: 'expense', description: 'Dependency regression', is_active: true });
+    equal(dependentExpense.status, 201, 'dependency test creates a custom expense account');
+    const dependentCategory = await request(app).post('/api/accounting/expense-categories').set(manager)
+      .send({ name: 'Active dependency test category', expense_account_id: dependentExpense.body.account.id });
+    equal(dependentCategory.status, 201, 'active expense category references the test account');
+    const blockedDeactivation = await request(app).put('/api/accounting/accounts/' + dependentExpense.body.account.id).set(manager)
+      .send({ name: 'Expense with active category', description: 'Dependency regression', is_active: false });
+    equal(blockedDeactivation.status, 409, 'account with an active expense-category dependency cannot be deactivated');
+    equal((db.prepare('SELECT is_active FROM accounting_accounts WHERE id=?').get(dependentExpense.body.account.id) as any).is_active, 1,
+      'blocked deactivation leaves the dependent account active');
+
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
     try { closeDatabase(); } catch {}
