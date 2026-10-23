@@ -19,6 +19,10 @@ let assertions = 0;
 function equal(actual: unknown, expected: unknown, message: string): void { assert.equal(actual, expected, message); assertions++; }
 function ok(value: unknown, message: string): void { assert.ok(value, message); assertions++; }
 function throws(fn: () => unknown, pattern: RegExp, message: string): void { assert.throws(fn, pattern, message); assertions++; }
+function throwsCode(fn: () => unknown, code: string, message: string): void {
+  assert.throws(fn, (error: unknown) => error instanceof sales.AccountingPostingError && error.code === code, message);
+  assertions++;
+}
 
 function freshDb() {
   try { closeDatabase(); } catch {}
@@ -194,8 +198,8 @@ try {
 
     const journalsBeforeInvalidPrecision = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
     const invalidPayment = { ...payment, payment_event_id: 'payment-event-irr-fractional-rial', amount: 1234500.5 };
-    throws(() => db.transaction(() => sales.postCollectionPaymentLines(db, billId, [invalidPayment], 'test-owner-accounting'))(),
-      /accounting_amount_invalid/, 'fractional-rial POS receipt is rejected instead of rounded');
+    throwsCode(() => db.transaction(() => sales.postCollectionPaymentLines(db, billId, [invalidPayment], 'test-owner-accounting'))(),
+      'accounting_amount_invalid', 'fractional-rial POS receipt is rejected instead of rounded');
     equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, journalsBeforeInvalidPrecision,
       'rejecting out-of-precision sale receipt creates no partial journal');
     closeDatabase();
