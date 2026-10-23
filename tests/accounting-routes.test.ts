@@ -1159,9 +1159,12 @@ async function main(): Promise<void> {
     ok(ledgerPageOne.body.movements.entries_count > 1, 'ledger pagination reports all posted entries, not just the current page');
     equal(ledgerPageOne.body.movements.total_pages, ledgerPageOne.body.movements.entries_count,
       'a one-entry page size yields one page for each posted entry');
-    ok(Array.isArray(ledgerPageOne.body.recent_liquid_movements),
+    const cashMovementReport = await request(app)
+      .get('/api/accounting/reports?from=' + todayAccountingDate + '&to=' + todayAccountingDate + '&limit=1&page=1').set(manager);
+    equal(cashMovementReport.status, 200, 'report provides simplified cash movements for a selected date range');
+    ok(Array.isArray(cashMovementReport.body.recent_liquid_movements),
       'management report supplies the simplified liquid-account movement feed');
-    ok(ledgerPageOne.body.recent_liquid_movements.some((movement: any) =>
+    ok(cashMovementReport.body.recent_liquid_movements.some((movement: any) =>
       movement.account_id === customBank.id && movement.change_minor === 5000),
     'simplified movement feed represents an increase to the selected bank account without debit/credit presentation');
     const ledgerPageTwo = await request(app).get('/api/accounting/reports?limit=1&page=2').set(manager);
