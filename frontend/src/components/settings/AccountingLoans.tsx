@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { CalendarClock, CircleCheck, Plus } from 'lucide-react';
-import { formatMoney, getCurrencyUnitAdapter } from '@/lib/countries';
+import { formatAccountingMoney, formatAccountingAmountInput, getCurrencyUnitAdapter, parseAccountingAmountToMinor } from '@/lib/countries';
 
 type Account = { id:string; account_code:string; name:string; account_type:string; system_key:string|null; is_active:number; is_postable:number };
 type Installment = { id:string; due_date:string; principal_minor:number; interest_minor:number; fees_minor:number; status:string; auto_register:number; last_error_message?:string|null; due_entry_number?:string|null; settlement_entry_number?:string|null; settlement_journal_entry_id?:string|null };
@@ -69,21 +69,16 @@ export function AccountingLoans() {
     setSelectedLoan(current=>l.data.loans?.some((x:Loan)=>x.id===current&&x.status==='active')?current:(l.data.loans?.find((x:Loan)=>x.status==='active')?.id||''));
   },[locale]);
   useEffect(()=>{void Promise.resolve().then(()=>load()).catch(()=>toast.error(t.error));},[load,t.error]);
-  const unitFactor=10**fractionDigits;
-  const unitAdapter=useMemo(()=>getCurrencyUnitAdapter(currency,tenant?.country,{currencyDisplay:tenant?.currency_display,digits:tenant?.number_digits,calendar:tenant?.calendar}),[currency,tenant?.country,tenant?.currency_display,tenant?.number_digits,tenant?.calendar]);
-  const money=useMemo(()=> (value:number)=>formatMoney(value/unitFactor,currency,locale,{currencyDisplay:tenant?.currency_display,digits:tenant?.number_digits,calendar:tenant?.calendar}),[locale,currency,unitFactor,tenant?.currency_display,tenant?.number_digits,tenant?.calendar]);
+  const preferences = { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar };
+  const unitAdapter=useMemo(()=>getCurrencyUnitAdapter(currency,tenant?.country,preferences),[currency,tenant?.country,tenant?.currency_display,tenant?.number_digits,tenant?.calendar]);
+  const money=useMemo(()=> (value:number)=>formatAccountingMoney(value,{currency,fractionDigits,locale,countryCode:tenant?.country,preferences}),[locale,currency,fractionDigits,tenant?.country,tenant?.currency_display,tenant?.number_digits,tenant?.calendar]);
   const liquidAccounts=accounts.filter(a=>a.account_type==='asset'&&a.is_active===1&&a.is_postable===1&&(['cash_drawer','bank_accounts','payment_clearing'].includes(a.system_key||'')||(a.system_key||'').startsWith('custom_liquid:cash:')||(a.system_key||'').startsWith('custom_liquid:bank:')));
   const liabilityAccounts=accounts.filter(a=>a.account_type==='liability'&&a.is_active===1&&a.is_postable===1&&(!a.system_key||a.system_key==='loans_payable'));
   const expenseAccounts=accounts.filter(a=>a.account_type==='expense'&&a.is_active===1&&a.is_postable===1);
-  function amountMinor(raw:string,allowZero=false):number|null{
-    const normalized=raw.trim().replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٬,]/g,'').replace(/٫/g,'.');
-    if(!/^\d+(\.\d+)?$/.test(normalized))return null;
-    const fraction=normalized.split('.')[1]||'';
-    if(fraction.length>unitAdapter.maxDecimals)return null;
-    const result=unitAdapter.toStored(Number(normalized))*unitFactor;
-    return Number.isSafeInteger(result)&&(allowZero?result>=0:result>0)?result:null;
+  function amountMinor(raw:string,allowZero=false):number|null {
+    return parseAccountingAmountToMinor(raw,{currency,fractionDigits,locale,countryCode:tenant?.country,preferences},allowZero);
   }
-  const displayFromMinor=(minor:number)=>unitAdapter.formatInput(unitAdapter.toDisplay(minor/unitFactor));
+  const displayFromMinor=(minor:number)=>formatAccountingAmountInput(minor,{currency,fractionDigits,locale,countryCode:tenant?.country,preferences});
   const selectedLoanData=loans.find((loan)=>loan.id===selectedLoan);
   function dueDateAtMonthOffset(firstDate:string,offset:number):string{
     const [year,month,day]=firstDate.split('-').map(Number);
@@ -153,8 +148,8 @@ export function AccountingLoans() {
         <label className="space-y-1 text-sm"><span>{t.mode}</span><select value={mode} onChange={e=>setMode(e.target.value as 'new'|'opening')} className={field}><option value="new">{t.newMode}</option><option value="opening">{t.openingMode}</option></select></label>
         <label className="space-y-1 text-sm"><span>{t.lender}</span><input required maxLength={200} value={lender} onChange={e=>setLender(e.target.value)} className={field}/></label>
         <label className="space-y-1 text-sm"><span>{t.date}</span><input required type="date" value={loanDate} onChange={e=>setLoanDate(e.target.value)} className={field}/></label>
-        <label className="space-y-1 text-sm"><span>{mode==='opening'?(fa?'اصل اولیه وام (در صورت اطلاع)':'Original principal (if known)'):t.original} · {currency}</span><input required={mode==='new'} inputMode="decimal" value={originalAmount} onChange={e=>setOriginalAmount(e.target.value)} className={field}/></label>
-        {mode==='opening'&&<label className="space-y-1 text-sm"><span>{t.remaining} · {currency}</span><input required inputMode="decimal" value={remainingAmount} onChange={e=>setRemainingAmount(e.target.value)} className={field}/></label>}
+        <label className="space-y-1 text-sm"><span>{mode==='opening'?(fa?'اصل اولیه وام (در صورت اطلاع)':'Original principal (if known)'):t.original} · {unitAdapter.label}</span><input required={mode==='new'} inputMode="decimal" value={originalAmount} onChange={e=>setOriginalAmount(e.target.value)} className={field}/></label>
+        {mode==='opening'&&<label className="space-y-1 text-sm"><span>{t.remaining} · {unitAdapter.label}</span><input required inputMode="decimal" value={remainingAmount} onChange={e=>setRemainingAmount(e.target.value)} className={field}/></label>}
         <label className="space-y-1 text-sm"><span>{t.liability}</span><select required value={liabilityAccount} onChange={e=>setLiabilityAccount(e.target.value)} className={field}><option value="">—</option>{liabilityAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>
         {mode==='new'&&<label className="space-y-1 text-sm"><span>{t.cash}</span><select required value={cashAccount} onChange={e=>setCashAccount(e.target.value)} className={field}><option value="">—</option>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>}
       </div>
