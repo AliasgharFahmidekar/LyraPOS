@@ -5,6 +5,7 @@ import { useLocale } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
 import { formatAccountingMoney } from '@/lib/countries';
+import { accountingSystemDescription, accountingStatusLabel, formatAccountingDate } from '@/lib/accounting-i18n';
 
 type ForecastEvent = {
   id: string; date: string; kind: string; description: string; counterparty: string | null;
@@ -79,7 +80,7 @@ export function AccountingForecast() {
   const card = 'rounded-xl border border-border bg-card p-4 space-y-2';
   const input = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
   const statusLabels: Record<string, string> = { scheduled: t.scheduled, awaiting_confirmation: t.awaiting_confirmation, registered: t.registered, failed: t.failed };
-  const labelForStatus = (status: string) => status === 'posted' ? t.posted : (statusLabels[status] ?? status);
+  const labelForStatus = (status: string) => status === 'posted' ? t.posted : (statusLabels[status] ?? accountingStatusLabel(status, locale, t.failed));
   const kindLabel = (event: ForecastEvent) => {
     if (event.kind === 'loan_installment') return fa ? 'قسط وام' : 'Loan installment';
     if (event.source === 'ledger') return t.actualMovement;
@@ -113,8 +114,8 @@ export function AccountingForecast() {
             <th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.description}</th>
             <th className="p-2 text-start">{t.status}</th><th className="p-2 text-end">{t.amount}</th><th className="p-2 text-end">{t.balance}</th>
           </tr></thead><tbody>{data.events.map(event => <tr key={event.source + ':' + event.id} className="border-b border-border/60">
-            <td className="p-2 whitespace-nowrap">{event.date}</td>
-            <td className="p-2"><div>{kindLabel(event)} — {event.description}</div>{event.counterparty && <div className="text-xs text-muted-foreground">{event.counterparty}</div>}</td>
+            <td className="p-2 whitespace-nowrap">{formatAccountingDate(event.date, locale, tenant?.calendar)}</td>
+            <td className="p-2"><div>{kindLabel(event)} — {accountingSystemDescription(event.description, locale)}</div>{event.counterparty && <div className="text-xs text-muted-foreground">{event.counterparty}</div>}</td>
             <td className="p-2 whitespace-nowrap">{labelForStatus(event.status)}</td>
             <td className="p-2 text-end tabular-nums">{money(event.amount_minor)}</td>
             <td className="p-2 text-end tabular-nums">{money(event.projected_liquid_balance_minor)}</td>

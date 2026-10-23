@@ -7,8 +7,9 @@ import { useAuthStore } from '@/store/auth';
 import { formatAccountingMoney, getCurrencyUnitAdapter, parseAccountingAmountToMinor } from '@/lib/countries';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { accountingSystemAccountName, accountingErrorMessage, accountingStatusLabel, formatAccountingDate } from '@/lib/accounting-i18n';
 
-type Account = { id: string; account_code: string; name: string; account_type: string; is_active: number; is_postable: number };
+type Account = { id: string; system_key?: string | null; account_code: string; name: string; account_type: string; is_active: number; is_postable: number };
 type Occurrence = { id: string; occurrence_number: number; due_date: string; future_item_id: string; status: string; last_error_message: string | null };
 type Schedule = {
   id: string; frequency: 'monthly' | 'every_n_days'; interval_days: number | null; first_due_date: string;
@@ -93,7 +94,7 @@ export function AccountingRecurringObligations() {
     try { await api.post('/accounting/recurring-obligations/'+encodeURIComponent(schedule.id)+'/cancel',{reason:reason.trim()}); await load(); }
     catch { toast.error(t.failedMessage); } finally { setBusy(false); }
   }
-  const statusText=(s:string) => s==='scheduled'?t.due:s==='awaiting_confirmation'?t.awaiting_confirmation:s==='failed'?t.failed:s==='cancelled'?t.cancelled_item:s==='registered'?t.registered_item:s==='settled'?t.settled_item:s;
+  const statusText=(s:string) => s==='scheduled'?t.due:s==='awaiting_confirmation'?t.awaiting_confirmation:s==='failed'?t.failed:s==='cancelled'?t.cancelled_item:s==='registered'?t.registered_item:s==='settled'?t.settled_item:accountingStatusLabel(s, locale, t.failed);
   return <section dir={fa?'rtl':'ltr'} className="w-full max-w-6xl space-y-5">
     <h2 className="text-xl font-semibold">{t.title}</h2>
     <p className="rounded-lg border border-border p-3 text-sm text-muted-foreground">{t.note}</p>
@@ -107,7 +108,7 @@ export function AccountingRecurringObligations() {
         <label className="space-y-1 text-sm"><span>{t.amount} · {unitAdapter.label}</span><input required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
         <label className="space-y-1 text-sm"><span>{t.description}</span><input required maxLength={500} value={description} onChange={e=>setDescription(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
         <label className="space-y-1 text-sm"><span>{t.counterparty}</span><input maxLength={200} value={counterparty} onChange={e=>setCounterparty(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
-        <label className="space-y-1 text-sm"><span>{t.account}</span><select required value={accountId} onChange={e=>setAccountId(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2"><option value="">—</option>{expenseAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>
+        <label className="space-y-1 text-sm"><span>{t.account}</span><select required value={accountId} onChange={e=>setAccountId(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2"><option value="">—</option>{expenseAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={autoRegister} onChange={e=>setAutoRegister(e.target.checked)} />{t.auto}</label>
       </div>
       <p className="text-xs text-muted-foreground">{autoRegister?t.automatic:t.manual} · {t.everyNote}</p>
@@ -117,10 +118,10 @@ export function AccountingRecurringObligations() {
       <h3 className="font-semibold">{t.list}</h3>
       {!schedules.length ? <p className="text-sm text-muted-foreground">{t.empty}</p> : schedules.map(s=><article key={s.id} className="rounded-lg border border-border p-3 space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h4 className="font-medium">{s.description}</h4><p className="text-sm text-muted-foreground">{s.counterparty||'—'} · {s.classification_account_name} · {money(s.amount_minor)} · {s.frequency==='monthly'?t.monthly:t.every+' '+s.interval_days}</p><p className="text-xs text-muted-foreground">{t.first}: {s.first_due_date} · {t.generated}: {s.generated_occurrences}/{s.occurrence_count} · {t.settled}: {s.settled_occurrences||0}</p></div>
+          <div><h4 className="font-medium">{s.description}</h4><p className="text-sm text-muted-foreground">{s.counterparty||'—'} · {accountingSystemAccountName(accounts.find((a) => a.name === s.classification_account_name)?.system_key, s.classification_account_name, locale)} · {money(s.amount_minor)} · {s.frequency==='monthly'?t.monthly:t.every+' '+s.interval_days}</p><p className="text-xs text-muted-foreground">{t.first}: {formatAccountingDate(s.first_due_date, locale, tenant?.calendar)} · {t.generated}: {s.generated_occurrences}/{s.occurrence_count} · {t.settled}: {s.settled_occurrences||0}</p></div>
           <div className="flex items-center gap-2"><span className="text-sm">{s.status==='active'?t.active:t.cancelled}</span>{s.status==='active'&&<button type="button" disabled={busy} onClick={()=>void cancel(s)} className="text-sm text-brand underline">{t.cancel}</button>}</div>
         </div>
-        <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">#</th><th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.amount}</th><th className="p-2 text-start">{t.status}</th></tr></thead><tbody>{s.occurrences.map(o=><tr key={o.id} className="border-b border-border/60"><td className="p-2">{o.occurrence_number}</td><td className="p-2">{o.due_date}</td><td className="p-2">{money(s.amount_minor)}</td><td className="p-2">{statusText(o.status)}{o.last_error_message?<span className="block text-xs text-destructive">{o.last_error_message}</span>:null}</td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">#</th><th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.amount}</th><th className="p-2 text-start">{t.status}</th></tr></thead><tbody>{s.occurrences.map(o=><tr key={o.id} className="border-b border-border/60"><td className="p-2">{o.occurrence_number}</td><td className="p-2">{formatAccountingDate(o.due_date, locale, tenant?.calendar)}</td><td className="p-2">{money(s.amount_minor)}</td><td className="p-2">{statusText(o.status)}{o.last_error_message?<span className="block text-xs text-destructive">{accountingErrorMessage(o.last_error_message, locale, t.failedMessage)}</span>:null}</td></tr>)}</tbody></table></div>
       </article>)}
     </div>
   </section>;

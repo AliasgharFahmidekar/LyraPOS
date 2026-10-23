@@ -52,6 +52,28 @@ const SYSTEM_ACCOUNT_CODES: Record<string, string> = {
   '5020': 'هزینه‌های عملیاتی', '5030': 'کارمزدهای پرداخت',
 };
 
+const SYSTEM_ACCOUNT_NAMES_BY_ENGLISH: Record<string, string> = {
+  'Assets': 'دارایی‌ها', 'Cash drawer': 'صندوق نقدی', 'Bank accounts': 'حساب‌های بانکی',
+  'Payment clearing': 'حساب واسط پرداخت', 'Accounts receivable': 'مطالبات از مشتریان',
+  'Inventory': 'موجودی کالا', 'Liabilities': 'بدهی‌ها', 'Accounts payable': 'بدهی به تأمین‌کنندگان',
+  'Customer advances': 'پیش‌دریافت از مشتریان', 'Equity': 'حقوق مالکانه',
+  'Owner capital': 'آورده مالک', 'Owner drawings': 'برداشت مالک', 'Income': 'درآمدها',
+  'Sales revenue': 'درآمد فروش', 'Sales discounts': 'تخفیف فروش', 'Sales returns': 'برگشت از فروش',
+  'Other income': 'سایر درآمدها', 'Expenses': 'هزینه‌ها',
+  'Cost of goods sold': 'بهای تمام‌شده کالای فروش‌رفته',
+  'Operating expenses': 'هزینه‌های عملیاتی', 'Payment processing fees': 'کارمزدهای پرداخت',
+  'Opening balance equity': 'حقوق مالکانه مانده افتتاحیه',
+  'Reconciliation adjustment equity': 'حقوق مالکانه تعدیل تطبیق',
+  'Future receipts pending settlement': 'حساب واسط دریافت‌های آتی',
+  'Future payments pending settlement': 'حساب واسط پرداخت‌های آتی',
+};
+
+export function accountingSystemAccountNameFromName(originalName: string | null | undefined, locale: string): string {
+  const name = originalName || '—';
+  if (!isPersianAccountingLocale(locale)) return name;
+  return SYSTEM_ACCOUNT_NAMES_BY_ENGLISH[name] || name;
+}
+
 export function accountingSystemAccountNameByCode(
   accountCode: string | null | undefined,
   originalName: string,

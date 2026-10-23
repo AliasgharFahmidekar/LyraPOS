@@ -9,6 +9,7 @@ import { useLocale } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
 import { formatAccountingMoney, getCurrencyUnitAdapter } from '@/lib/countries';
+import { accountingSystemAccountName, accountingSystemDescription, accountingStatusLabel, formatAccountingDate } from '@/lib/accounting-i18n';
 
 type ReportLine = {
   journal_entry_id: string; entry_number: string; entry_date: string; description: string;
@@ -113,10 +114,7 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
     currency, fractionDigits: report?.accounting_fraction_digits ?? 0, locale, countryCode: tenant?.country,
     preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
   }), [currency, locale, report?.accounting_fraction_digits, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
-  const dateText = useCallback((value: string) => {
-    try { return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(value + 'T12:00:00')); }
-    catch { return value; }
-  }, [locale]);
+  const dateText = useCallback((value: string) => formatAccountingDate(value, locale, tenant?.calendar), [locale, tenant?.calendar]);
 
   const currentBalance = (report?.liquid_accounts || []).reduce((sum, account) => sum + account.balance_minor, 0);
   const receivedIncome = (report?.summary.sales_revenue_less_refunds_minor || 0) + (report?.summary.other_income_minor || 0);
@@ -173,7 +171,7 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
   const attentionStatusText = (status: string) => {
     const faStatus: Record<string, string> = { scheduled: 'در انتظار سررسید', awaiting_confirmation: 'در انتظار تأیید', registered: 'سررسیدشده؛ پرداخت نشده', failed: 'نیازمند بررسی' };
     const enStatus: Record<string, string> = { scheduled: 'Scheduled', awaiting_confirmation: 'Awaiting confirmation', registered: 'Due; unpaid', failed: 'Needs review' };
-    return (fa ? faStatus : enStatus)[status] || status;
+    return (fa ? faStatus : enStatus)[status] || accountingStatusLabel(status, locale, fa ? 'وضعیت نامشخص' : 'Unknown status');
   };
   const trendMax = Math.max(0, ...groupedTrend.map((point) => Math.max(point.income_minor, point.expense_minor)));
   const trendMin = Math.min(0, ...groupedTrend.map((point) => Math.min(point.income_minor, point.expense_minor)));
@@ -366,7 +364,7 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
               <div className="acct-account-list">
                 {report.liquid_accounts.slice(0, 6).map((account) => <article className="acct-account-row" key={account.id}>
                   <div className="acct-account-icon">{account.system_key === 'bank_accounts' || String(account.system_key || '').startsWith('custom_liquid:bank:') ? <Landmark size={18} /> : <Wallet size={18} />}</div>
-                  <div className="acct-account-meta"><strong>{account.name}</strong><span>{fa ? 'کد حساب' : 'Account code'}: {account.account_code}</span></div>
+                  <div className="acct-account-meta"><strong>{accountingSystemAccountName(account.system_key, account.name, locale)}</strong><span>{fa ? 'کد حساب' : 'Account code'}: {account.account_code}</span></div>
                   <strong className="acct-money">{money(account.balance_minor)}</strong>
                 </article>)}
               </div>}
@@ -403,8 +401,8 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
                     : <ArrowUpRight size={17} className="text-rose-700 dark:text-rose-400" />}
                 </span>
                 <div className="acct-due-main">
-                  <strong>{movement.line_description || movement.description}</strong>
-                  <span>{dateText(movement.entry_date)} · {movement.account_name} · {movement.entry_number}</span>
+                  <strong>{accountingSystemDescription(movement.line_description || movement.description, locale)}</strong>
+                  <span>{dateText(movement.entry_date)} · {accountingSystemAccountName(movement.system_key, movement.account_name, locale)} · {movement.entry_number}</span>
                 </div>
                 <div className="acct-due-amount">
                   <strong className={increased ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}>

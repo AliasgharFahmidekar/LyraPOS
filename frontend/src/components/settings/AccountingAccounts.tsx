@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { formatAccountingMoney } from '@/lib/countries';
+import { accountingSystemAccountName, accountingSystemDescription, accountingErrorMessage, formatAccountingDate } from '@/lib/accounting-i18n';
 
 type AccountKind = 'cash' | 'bank' | 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 type Account = {
@@ -152,10 +153,7 @@ export function AccountingAccounts() {
     };
     return names[account.account_type] || account.account_type;
   };
-  const dateText = (value: string) => {
-    try { return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(value + 'T12:00:00')); }
-    catch { return value; }
-  };
+  const dateText = (value: string) => formatAccountingDate(value, locale, tenant?.calendar);
 
   function openCreate() {
     setEditing(null); setName(''); setKind('bank'); setDescription(''); setIsActive(true); setModalOpen(true);
@@ -184,7 +182,7 @@ export function AccountingAccounts() {
       await load();
     } catch (error: unknown) {
       const message = (error as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
-      toast.error(typeof message === 'string' ? message : text.saveError);
+      toast.error(accountingErrorMessage(message, locale, text.saveError));
     } finally {
       setSaving(false);
     }
@@ -246,7 +244,7 @@ export function AccountingAccounts() {
               <table className="acct-table">
                 <thead><tr><th>{text.name}</th><th>{text.type}</th><th>{text.code}</th><th className="text-end">{text.balance}</th><th>{text.status}</th><th>{text.actions}</th></tr></thead>
                 <tbody>{filtered.map((account) => <tr key={account.id}>
-                  <td><div className="acct-account-cell"><span className={account.is_liquid ? 'acct-account-icon' : 'acct-account-icon is-muted'}>{account.account_kind === 'bank' ? <Landmark size={17} /> : account.account_kind === 'cash' ? <Banknote size={17} /> : <Wallet size={17} />}</span><span><strong>{account.name}</strong>{account.description && <span className="acct-subtext block">{account.description}</span>}</span></div></td>
+                  <td><div className="acct-account-cell"><span className={account.is_liquid ? 'acct-account-icon' : 'acct-account-icon is-muted'}>{account.account_kind === 'bank' ? <Landmark size={17} /> : account.account_kind === 'cash' ? <Banknote size={17} /> : <Wallet size={17} />}</span><span><strong>{accountingSystemAccountName(account.system_key, account.name, locale)}</strong>{account.description && <span className="acct-subtext block">{account.description}</span>}</span></div></td>
                   <td>{kindName(account)}</td>
                   <td><span className="acct-code">{account.account_code}</span></td>
                   <td className="text-end whitespace-nowrap tabular-nums acct-money">{money(account.balance_minor)}</td>
@@ -283,7 +281,7 @@ export function AccountingAccounts() {
 
       {historyAccount && <div className="acct-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setHistoryAccount(null); setHistory(null); } }}>
         <section className="acct-history-drawer" role="dialog" aria-modal="true" aria-labelledby="acct-history-title" dir={fa ? 'rtl' : 'ltr'}>
-          <div className="acct-modal-heading"><div><p className="acct-eyebrow">{historyAccount.account_code} · {kindName(historyAccount)}</p><h2 id="acct-history-title">{text.historyTitle}: {historyAccount.name}</h2><p>{historyAccount.description || '—'}</p></div><button type="button" className="acct-icon-button" onClick={() => { setHistoryAccount(null); setHistory(null); }} aria-label={text.close}><X size={18} /></button></div>
+          <div className="acct-modal-heading"><div><p className="acct-eyebrow">{historyAccount.account_code} · {kindName(historyAccount)}</p><h2 id="acct-history-title">{text.historyTitle}: {accountingSystemAccountName(historyAccount.system_key, historyAccount.name, locale)}</h2><p>{accountingSystemDescription(historyAccount.description, locale) || '—'}</p></div><button type="button" className="acct-icon-button" onClick={() => { setHistoryAccount(null); setHistory(null); }} aria-label={text.close}><X size={18} /></button></div>
           <div className="acct-history-balance"><span>{text.currentBalance}</span><strong>{money(history?.account.balance_minor ?? historyAccount.balance_minor)}</strong></div>
           <div className="acct-toolbar acct-history-filters">
             <label className="acct-field"><span>{text.from}</span><input type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} /></label>
@@ -297,7 +295,7 @@ export function AccountingAccounts() {
               <div className="acct-table-wrap acct-history-table-wrap"><table className="acct-table">
                 <thead><tr><th>{text.date}</th><th>{text.descriptionCol}</th><th>{text.reference}</th><th className="text-end">{text.debit}</th><th className="text-end">{text.credit}</th><th className="text-end">{text.balance}</th></tr></thead>
                 <tbody>{filteredHistory.map((line) => <tr key={line.journal_entry_id + ':' + line.line_no}>
-                  <td className="whitespace-nowrap">{dateText(line.entry_date)}</td><td>{line.line_description || line.description}</td><td>{line.entry_number}</td>
+                  <td className="whitespace-nowrap">{dateText(line.entry_date)}</td><td>{accountingSystemDescription(line.line_description || line.description, locale)}</td><td>{line.entry_number}</td>
                   <td className="text-end whitespace-nowrap tabular-nums">{line.debit_minor ? money(line.debit_minor) : '—'}</td><td className="text-end whitespace-nowrap tabular-nums">{line.credit_minor ? money(line.credit_minor) : '—'}</td><td className="text-end whitespace-nowrap tabular-nums">{money(line.balance_after_minor)}</td>
                 </tr>)}</tbody></table></div>}
           <div className="acct-drawer-footer"><span>{fa ? 'سوابق دفترکل حذف یا بازنویسی نمی‌شوند.' : 'Posted ledger history is retained and not overwritten.'}</span><button type="button" className="acct-button acct-button-secondary" onClick={() => { setHistoryAccount(null); setHistory(null); }}>{text.close}<ChevronLeft size={15} /></button></div>

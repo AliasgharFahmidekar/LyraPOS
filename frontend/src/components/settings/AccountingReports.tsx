@@ -5,6 +5,7 @@ import { useLocale } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
 import { formatAccountingMoney } from '@/lib/countries';
+import { accountingSystemAccountName, accountingSystemAccountNameByCode, accountingSystemDescription, accountingAuditActionLabel, accountingDiagnosticText, formatAccountingDate } from '@/lib/accounting-i18n';
 
 type ReportLine = {
   journal_entry_id: string;
@@ -250,7 +251,7 @@ export function AccountingReports() {
           <table className="w-full text-sm"><thead><tr className="border-b">
             <th className="p-2 text-start">{t.account}</th><th className="p-2 text-end">{t.balance}</th><th className="p-2 text-end">{t.debitMovement}</th><th className="p-2 text-end">{t.creditMovement}</th>
           </tr></thead><tbody>{report.liquid_accounts.map((account) => <tr key={account.id} className="border-b border-border/60">
-            <td className="p-2">{account.account_code} · {account.name}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{money(account.balance_minor)}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{money(account.period_debit_minor)}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{money(account.period_credit_minor)}</td>
+            <td className="p-2">{account.account_code} · {accountingSystemAccountName(account.system_key, account.name, locale)}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{money(account.balance_minor)}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{money(account.period_debit_minor)}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{money(account.period_credit_minor)}</td>
           </tr>)}</tbody></table>
         </div>}
       </div>
@@ -261,7 +262,7 @@ export function AccountingReports() {
           <table className="w-full text-sm"><thead><tr className="border-b">
             <th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.entry}</th><th className="p-2 text-start">{t.description}</th><th className="p-2 text-start">{t.accountName}</th><th className="p-2 text-end">{t.debit}</th><th className="p-2 text-end">{t.credit}</th>
           </tr></thead><tbody>{report.movements.lines.map((line) => <tr key={line.journal_entry_id + ':' + line.line_no} className="border-b border-border/60">
-            <td className="p-2 whitespace-nowrap">{line.entry_date}</td><td className="p-2 whitespace-nowrap">{line.entry_number}</td><td className="p-2 min-w-40">{line.line_description || line.description}</td><td className="p-2">{line.account_code} · {line.account_name}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{line.debit_minor ? money(line.debit_minor) : '—'}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{line.credit_minor ? money(line.credit_minor) : '—'}</td>
+            <td className="p-2 whitespace-nowrap">{formatAccountingDate(line.entry_date, locale, tenant?.calendar)}</td><td className="p-2 whitespace-nowrap">{line.entry_number}</td><td className="p-2 min-w-40">{accountingSystemDescription(line.line_description || line.description, locale)}</td><td className="p-2">{line.account_code} · {accountingSystemAccountNameByCode(line.account_code, line.account_name, locale)}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{line.debit_minor ? money(line.debit_minor) : '—'}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{line.credit_minor ? money(line.credit_minor) : '—'}</td>
           </tr>)}</tbody></table>
         </div>}
         {movementCount > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
@@ -287,7 +288,7 @@ export function AccountingReports() {
         {report.pre_cutover_exceptions.samples.length === 0 ? <p className="text-sm text-muted-foreground">{t.noExceptions}</p> : <div className="overflow-x-auto">
           <table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.entry}</th><th className="p-2 text-start">{t.reason}</th></tr></thead>
             <tbody>{report.pre_cutover_exceptions.samples.map((exception) => <tr key={exception.id} className="border-b border-border/60">
-              <td className="p-2 whitespace-nowrap">{exception.created_at}</td><td className="p-2">{exception.action === 'skipped_pre_cutover_payment' ? 'Payment' : 'Refund'} · {exception.entity_id}</td><td className="p-2">{exception.details?.reason || '—'}</td>
+              <td className="p-2 whitespace-nowrap">{formatAccountingDate(exception.created_at, locale, tenant?.calendar)}</td><td className="p-2">{accountingAuditActionLabel(exception.action, locale)} · {exception.entity_id}</td><td className="p-2">{accountingDiagnosticText(exception.details?.reason, locale)}</td>
             </tr>)}</tbody></table>
         </div>}
       </div>
