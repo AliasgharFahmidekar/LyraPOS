@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useLocale } from 'use-intl';
+import { useAuthStore } from '@/store/auth';
+import { formatAccountingMoney, getCurrencyUnitAdapter, parseAccountingAmountToMinor } from '@/lib/countries';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -17,11 +19,12 @@ type Schedule = {
 const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
 export function AccountingRecurringObligations() {
   const locale = useLocale();
+  const tenant = useAuthStore((state) => state.currentTenant);
   const fa = locale.toLowerCase().startsWith('fa');
   const [accounts,setAccounts] = useState<Account[]>([]);
   const [schedules,setSchedules] = useState<Schedule[]>([]);
   const [currency,setCurrency] = useState('IRR');
-  const [digits,setDigits] = useState(0);
+  const [fractionDigits,setFractionDigits] = useState(0);
   const [frequency,setFrequency] = useState<'monthly'|'every_n_days'>('monthly');
   const [intervalDays,setIntervalDays] = useState('30');
   const [firstDueDate,setFirstDueDate] = useState(today());
@@ -48,20 +51,22 @@ export function AccountingRecurringObligations() {
     const rows: Account[] = accountResponse.data.accounts || [];
     setAccounts(rows);
     setCurrency(accountResponse.data.currency_code || 'IRR');
-    try { setDigits(new Intl.NumberFormat(locale,{style:'currency',currency:accountResponse.data.currency_code || 'IRR'}).resolvedOptions().maximumFractionDigits ?? 0); } catch { setDigits(0); }
+    setFractionDigits(Number(accountResponse.data.accounting_fraction_digits ?? 0));
     setSchedules(scheduleResponse.data.schedules || []);
     setAccountId(current => rows.some(a=>a.id===current && a.is_active===1 && a.is_postable===1) ? current : (rows.find(a=>a.is_active===1 && a.is_postable===1)?.id || ''));
-  },[locale]);
+  },[]);
   useEffect(() => { void Promise.resolve().then(()=>load()).catch(()=>toast.error(t.failedMessage)); },[load,t.failedMessage]);
-  const money = (minor:number) => new Intl.NumberFormat(locale,{style:'currency',currency,maximumFractionDigits:digits}).format(minor/(10**digits));
+  const preferences = { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar };
+  const unitAdapter = useMemo(() => getCurrencyUnitAdapter(currency, tenant?.country, preferences), [currency, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  const money = useCallback((minor: number) => formatAccountingMoney(minor, {
+    currency, fractionDigits, locale, countryCode: tenant?.country, preferences,
+  }), [currency, fractionDigits, locale, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
   const expenseAccounts=accounts.filter(a=>a.account_type==='expense' && a.is_active===1 && a.is_postable===1);
-  function amountMinor(value:string): number | null {
-    const normalized=value.trim().replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٬,]/g,'').replace(/٫/g,'.');
-    if(!/^\d+(\.\d+)?$/.test(normalized)) return null;
-    const [whole,fraction='']=normalized.split('.');
-    if(fraction.length>digits) return null;
-    const valueMinor=Number(whole)*(10**digits)+Number((fraction+'0'.repeat(digits)).slice(0,digits)||'0');
-    return Number.isSafeInteger(valueMinor)&&valueMinor>0?valueMinor:null;
+  function amountMinor(value: string): number | null {
+    return parseAccountingAmountToMinor(value, {
+      currency, fractionDigits, locale, countryCode: tenant?.country,
+      preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
+    });
   }
   async function create(e:FormEvent) {
     e.preventDefault();
@@ -99,7 +104,7 @@ export function AccountingRecurringObligations() {
         {frequency==='every_n_days' && <label className="space-y-1 text-sm"><span>{t.interval}</span><input type="number" min="1" max="366" required value={intervalDays} onChange={e=>setIntervalDays(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>}
         <label className="space-y-1 text-sm"><span>{t.first}</span><input type="date" required value={firstDueDate} onChange={e=>setFirstDueDate(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
         <label className="space-y-1 text-sm"><span>{t.count}</span><input type="number" min="1" max="120" required value={occurrenceCount} onChange={e=>setOccurrenceCount(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
-        <label className="space-y-1 text-sm"><span>{t.amount} · {currency}</span><input required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
+        <label className="space-y-1 text-sm"><span>{t.amount} · {unitAdapter.label}</span><input required inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
         <label className="space-y-1 text-sm"><span>{t.description}</span><input required maxLength={500} value={description} onChange={e=>setDescription(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
         <label className="space-y-1 text-sm"><span>{t.counterparty}</span><input maxLength={200} value={counterparty} onChange={e=>setCounterparty(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2" /></label>
         <label className="space-y-1 text-sm"><span>{t.account}</span><select required value={accountId} onChange={e=>setAccountId(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2"><option value="">—</option>{expenseAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {a.name}</option>)}</select></label>
