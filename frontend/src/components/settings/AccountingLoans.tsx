@@ -67,11 +67,11 @@ export function AccountingLoans() {
     setInterestAccount(current=>expenses.some(x=>x.id===current)?current:(expenses[0]?.id||''));
     setFeesAccount(current=>expenses.some(x=>x.id===current)?current:(expenses[0]?.id||''));
     setSelectedLoan(current=>l.data.loans?.some((x:Loan)=>x.id===current&&x.status==='active')?current:(l.data.loans?.find((x:Loan)=>x.status==='active')?.id||''));
-  },[locale]);
+  },[]);
   useEffect(()=>{void Promise.resolve().then(()=>load()).catch(()=>toast.error(t.error));},[load,t.error]);
-  const preferences = { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar };
-  const unitAdapter=useMemo(()=>getCurrencyUnitAdapter(currency,tenant?.country,preferences),[currency,tenant?.country,tenant?.currency_display,tenant?.number_digits,tenant?.calendar]);
-  const money=useMemo(()=> (value:number)=>formatAccountingMoney(value,{currency,fractionDigits,locale,countryCode:tenant?.country,preferences}),[locale,currency,fractionDigits,tenant?.country,tenant?.currency_display,tenant?.number_digits,tenant?.calendar]);
+  const preferences = useMemo(() => ({ currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar }), [tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
+  const unitAdapter=useMemo(()=>getCurrencyUnitAdapter(currency,tenant?.country,preferences),[currency,tenant?.country,preferences]);
+  const money=useMemo(()=> (value:number)=>formatAccountingMoney(value,{currency,fractionDigits,locale,countryCode:tenant?.country,preferences}),[locale,currency,fractionDigits,tenant?.country,preferences]);
   const liquidAccounts=accounts.filter(a=>a.account_type==='asset'&&a.is_active===1&&a.is_postable===1&&(['cash_drawer','bank_accounts','payment_clearing'].includes(a.system_key||'')||(a.system_key||'').startsWith('custom_liquid:cash:')||(a.system_key||'').startsWith('custom_liquid:bank:')));
   const liabilityAccounts=accounts.filter(a=>a.account_type==='liability'&&a.is_active===1&&a.is_postable===1&&(!a.system_key||a.system_key==='loans_payable'));
   const expenseAccounts=accounts.filter(a=>a.account_type==='expense'&&a.is_active===1&&a.is_postable===1);
