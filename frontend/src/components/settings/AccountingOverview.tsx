@@ -8,7 +8,7 @@ import {
 import { useLocale } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
-import { formatMoney, getCurrencyUnitAdapter } from '@/lib/countries';
+import { formatAccountingMoney, getCurrencyUnitAdapter } from '@/lib/countries';
 
 type ReportLine = {
   journal_entry_id: string; entry_number: string; entry_date: string; description: string;
@@ -103,10 +103,10 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
 
   const currency = report?.currency_code || forecast?.currency_code || tenant?.currency || 'IRR';
   const unitFactor = 10 ** (report?.accounting_fraction_digits ?? 0);
-  const money = useCallback((minor: number) => formatMoney(
-    minor / unitFactor, currency, locale,
-    { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
-  ), [currency, locale, tenant?.currency_display, tenant?.number_digits, tenant?.calendar, unitFactor]);
+  const money = useCallback((minor: number) => formatAccountingMoney(minor, {
+    currency, fractionDigits: report?.accounting_fraction_digits ?? 0, locale, countryCode: tenant?.country,
+    preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
+  }), [currency, locale, report?.accounting_fraction_digits, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
   const dateText = useCallback((value: string) => {
     try { return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(value + 'T12:00:00')); }
     catch { return value; }
