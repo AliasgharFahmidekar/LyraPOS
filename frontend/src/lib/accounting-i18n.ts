@@ -25,6 +25,8 @@ const SYSTEM_ACCOUNT_NAMES: Record<string, string> = {
   operating_expenses: 'هزینه‌های عملیاتی',
   payment_processing_fees: 'کارمزدهای پرداخت',
   tax_payable: 'مالیات پرداختنی',
+  sales_tax_payable: 'مالیات دریافت‌شده (بدهی داخلی)',
+  tax_expenses: 'مالیات پرداخت‌شده',
   opening_balance_equity: 'حقوق مالکانه مانده افتتاحیه',
   reconciliation_adjustment_equity: 'حقوق مالکانه تعدیل تطبیق',
   future_receipt_clearing: 'حساب واسط دریافت‌های آتی',
@@ -52,7 +54,7 @@ const SYSTEM_ACCOUNT_CODES: Record<string, string> = {
   '3000': 'حقوق مالکانه', '3010': 'آورده مالک', '3020': 'برداشت مالک',
   '4000': 'درآمدها', '4010': 'درآمد فروش', '4020': 'تخفیف فروش',
   '4030': 'سایر درآمدها', '5000': 'هزینه‌ها', '5010': 'بهای تمام‌شده کالای فروش‌رفته',
-  '5020': 'هزینه‌های عملیاتی', '5030': 'کارمزدهای پرداخت',
+  '5020': 'هزینه‌های عملیاتی', '5030': 'کارمزدهای پرداخت', '5040': 'مالیات پرداخت‌شده',
 };
 
 const SYSTEM_ACCOUNT_CANONICAL_ENGLISH: Record<string, string> = {
@@ -64,6 +66,8 @@ const SYSTEM_ACCOUNT_CANONICAL_ENGLISH: Record<string, string> = {
   sales_discounts: 'Sales discounts', sales_returns: 'Sales returns', other_income: 'Other income',
   expenses: 'Expenses', cost_of_goods_sold: 'Cost of goods sold',
   operating_expenses: 'Operating expenses', payment_processing_fees: 'Payment processing fees',
+  sales_tax_payable: 'Tax collected (internal liability)',
+  tax_expenses: 'Taxes paid',
   opening_balance_equity: 'Opening balance equity',
   reconciliation_adjustment_equity: 'Reconciliation adjustment equity',
   future_receipt_clearing: 'Future receipts pending settlement',
@@ -80,6 +84,8 @@ const SYSTEM_ACCOUNT_NAMES_BY_ENGLISH: Record<string, string> = {
   'Other income': 'سایر درآمدها', 'Expenses': 'هزینه‌ها',
   'Cost of goods sold': 'بهای تمام‌شده کالای فروش‌رفته',
   'Operating expenses': 'هزینه‌های عملیاتی', 'Payment processing fees': 'کارمزدهای پرداخت',
+  'Taxes paid': 'مالیات پرداخت‌شده',
+  'Tax collected (internal liability)': 'مالیات دریافت‌شده (بدهی داخلی)',
   'Opening balance equity': 'حقوق مالکانه مانده افتتاحیه',
   'Reconciliation adjustment equity': 'حقوق مالکانه تعدیل تطبیق',
   'Future receipts pending settlement': 'حساب واسط دریافت‌های آتی',
@@ -126,6 +132,18 @@ export function accountingDiagnosticText(value: string | null | undefined, local
     'The payment timestamp predates accounting cutover; historical payments are intentionally not backfilled.': 'زمان دریافت پیش از شروع حسابداری است؛ سوابق مالی قدیمی به‌صورت خودکار وارد دفتر کل نمی‌شوند.',
   };
   return known[value] || fallback;
+}
+
+export function accountingExpenseCategoryName(
+  categoryId: string,
+  originalName: string,
+  locale: string,
+  taxPaymentsLabel = 'مالیات پرداخت‌شده',
+): string {
+  if (!isPersianAccountingLocale(locale)) return originalName;
+  if (categoryId === 'expense-category-tax-payments' && originalName === 'Taxes paid') return taxPaymentsLabel;
+  if (categoryId === 'expense-category-general' && originalName === 'General expenses') return 'هزینه‌های عمومی';
+  return originalName;
 }
 
 export function accountingPaymentMethodName(name: string, locale: string): string {
