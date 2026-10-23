@@ -67,7 +67,7 @@ function hasActiveDependencies(db: DB, accountId: string): boolean {
     { table: 'accounting_loan_installments', column: 'fees_account_id', condition: "status NOT IN ('settled','cancelled')" },
     { table: 'accounting_future_items', column: 'classification_account_id', condition: "status NOT IN ('settled','cancelled')" },
     { table: 'accounting_future_items', column: 'settlement_account_id', condition: "status NOT IN ('settled','cancelled')" },
-    { table: 'accounting_recurring_schedules', column: 'classification_account_id', condition: 'is_active=1' },
+    { table: 'accounting_recurring_schedules', column: 'classification_account_id', condition: "status='active'" },
   ];
   for (const check of checks) {
     if (!tableHasColumn(db, check.table, check.column)) continue;
