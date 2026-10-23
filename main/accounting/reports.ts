@@ -130,6 +130,65 @@ function liquidAccountBalances(db: DB, range: { from: string | null; to: string 
   });
 }
 
+function dailyTrend(
+  db: DB,
+  range: { from: string | null; to: string | null },
+): { granularity: 'day' | 'month'; points: Array<{ period: string; income_minor: number; expense_minor: number }> } {
+  const spanDays = range.from && range.to
+    ? Math.floor((Date.parse(range.to + 'T00:00:00Z') - Date.parse(range.from + 'T00:00:00Z')) / 86400000)
+    : Number.POSITIVE_INFINITY;
+  const granularity: 'day' | 'month' = spanDays > 120 ? 'month' : 'day';
+  const periodExpr = granularity === 'month' ? "substr(entry.entry_date,1,7)" : 'entry.entry_date';
+  const points = new Map<string, { period: string; income_minor: number; expense_minor: number }>();
+  const dates = periodWhere('entry', range);
+  const rows = db.prepare(
+    'SELECT ' + periodExpr + ' AS period, ' +
+    'COALESCE(SUM(CASE WHEN (' +
+      "(account.system_key='sales_revenue' AND entry.source_type='bill_payment' AND entry.source_event='money_received') OR " +
+      "(account.system_key='sales_returns' AND entry.source_type='refund' AND entry.source_event='money_refunded') OR " +
+      "(account.account_type='revenue' AND (" +
+        "(entry.source_type='accounting_manual_activity' AND entry.source_event='other_income') OR " +
+        "(entry.source_type='accounting_future_item' AND entry.source_event='settlement' AND EXISTS (" +
+          "SELECT 1 FROM accounting_future_items AS future_item WHERE future_item.id=entry.source_id AND future_item.direction='incoming'" +
+        "))" +
+      "))) THEN line.credit_minor-line.debit_minor ELSE 0 END),0) AS income_minor, ' +
+    "COALESCE(SUM(CASE WHEN account.account_type='expense' AND COALESCE(account.system_key,'') <> 'cost_of_goods_sold' " +
+      "AND NOT (COALESCE(entry.source_type,'')='accounting_loan' AND COALESCE(entry.source_event,'')='installment_due_registration') " +
+      "THEN line.debit_minor-line.credit_minor ELSE 0 END),0) AS expense_minor " +
+    'FROM accounting_journal_entries entry JOIN accounting_journal_lines line ON line.journal_entry_id=entry.id ' +
+    'JOIN accounting_accounts account ON account.id=line.account_id ' +
+    "WHERE entry.status='posted'" + dates.sql +
+    ' GROUP BY ' + periodExpr + ' ORDER BY ' + periodExpr,
+  ).all(...dates.values) as Array<{ period: string; income_minor: number; expense_minor: number }>;
+  for (const row of rows) {
+    points.set(row.period, {
+      period: row.period,
+      income_minor: safeTotal(row.income_minor, 'daily trend income'),
+      expense_minor: safeTotal(row.expense_minor, 'daily trend expense'),
+    });
+  }
+
+  const loanDateExpression = granularity === 'month' ? "substr(settlement_date,1,7)" : 'settlement_date';
+  const clauses = ["status='settled'", '(interest_minor + fees_minor) > 0'];
+  const values: unknown[] = [];
+  if (range.from) { clauses.push('settlement_date >= ?'); values.push(range.from); }
+  if (range.to) { clauses.push('settlement_date <= ?'); values.push(range.to); }
+  const loanCosts = db.prepare(
+    'SELECT ' + loanDateExpression + ' AS period, COALESCE(SUM(interest_minor + fees_minor),0) AS amount_minor ' +
+    'FROM accounting_loan_installments WHERE ' + clauses.join(' AND ') +
+    ' GROUP BY ' + loanDateExpression + ' ORDER BY ' + loanDateExpression,
+  ).all(...values) as Array<{ period: string; amount_minor: number }>;
+  for (const row of loanCosts) {
+    const current = points.get(row.period) || { period: row.period, income_minor: 0, expense_minor: 0 };
+    current.expense_minor = safeTotal(current.expense_minor + safeTotal(row.amount_minor, 'daily trend loan costs'), 'daily trend expenses');
+    points.set(row.period, current);
+  }
+  return {
+    granularity,
+    points: [...points.values()].sort((a, b) => a.period.localeCompare(b.period)),
+  };
+}
+
 function preCutoverExceptions(db: DB): { count: number; samples: any[] } {
   const predicate = "entity_type='accounting_source_event' AND action IN ('skipped_pre_cutover_payment','skipped_pre_cutover_refund')";
   const count = db.prepare('SELECT COUNT(*) AS count FROM accounting_audit_log WHERE ' + predicate).get() as { count: number };
@@ -234,6 +293,7 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
       message: 'This management result is before inventory cost/COGS. Inventory value and cost of goods sold are not calculated yet, so this result is not net profit.',
     },
     liquid_accounts: liquidAccountBalances(db, range),
+    daily_trend: dailyTrend(db, range),
     movements: {
       entries_count: movementCount,
       limit: range.limit,
