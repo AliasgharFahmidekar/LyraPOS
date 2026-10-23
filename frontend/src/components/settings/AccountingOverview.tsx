@@ -15,6 +15,11 @@ type ReportLine = {
   account_code: string; account_name: string; line_description: string | null;
   debit_minor: number; credit_minor: number; source_type: string | null;
 };
+type LiquidMovement = {
+  journal_entry_id: string; entry_number: string; entry_date: string; description: string;
+  line_no: number; line_description: string | null; account_id: string; system_key: string;
+  account_code: string; account_name: string; normal_balance: string; change_minor: number;
+};
 type LiquidAccount = {
   id: string; account_code: string; name: string; balance_minor: number; system_key?: string | null;
 };
@@ -26,6 +31,7 @@ type Report = {
   };
   profit_limitations: { cogs_available: boolean; net_profit_available: boolean; message: string };
   liquid_accounts: LiquidAccount[];
+  recent_liquid_movements: LiquidMovement[];
   daily_trend: { granularity: 'day' | 'month'; points: Array<{ period: string; income_minor: number; expense_minor: number }> };
   movements: { lines: ReportLine[]; truncated: boolean };
 };
@@ -116,9 +122,7 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
   const receivedIncome = (report?.summary.sales_revenue_less_refunds_minor || 0) + (report?.summary.other_income_minor || 0);
   const paidExpenses = report?.summary.posted_expenses_minor || 0;
   const resultBeforeCogs = report?.summary.result_before_cogs_minor || 0;
-  const recentLines = [...(report?.movements.lines || [])]
-    .sort((a, b) => b.entry_date.localeCompare(a.entry_date) || b.entry_number.localeCompare(a.entry_number))
-    .slice(0, 6);
+  const recentMovements = report?.recent_liquid_movements || [];
   const upcoming = (forecast?.events || [])
     .filter((event) => event.date > today() && !['settled', 'cancelled'].includes(event.status))
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -192,7 +196,10 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
     expenses: 'هزینه‌های پرداخت‌شده', result: 'نتیجه پیش از بهای تمام‌شده',
     warning: 'این مبلغ سود خالص نیست؛ بهای تمام‌شده کالا در این گزارش محاسبه نمی‌شود.',
     accounts: 'حساب‌های نقدی و بانکی', allAccounts: 'مشاهده همه حساب‌ها', noAccounts: 'حساب نقدی یا بانکی برای نمایش وجود ندارد.',
-    recent: 'آخرین گردش‌های دفتر کل', allReports: 'مشاهده گزارش‌ها', noMovements: 'در این بازه گردش ثبت‌شده‌ای وجود ندارد.',
+    recent: 'تغییرات اخیر موجودی حساب‌ها',
+    recentNote: 'ورود و خروج پول از صندوق، بانک و حساب‌های واسط در بازه انتخاب‌شده',
+    increased: 'افزایش موجودی', decreased: 'کاهش موجودی',
+    allReports: 'دفتر کل و گزارش‌ها', noMovements: 'در این بازه تغییر موجودی ثبت‌شده‌ای وجود ندارد.',
     upcoming: 'سررسیدهای پیش‌رو', allForecast: 'مشاهده پیش‌بینی مالی', noUpcoming: 'در ۳۰ روز آینده تعهدی برای نمایش وجود ندارد.',
     date: 'تاریخ', description: 'شرح', account: 'حساب', debit: 'بدهکار', credit: 'بستانکار',
     due: 'سررسید', amount: 'مبلغ', incomeKind: 'دریافت', expenseKind: 'پرداخت', loading: 'در حال بارگذاری اطلاعات حسابداری…',
@@ -209,7 +216,10 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
     result: 'Result before cost of goods sold',
     warning: 'This is not net profit; inventory cost of goods sold is not calculated in this report.',
     accounts: 'Cash and bank accounts', allAccounts: 'View all accounts', noAccounts: 'There are no cash or bank accounts to show.',
-    recent: 'Recent ledger movements', allReports: 'View reports', noMovements: 'No posted movements in this period.',
+    recent: 'Recent account balance changes',
+    recentNote: 'Money entering or leaving cash, bank and clearing accounts in the selected period',
+    increased: 'Balance increased', decreased: 'Balance decreased',
+    allReports: 'Ledger and reports', noMovements: 'No account balance changes in this period.',
     upcoming: 'Upcoming due items', allForecast: 'View financial forecast', noUpcoming: 'No obligations to show in the next 30 days.',
     date: 'Date', description: 'Description', account: 'Account', debit: 'Debit', credit: 'Credit',
     due: 'Due date', amount: 'Amount', incomeKind: 'Incoming', expenseKind: 'Outgoing',
@@ -380,21 +390,30 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
 
         <section className="acct-panel">
           <div className="acct-panel-heading">
-            <div><h2>{text.recent}</h2><p>{fa ? 'آخرین ردیف‌های دفتر کل در بازه انتخاب‌شده' : 'Latest general ledger lines in the selected period'}</p></div>
+            <div><h2>{text.recent}</h2><p>{text.recentNote}</p></div>
             <button type="button" className="acct-link-button" onClick={() => onOpen('reports')}>{text.allReports}</button>
           </div>
-          {recentLines.length === 0 ? <p className="acct-empty">{text.noMovements}</p> : <div className="acct-table-wrap">
-            <table className="acct-table">
-              <thead><tr><th>{text.date}</th><th>{text.description}</th><th>{text.account}</th><th className="text-end">{text.debit}</th><th className="text-end">{text.credit}</th></tr></thead>
-              <tbody>{recentLines.map((line) => <tr key={line.journal_entry_id + ':' + line.entry_number + ':' + line.account_code}>
-                <td className="whitespace-nowrap">{dateText(line.entry_date)}</td>
-                <td><div className="font-medium">{line.line_description || line.description}</div><span className="acct-subtext">{line.entry_number}</span></td>
-                <td><div>{line.account_name}</div><span className="acct-subtext">{line.account_code}</span></td>
-                <td className="text-end whitespace-nowrap tabular-nums">{line.debit_minor ? money(line.debit_minor) : '—'}</td>
-                <td className="text-end whitespace-nowrap tabular-nums">{line.credit_minor ? money(line.credit_minor) : '—'}</td>
-              </tr>)}</tbody>
-            </table>
-            {report.movements.truncated && <p className="acct-table-note">{fa ? 'نمایش گردش‌ها به سقف تعیین‌شده گزارش محدود شده است.' : 'The movement list is limited by the report’s configured cap.'}</p>}
+          {recentMovements.length === 0 ? <p className="acct-empty">{text.noMovements}</p> : <div className="acct-due-list">
+            {recentMovements.map((movement) => {
+              const increased = movement.change_minor > 0;
+              return <article className="acct-due-row" key={movement.journal_entry_id + ':' + movement.line_no + ':' + movement.account_id}>
+                <span className="acct-due-icon">
+                  {increased
+                    ? <ArrowDownLeft size={17} className="text-emerald-700 dark:text-emerald-400" />
+                    : <ArrowUpRight size={17} className="text-rose-700 dark:text-rose-400" />}
+                </span>
+                <div className="acct-due-main">
+                  <strong>{movement.line_description || movement.description}</strong>
+                  <span>{dateText(movement.entry_date)} · {movement.account_name} · {movement.entry_number}</span>
+                </div>
+                <div className="acct-due-amount">
+                  <strong className={increased ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}>
+                    {increased ? '+' : '−'}{money(Math.abs(movement.change_minor))}
+                  </strong>
+                  <span>{increased ? text.increased : text.decreased}</span>
+                </div>
+              </article>;
+            })}
           </div>}
         </section>
 
