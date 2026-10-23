@@ -42,6 +42,48 @@ export function accountingSystemAccountName(
   return SYSTEM_ACCOUNT_NAMES[systemKey] || originalName;
 }
 
+const SYSTEM_ACCOUNT_CODES: Record<string, string> = {
+  '1000': 'دارایی‌ها', '1010': 'صندوق نقدی', '1020': 'حساب‌های بانکی',
+  '1030': 'حساب واسط پرداخت', '1100': 'مطالبات از مشتریان', '1200': 'موجودی کالا',
+  '2000': 'بدهی‌ها', '2010': 'بدهی به تأمین‌کنندگان', '2020': 'پیش‌دریافت از مشتریان',
+  '3000': 'حقوق مالکانه', '3010': 'آورده مالک', '3020': 'برداشت مالک',
+  '4000': 'درآمدها', '4010': 'درآمد فروش', '4020': 'تخفیف فروش',
+  '4030': 'سایر درآمدها', '5000': 'هزینه‌ها', '5010': 'بهای تمام‌شده کالای فروش‌رفته',
+  '5020': 'هزینه‌های عملیاتی', '5030': 'کارمزدهای پرداخت',
+};
+
+export function accountingSystemAccountNameByCode(
+  accountCode: string | null | undefined,
+  originalName: string,
+  locale: string,
+): string {
+  if (!isPersianAccountingLocale(locale) || !accountCode) return originalName;
+  return SYSTEM_ACCOUNT_CODES[accountCode] || originalName;
+}
+
+export function accountingAuditActionLabel(action: string, locale: string): string {
+  if (!isPersianAccountingLocale(locale)) return action;
+  const labels: Record<string, string> = {
+    skipped_pre_cutover_payment: 'دریافت پیش از شروع حسابداری؛ ثبت نشده',
+    skipped_pre_cutover_refund: 'بازپرداخت پیش از شروع حسابداری؛ ثبت نشده',
+    excluded_non_monetary: 'رویداد غیرمالی؛ خارج از حسابداری',
+    created: 'ایجاد شد', updated: 'ویرایش شد', reversed: 'برگشت خورد',
+  };
+  return labels[action] || accountingStatusLabel(action, locale, 'رویداد فنی حسابداری');
+}
+
+export function accountingDiagnosticText(value: string | null | undefined, locale: string, fallback = 'جزئیات فنی برای بررسی در گزارش ثبت شده است.'): string {
+  if (!value) return '—';
+  if (!isPersianAccountingLocale(locale)) return value;
+  if (/[\u0600-\u06ff]/.test(value)) return value;
+  const known: Record<string, string> = {
+    'The refund event timestamp predates accounting cutover; historical monetary refunds are intentionally not backfilled.': 'زمان بازپرداخت پیش از شروع حسابداری است؛ سوابق مالی قدیمی به‌صورت خودکار وارد دفتر کل نمی‌شوند.',
+    'The payment event timestamp predates accounting cutover; historical payments are intentionally not backfilled.': 'زمان دریافت پیش از شروع حسابداری است؛ سوابق مالی قدیمی به‌صورت خودکار وارد دفتر کل نمی‌شوند.',
+    'The payment timestamp predates accounting cutover; historical payments are intentionally not backfilled.': 'زمان دریافت پیش از شروع حسابداری است؛ سوابق مالی قدیمی به‌صورت خودکار وارد دفتر کل نمی‌شوند.',
+  };
+  return known[value] || fallback;
+}
+
 export function accountingPaymentMethodName(name: string, locale: string): string {
   if (!isPersianAccountingLocale(locale)) return name;
   if (name === 'Cash') return 'نقدی';
@@ -73,7 +115,7 @@ export function accountingSystemDescription(value: string | null | undefined, lo
   const exact = SYSTEM_DESCRIPTION_EXACT[value];
   if (exact) return exact;
 
-  let match = value.match(/^Money received for bill (.+) \((cash|card|custom:\\d+)\)$/);
+  let match = value.match(/^Money received for bill (.+) \((cash|card|custom:\d+)\)$/);
   if (match) {
     const method = match[2] === 'cash' ? 'نقدی' : match[2] === 'card' ? 'کارت‌خوان' : 'روش پرداخت سفارشی';
     return `دریافت وجه بابت فاکتور ${match[1]} (${method})`;
