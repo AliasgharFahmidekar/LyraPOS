@@ -499,11 +499,11 @@ function localeGroupingShape(locale?: string): { group: string; decimal: string;
 
 function validGroupedInteger(value: string, separators: string[], locale?: string): boolean {
   const usedSeparators = [...new Set([...value].filter((character) => separators.includes(character)))];
-  if (usedSeparators.length === 0) return /^\\d+$/.test(value);
+  if (usedSeparators.length === 0) return /^\d+$/.test(value);
   // Mixed grouping characters are almost always a malformed or ambiguous amount.
   if (usedSeparators.length !== 1) return false;
   const groups = value.split(usedSeparators[0]);
-  if (groups.length < 2 || groups.some((group) => !/^\\d+$/.test(group))) return false;
+  if (groups.length < 2 || groups.some((group) => !/^\d+$/.test(group))) return false;
   const shape = localeGroupingShape(locale);
   if (groups[groups.length - 1].length !== shape.primary) return false;
   for (let index = groups.length - 2; index > 0; index--) {
@@ -531,8 +531,8 @@ export function parseAccountingAmountToMinor(
   if (!normalized) return null;
 
   const shape = localeGroupingShape(options.locale);
-  const DECIMAL = '\\u0001';
-  const GROUP = '\\u0002';
+  const DECIMAL = '\u0001';
+  const GROUP = '\u0002';
   // The Arabic/Persian numeric punctuation has unambiguous decimal/grouping meaning.
   normalized = normalized.replace(/[٫]/g, DECIMAL).replace(/[٬]/g, GROUP);
   // Preserve non-ASCII locale separators as distinct markers (e.g. French narrow NBSP).
@@ -543,7 +543,7 @@ export function parseAccountingAmountToMinor(
     normalized = normalized.split(shape.group).join(GROUP);
   }
   // Locale whitespace grouping is accepted only when the grouped integer is well-formed.
-  const whitespaceGroups = ['\\u00A0', '\\u202F', '\\u2009', ' '];
+  const whitespaceGroups = ['\u00A0', '\u202F', '\u2009', ' '];
   if (whitespaceGroups.includes(shape.group)) {
     for (const separator of whitespaceGroups) {
       if (separator !== shape.group) normalized = normalized.split(separator).join('');
@@ -592,7 +592,7 @@ export function parseAccountingAmountToMinor(
   const split = decimalToken ? normalized.split(decimalToken) : [normalized, ''];
   let integerPart = split[0];
   const fractionalPart = split[1] || '';
-  if (!/^\\d*[\\d.,\\u0002]*$/.test(integerPart) || (decimalToken && !/^\\d*$/.test(fractionalPart))) return null;
+  if (!/^\d*[\d.,\u0002]*$/.test(integerPart) || (decimalToken && !/^\d*$/.test(fractionalPart))) return null;
 
   const groupingSeparators = [GROUP, ',', '.'].filter((separator) => separator !== decimalToken);
   const presentSeparators = [...new Set([...integerPart].filter((character) => groupingSeparators.includes(character)))];
@@ -600,7 +600,7 @@ export function parseAccountingAmountToMinor(
     if (!validGroupedInteger(integerPart, presentSeparators, options.locale)) return null;
     integerPart = integerPart.split(presentSeparators[0]).join('');
   }
-  if (!/^\\d+$/.test(integerPart)) return null;
+  if (!/^\d+$/.test(integerPart)) return null;
 
   const fraction = fractionalPart;
   const adapter = getCurrencyUnitAdapter(options.currency, options.countryCode, options.preferences);
