@@ -149,3 +149,22 @@ test('accounting money parser preserves ISO minor units for non-IRR currencies a
   assert.equal(parseAccountingAmountToMinor('0', { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR' }, true), 0);
   assert.equal(parseAccountingAmountToMinor('1.001', { currency: 'USD', fractionDigits: 2, locale: 'en-US' }), null);
 });
+
+test('accounting amount parser validates locale grouping and decimal separators', () => {
+  const en = { currency: 'USD', fractionDigits: 2, locale: 'en-US' };
+  assert.equal(parseAccountingAmountToMinor('1,234.56', en), 123456, 'US thousands and decimal separators parse exactly');
+  assert.equal(parseAccountingAmountToMinor('12,34', en), null, 'malformed US grouping is rejected rather than stripped into a larger amount');
+  assert.equal(parseAccountingAmountToMinor('1,234', en), 123400, 'valid US grouping is interpreted as an integer amount');
+
+  const de = { currency: 'EUR', fractionDigits: 2, locale: 'de-DE' };
+  assert.equal(parseAccountingAmountToMinor('12,34', de), 1234, 'comma decimal separator follows German locale');
+  assert.equal(parseAccountingAmountToMinor('1.234,56', de), 123456, 'German grouping and decimal separators parse exactly');
+  assert.equal(parseAccountingAmountToMinor('12.34', de), 1234, 'dot-decimal keyboard entry is accepted when it is not valid grouping');
+
+  const toman = { currency: 'IRR', fractionDigits: 0, locale: 'fa-IR', countryCode: 'IR',
+    preferences: { currencyDisplay: 'toman' as const, digits: 'latin' as const, calendar: 'gregorian' as const } };
+  assert.equal(parseAccountingAmountToMinor('۱۲۳٬۴۵۶٫۷', toman), 1234567, 'Persian digits, grouping and decimal convert toman to canonical rials');
+  assert.equal(parseAccountingAmountToMinor('123,4', toman), null, 'ambiguous comma input in a Persian locale is rejected');
+  assert.equal(parseAccountingAmountToMinor('123.4', toman), 1234, 'dot decimal keyboard entry is accepted for toman');
+  assert.equal(parseAccountingAmountToMinor('123.45', toman), null, 'input representing fractional rial is rejected');
+});
