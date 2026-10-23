@@ -58,7 +58,7 @@ type ManagementReport = {
     message: string;
   };
   liquid_accounts: LiquidAccount[];
-  movements: { entries_count: number; limit: number; truncated: boolean; lines: ReportLine[] };
+  movements: { entries_count: number; limit: number; page: number; page_size: number; total_pages: number; truncated: boolean; lines: ReportLine[] };
   pre_cutover_exceptions: { count: number; samples: Array<{ id: number; entity_id: string; action: string; created_at: string; details?: { reason?: string; bill_id?: string; method?: string } | null }> };
 };
 
@@ -75,6 +75,7 @@ export function AccountingReports() {
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
   const [report, setReport] = useState<ManagementReport | null>(null);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const t = useMemo(() => isPersian ? {
@@ -108,7 +109,9 @@ export function AccountingReports() {
     debit: 'بدهکار',
     credit: 'بستانکار',
     noMovements: 'در این بازه سند ثبت‌شده‌ای وجود ندارد.',
-    truncated: 'برای نمایش، تعداد اسناد به سقف تعیین‌شده محدود شده است.',
+    previousPage: 'صفحه قبل', nextPage: 'صفحه بعد',
+    pageStatus: (start: number, end: number, total: number, current: number, pages: number) =>
+      `نمایش ${start} تا ${end} از ${total} سند · صفحه ${current} از ${pages}`,
     exceptions: 'استثناهای دریافت/بازپرداخت پیش از شروع حسابداری',
     exceptionCount: 'تعداد استثناهای ثبت‌شده',
     noExceptions: 'استثنای پیش از شروع حسابداری ثبت نشده است.',
@@ -147,7 +150,9 @@ export function AccountingReports() {
     debit: 'Debit',
     credit: 'Credit',
     noMovements: 'No posted entries in this period.',
-    truncated: 'The list is limited to the configured maximum number of journal entries.',
+    previousPage: 'Previous page', nextPage: 'Next page',
+    pageStatus: (start: number, end: number, total: number, current: number, pages: number) =>
+      `Showing ${start}–${end} of ${total} entries · Page ${current} of ${pages}`,
     exceptions: 'Pre-cutover receipt/refund exceptions',
     exceptionCount: 'Recorded exceptions',
     noExceptions: 'No pre-cutover receipt/refund exceptions are recorded.',
@@ -162,7 +167,7 @@ export function AccountingReports() {
     setError(false);
     try {
       const response = await api.get('/accounting/reports', {
-        params: { ...(from ? { from } : {}), ...(to ? { to } : {}), limit: 50 },
+        params: { ...(from ? { from } : {}), ...(to ? { to } : {}), limit: 50, page },
       });
       setReport(response.data as ManagementReport);
     } catch {
@@ -171,7 +176,7 @@ export function AccountingReports() {
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, page]);
 
   useEffect(() => {
     // Load server state when the selected reporting period changes.
@@ -190,6 +195,13 @@ export function AccountingReports() {
     });
   }, [locale, report, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
 
+  const currentPage = report?.movements.page || page;
+  const pageSize = report?.movements.page_size || report?.movements.limit || 50;
+  const movementCount = report?.movements.entries_count || 0;
+  const totalPages = Math.max(1, report?.movements.total_pages || Math.ceil(movementCount / pageSize));
+  const firstMovement = movementCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const lastMovement = Math.min(currentPage * pageSize, movementCount);
+
   const cardClass = 'rounded-xl border border-border bg-card p-4 space-y-3';
   const inputClass = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
 
@@ -197,8 +209,8 @@ export function AccountingReports() {
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div><h2 className="text-xl font-semibold">{t.title}</h2><p className="mt-1 text-sm text-muted-foreground">{t.period}</p></div>
       <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void load(); }}>
-        <label className="space-y-1 text-sm"><span className="block">{t.from}</span><input className={inputClass} type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} /></label>
-        <label className="space-y-1 text-sm"><span className="block">{t.to}</span><input className={inputClass} type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} /></label>
+        <label className="space-y-1 text-sm"><span className="block">{t.from}</span><input className={inputClass} type="date" value={from} max={to || undefined} onChange={(event) => { setFrom(event.target.value); setPage(1); }} /></label>
+        <label className="space-y-1 text-sm"><span className="block">{t.to}</span><input className={inputClass} type="date" value={to} min={from || undefined} onChange={(event) => { setTo(event.target.value); setPage(1); }} /></label>
         <button disabled={loading} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{loading ? t.loading : t.refresh}</button>
       </form>
     </div>
@@ -252,7 +264,21 @@ export function AccountingReports() {
             <td className="p-2 whitespace-nowrap">{line.entry_date}</td><td className="p-2 whitespace-nowrap">{line.entry_number}</td><td className="p-2 min-w-40">{line.line_description || line.description}</td><td className="p-2">{line.account_code} · {line.account_name}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{line.debit_minor ? money(line.debit_minor) : '—'}</td><td className="p-2 text-end whitespace-nowrap tabular-nums">{line.credit_minor ? money(line.credit_minor) : '—'}</td>
           </tr>)}</tbody></table>
         </div>}
-        {report.movements.truncated && <p className="text-xs text-muted-foreground">{t.truncated}</p>}
+        {movementCount > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            {t.pageStatus(firstMovement, lastMovement, movementCount, currentPage, totalPages)}
+          </p>
+          <div className="flex items-center gap-2">
+            <button type="button" className="rounded-lg border border-border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={loading || currentPage <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+              {t.previousPage}
+            </button>
+            <button type="button" className="rounded-lg border border-border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={loading || currentPage >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
+              {t.nextPage}
+            </button>
+          </div>
+        </div>}
       </div>
 
       <div className={cardClass}>
