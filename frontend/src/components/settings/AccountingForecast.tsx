@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useLocale } from 'use-intl';
+import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
+import { formatAccountingMoney } from '@/lib/countries';
 
 type ForecastEvent = {
   id: string; date: string; kind: string; description: string; counterparty: string | null;
@@ -25,6 +27,7 @@ const plusDays = (days: number) => { const date = new Date(); date.setDate(date.
 
 export function AccountingForecast() {
   const locale = useLocale();
+  const tenant = useAuthStore((state) => state.currentTenant);
   const fa = locale.toLowerCase().startsWith('fa');
   const [from, setFrom] = useState(() => localDate(new Date()));
   const [to, setTo] = useState(() => plusDays(89));
@@ -67,10 +70,12 @@ export function AccountingForecast() {
   }, [load]);
   const money = useCallback((minor: number) => {
     if (!data) return '—';
-    const digits = data.accounting_fraction_digits;
-    return new Intl.NumberFormat(locale, { style: 'currency', currency: data.currency_code, minimumFractionDigits: digits, maximumFractionDigits: digits })
-      .format(minor / (10 ** digits));
-  }, [data, locale]);
+    return formatAccountingMoney(minor, {
+      currency: data.currency_code, fractionDigits: data.accounting_fraction_digits, locale,
+      countryCode: tenant?.country,
+      preferences: { currencyDisplay: tenant?.currency_display, digits: tenant?.number_digits, calendar: tenant?.calendar },
+    });
+  }, [data, locale, tenant?.country, tenant?.currency_display, tenant?.number_digits, tenant?.calendar]);
   const card = 'rounded-xl border border-border bg-card p-4 space-y-2';
   const input = 'w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground';
   const statusLabels: Record<string, string> = { scheduled: t.scheduled, awaiting_confirmation: t.awaiting_confirmation, registered: t.registered, failed: t.failed };
