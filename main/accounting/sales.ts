@@ -42,14 +42,20 @@ export function accountingDate(db: DB, timestamp: string): string {
 function toMinorUnits(value: unknown, currency: string, label: string): number {
   const numeric = typeof value === 'number' ? value : (typeof value === 'string' && value.trim() ? Number(value) : Number.NaN);
   const factor = getAccountingMinorUnitFactor(currency);
-  const minor = Math.round(numeric * factor);
-  if (!Number.isFinite(numeric) || !Number.isSafeInteger(minor) || numeric < 0 || !Number.isSafeInteger(factor) || factor <= 0) {
+  if (!Number.isFinite(numeric) || numeric < 0 || !Number.isSafeInteger(factor) || factor <= 0) {
     fail('accounting_amount_invalid', label + ' is not a valid non-negative store-currency amount.', 409);
   }
-  // Persisted POS values are already rounded by the store's currency helpers.
-  // This boundary converts them once to integer ledger units. For IRR, the
-  // stored amount is already in whole rials; UI fraction-digit preferences do
-  // not create a fractional rial denomination.
+
+  // POS values are canonical currency amounts, not UI-display amounts. In Iran
+  // they are whole rials regardless of whether screens display rial or toman;
+  // USD/EUR/etc. are converted to their ISO minor units. Reject precision that
+  // cannot be represented exactly instead of silently rounding a payment.
+  const scaled = numeric * factor;
+  const minor = Math.round(scaled);
+  const floatingPointTolerance = Number.EPSILON * Math.max(1, Math.abs(scaled)) * 8;
+  if (!Number.isSafeInteger(minor) || Math.abs(scaled - minor) > floatingPointTolerance) {
+    fail('accounting_amount_invalid', label + ' exceeds the precision supported by the configured store currency.', 409);
+  }
   return minor;
 }
 
