@@ -109,6 +109,14 @@ function copyAndStamp(sourcePath: string, destinationPath: string, schemaVersion
       DROP TABLE IF EXISTS accounting_loan_installment_batches;
       DROP TABLE IF EXISTS accounting_loans;
     `);
+    const accountsTableExists = backupDb.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='accounting_accounts'").get();
+    if (accountsTableExists) {
+      const accountTriggers = backupDb.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='accounting_accounts'").all() as {name:string}[];
+      for (const trigger of accountTriggers) {
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trigger.name)) backupDb.exec(`DROP TRIGGER IF EXISTS "${trigger.name}"`);
+      }
+      backupDb.prepare("DELETE FROM accounting_accounts WHERE system_key='loans_payable'").run();
+    }
   } else if (schemaVersion < 117) {
     // A real v116 backup has the loan tables, but not v117's metadata columns.
     backupDb.exec(`
@@ -262,6 +270,9 @@ async function run() {
     `).run('b'.repeat(64));
     legacyLoanBackupDb.close();
 
+    const preV116Backup = path.join(testDir, 'pre-v116-loan-account.db');
+    copyAndStamp(sameSchemaBackup, preV116Backup, currentVersion - 2);
+
     const inconsistentLedgerBackup = path.join(testDir, 'inconsistent-ledger.db');
     copyAndStamp(sameSchemaBackup, inconsistentLedgerBackup, currentVersion - 1);
     const inconsistentLedgerDb = new Database(inconsistentLedgerBackup);
@@ -412,7 +423,7 @@ async function run() {
     assert.equal(
       (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE system_key = 'loans_payable' AND is_system = 1 AND is_postable = 1").get() as { count: number }).count,
       1,
-      'data-only restore from a pre-v116 backup reseeds the dedicated Loans payable account',
+      'data-only restore from a v116 backup preserves the dedicated Loans payable account',
     );
     const restoredLegacyLoan = getDatabase().prepare(`
       SELECT origination_date, accounting_start_date, historical_principal_repaid_minor, cash_account_id
@@ -422,6 +433,13 @@ async function run() {
     assert.equal(restoredLegacyLoan.accounting_start_date, '2026-10-03', 'restore rebuilds the v117 accounting start date from the v116 posting date');
     assert.equal(restoredLegacyLoan.historical_principal_repaid_minor, 3000, 'restore rebuilds historical principal repayment from original and remaining principal');
     assert.equal(restoredLegacyLoan.cash_account_id, null, 'legacy loan restore does not invent cash receipt');
+    const preV116Restored = restoreBackup(preV116Backup, false);
+    assert.equal(preV116Restored.success, true, 'data-only restore from a true pre-v116 backup succeeds');
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE system_key = 'loans_payable' AND is_system = 1 AND is_postable = 1").get() as { count: number }).count,
+      1,
+      'data-only restore reseeds the dedicated Loans payable account when the backup predates it',
+    );
     assert.throws(
       () => getDatabase().prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
       /system or posted accounting account definitions are immutable/i,
