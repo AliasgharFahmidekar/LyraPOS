@@ -161,7 +161,12 @@ function freshInstallChecks(): void {
   equal(cardMapping.account_id, 'acct-payment-clearing', 'migration v105 safely seeds the card-clearing mapping');
   const customMethod = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Accounting test custom method',1,10,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
   const customMapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key = ?').get('custom:' + Number(customMethod.lastInsertRowid)) as any;
-  equal(customMapping.account_id, 'acct-payment-clearing', 'new custom payment methods receive a conservative clearing-account mapping');
+  equal(customMapping.account_id, 'acct-payment-clearing', 'new custom payment methods use the default clearing account when no custom default is configured');
+  db.prepare("UPDATE settings SET value = 'acct-bank', updated_at = CURRENT_TIMESTAMP WHERE key = 'accounting_default_payment_account_id'").run();
+  const customMethodWithConfiguredDefault = db.prepare("INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES ('Accounting test configured-default method',1,11,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)").run();
+  const configuredDefaultMapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key = ?').get('custom:' + Number(customMethodWithConfiguredDefault.lastInsertRowid)) as any;
+  equal(configuredDefaultMapping.account_id, 'acct-bank', 'new custom payment methods use the configured default destination account');
+  db.prepare("UPDATE settings SET value = 'acct-payment-clearing', updated_at = CURRENT_TIMESTAMP WHERE key = 'accounting_default_payment_account_id'").run();
 
   const expenseColumns = (db.pragma('table_info(accounting_expenses)') as Array<{ name: string }>).map((column) => column.name);
   check(expenseColumns.includes('reversal_journal_entry_id'), 'fresh install includes expense reversal journal link');
