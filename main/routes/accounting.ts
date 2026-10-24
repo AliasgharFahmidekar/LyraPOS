@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getDatabase } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
-import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, updateDraftExpense, postExpense, reverseExpense } from '../accounting/expenses';
+import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, getDefaultPaymentAccountMapping, setDefaultPaymentAccountMapping, updateDraftExpense, postExpense, reverseExpense } from '../accounting/expenses';
 import { AccountingAccountError, createManagedAccountingAccount, listManagedAccountingAccounts, updateManagedAccountingAccount } from '../accounting/chart-of-accounts';
 import { AccountingLedgerError } from '../accounting/ledger';
 import { createCashBankTransfer, listCashBankTransfers } from '../accounting/transfers';
@@ -265,7 +265,13 @@ router.put('/expense-categories/:id', managerOnly, (req, res) => {
   catch (error) { respondError(res, error); }
 });
 router.get('/payment-account-mappings', managerOnly, (_req, res) => {
-  try { res.json({ mappings: listPaymentAccountMappings(getDatabase()) }); }
+  try {
+    const db = getDatabase();
+    res.json({ mappings: listPaymentAccountMappings(db), default_account: getDefaultPaymentAccountMapping(db) });
+  } catch (error) { respondError(res, error); }
+});
+router.put('/payment-account-mappings/default', managerOnly, (req, res) => {
+  try { res.json({ default_account: setDefaultPaymentAccountMapping(getDatabase(), req.body?.account_id, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.put('/payment-account-mappings/:key', managerOnly, (req, res) => {

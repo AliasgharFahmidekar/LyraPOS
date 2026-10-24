@@ -254,8 +254,9 @@ export function accountingStatusLabel(status: string, locale: string, fallback?:
 const ACCOUNTING_ERROR_FA: Record<string, string> = {
   accounting_region_unconfigured: 'پیش از استفاده از حسابداری، کشور و واحد پول فروشگاه را در تنظیمات مشخص کنید.',
   regional_not_configured: 'پیش از ثبت این عملیات، کشور و واحد پول فروشگاه را در تنظیمات مشخص کنید.',
-  payment_mapping_required: 'روش پرداخت به حسابداری نگاشت نشده است. ابتدا حساب مقصد آن را در تنظیمات حسابداری مشخص کنید.',
+  payment_mapping_required: 'روش پرداخت معتبر نیست یا حساب پیش‌فرض آن قابل استفاده نیست؛ تنظیمات حسابداری را بررسی کنید.',
   payment_mapping_invalid: 'حساب مقصد این روش پرداخت معتبر نیست. یک حساب فعال صندوق، بانک یا واسط پرداخت انتخاب کنید.',
+  payment_default_mapping_invalid: 'حساب پیش‌فرض روش‌های پرداخت معتبر نیست؛ یک حساب فعال صندوق، بانک یا واسط پرداخت انتخاب کنید.',
   account_not_found: 'حساب موردنظر پیدا نشد.',
   account_not_active: 'حساب موردنظر فعال نیست.',
   account_inactive: 'حساب غیرفعال است.',

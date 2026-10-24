@@ -305,6 +305,59 @@ try {
     closeDatabase();
   }
 
+
+  // An unassigned method uses the global default for receipts and refunds; explicit mapping has priority.
+  {
+    const db = freshDb();
+    db.prepare("UPDATE settings SET value='acct-bank' WHERE key='accounting_default_payment_account_id'").run();
+    const { billId } = makeBill(db, 'DEFAULT-PAYMENT-FALLBACK');
+    db.prepare("DELETE FROM accounting_payment_method_mappings WHERE payment_method_key='cash'").run();
+    const payment = { payment_event_id: 'payment-default-fallback-001', method: 'cash', amount: 75, timestamp: '2026-10-14T08:00:00.000Z' };
+    db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))();
+    const receipt = journalForSource(db, 'bill_payment', String(billId) + ':' + payment.payment_event_id, 'money_received');
+    ok(receipt, 'unassigned cash method posts a receipt using the configured default account');
+    const receiptLines = linesForJournal(db, receipt.id);
+    equal(receiptLines.find((line: any) => line.system_key === 'bank_accounts')?.debit_minor, 75,
+      'unassigned payment debits the configured default bank account');
+    equal(receiptLines.find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 75,
+      'fallback routing still recognizes the actual amount as revenue exactly once');
+    balanced(db, receipt.id);
+
+    sales.finalizeBillSale(db, billId, 'test-owner-accounting');
+    const refund = db.prepare(
+      'INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(billId, 2500, 'cash', 'fallback refund uses configured default', 'test-owner-accounting', 'test-owner-accounting', now());
+    const refunded = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
+    equal(refunded.posted, true, 'monetary refund can use the configured default when its method has no account');
+    const refundJournal = journalForSource(db, 'refund', String(refund.lastInsertRowid), 'money_refunded');
+    equal(linesForJournal(db, refundJournal.id).find((line: any) => line.system_key === 'bank_accounts')?.credit_minor, 25,
+      'fallback refund credits the actual default payout account');
+    balanced(db, refundJournal.id);
+
+    const { billId: explicitBillId } = makeBill(db, 'EXPLICIT-PAYMENT-PRIORITY');
+    db.prepare("INSERT INTO accounting_payment_method_mappings (payment_method_key,account_id,updated_by) VALUES ('cash','acct-cash-drawer','test-owner-accounting')").run();
+    const explicitPayment = { payment_event_id: 'payment-explicit-priority-001', method: 'cash', amount: 20, timestamp: '2026-10-14T08:01:00.000Z' };
+    db.transaction(() => sales.postCollectionPaymentLines(db, explicitBillId, [explicitPayment], 'test-owner-accounting'))();
+    const explicitReceipt = journalForSource(db, 'bill_payment', String(explicitBillId) + ':' + explicitPayment.payment_event_id, 'money_received');
+    equal(linesForJournal(db, explicitReceipt.id).find((line: any) => line.system_key === 'cash_drawer')?.debit_minor, 20,
+      'explicit method mapping wins even when the global default points to a bank account');
+    closeDatabase();
+  }
+
+  // Invalid global defaults fail closed; they never recognize revenue into the wrong account.
+  {
+    const db = freshDb();
+    const { billId } = makeBill(db, 'INVALID-DEFAULT-PAYMENT');
+    db.prepare("UPDATE settings SET value='acct-inventory' WHERE key='accounting_default_payment_account_id'").run();
+    db.prepare("DELETE FROM accounting_payment_method_mappings WHERE payment_method_key='cash'").run();
+    const payment = { payment_event_id: 'payment-invalid-default-001', method: 'cash', amount: 100, timestamp: '2026-10-14T08:00:00.000Z' };
+    throwsCode(() => db.transaction(() => sales.postCollectionPaymentLines(db, billId, [payment], 'test-owner-accounting'))(),
+      'payment_default_mapping_invalid', 'invalid default account is rejected before a cash receipt can post');
+    equal(db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get().n, 0,
+      'invalid default account creates no journal or revenue');
+    closeDatabase();
+  }
+
   console.log('PASS: ' + assertions + ' accounting sales/collections/refunds assertions');
 } catch (error: any) {
   try { closeDatabase(); } catch {}

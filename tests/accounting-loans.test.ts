@@ -33,7 +33,7 @@ function main(): void {
   try {
     initDatabase();
     const db = getDatabase();
-    equal(getCurrentSchemaVersion(), 117, 'fresh database includes loan schema v117');
+    equal(getCurrentSchemaVersion(), 118, 'fresh database includes the latest schema v118');
     for (const table of ['accounting_loans','accounting_loan_installment_batches','accounting_loan_installments']) {
       ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'loan migration creates ' + table);
     }
@@ -351,7 +351,7 @@ function migrationUpgradeChecks(): void {
     MIGRATIONS.push(...originalMigrations);
     initDatabase();
     const upgradedDb = getDatabase();
-    equal(getCurrentSchemaVersion(), 117, 'legacy-loan fixture upgrades to schema v117');
+    equal(getCurrentSchemaVersion(), 118, 'legacy-loan fixture upgrades to schema v118');
     const upgradedLoan = upgradedDb.prepare(`
       SELECT origination_date,accounting_start_date,historical_principal_repaid_minor,cash_account_id
       FROM accounting_loans WHERE id='legacy-v116-loan'

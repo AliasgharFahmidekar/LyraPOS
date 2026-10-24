@@ -28,7 +28,7 @@ function resetDb(): any {
 }
 try {
   const db = resetDb();
-  equal(getCurrentSchemaVersion(), 117, 'fresh install reaches the latest schema version 117');
+  equal(getCurrentSchemaVersion(), 118, 'fresh install reaches the latest schema version 118');
   for (const table of ['accounting_expense_categories','accounting_payment_method_mappings','accounting_expenses']) {
     ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'migration creates ' + table);
   }
@@ -291,6 +291,32 @@ try {
     'controlled correction is dated in the later open period');
   equal((db.prepare('SELECT status FROM accounting_journal_entries WHERE id=?').get(closedCorrectionPosted.posted_journal_entry_id) as any).status, 'posted',
     'controlled correction preserves the immutable original posted journal');
+
+
+  // Global default is configurable; clearing a method-specific assignment activates it.
+  {
+    const fallbackDb = resetDb();
+    const seededDefault = expenses.getDefaultPaymentAccountMapping(fallbackDb);
+    equal(seededDefault.account_id, 'acct-payment-clearing', 'migration seeds Payment Clearing as the default payment account');
+    const changedDefault = expenses.setDefaultPaymentAccountMapping(fallbackDb, 'acct-bank', 'manager-1');
+    equal(changedDefault.account_id, 'acct-bank', 'manager can change the global default payment account');
+    throws(() => expenses.setDefaultPaymentAccountMapping(fallbackDb, 'acct-inventory', 'manager-1'),
+      /configured cash, bank, or payment-clearing accounts/i, 'global default cannot target inventory or another non-liquid account');
+
+    expenses.setPaymentAccountMapping(fallbackDb, 'cash', '', 'manager-1');
+    equal(expenses.listPaymentAccountMappings(fallbackDb).find((row: any) => row.payment_method_key === 'cash')?.account_id, null,
+      'blank per-method mapping restores configured-default behavior');
+    const categoryRow = expenses.listExpenseCategories(fallbackDb).find((row: any) => row.is_active === 1);
+    const basePayload = {
+      category_id: categoryRow.id, expense_date: '2026-10-11', amount_minor: 1000, currency_code: 'IRR',
+      description: 'Payment uses default account', payment_status: 'paid', payment_method_key: 'cash', payment_date: '2026-10-11',
+    };
+    const fallbackPaid = expenses.createExpense(fallbackDb, basePayload, 'manager-1');
+    equal(fallbackPaid.payment_account_id, 'acct-bank', 'paid expense with no method mapping uses configured default');
+    expenses.setPaymentAccountMapping(fallbackDb, 'cash', 'acct-cash-drawer', 'manager-1');
+    const explicitPaid = expenses.createExpense(fallbackDb, { ...basePayload, description: 'Payment uses explicit account' }, 'manager-1');
+    equal(explicitPaid.payment_account_id, 'acct-cash-drawer', 'paid expense uses method-specific account before global default');
+  }
 
   console.log('Accounting expense foundation: ' + checks + ' assertions passed.');
 } catch (error) {

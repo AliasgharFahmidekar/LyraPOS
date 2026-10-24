@@ -458,7 +458,6 @@ async function run() {
     for (const trigger of [
       'accounting_bill_finalization_fields_immutable',
       'accounting_finalized_bill_amounts_immutable',
-      'accounting_custom_payment_method_default_mapping',
       'accounting_custom_payment_method_mapping_cleanup',
     ]) {
       assert.equal(
@@ -467,6 +466,11 @@ async function run() {
         'data-only restore reinstates Phase 3 trigger ' + trigger,
       );
     }
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name='accounting_custom_payment_method_default_mapping'").get() as { count: number }).count,
+      0,
+      'data-only restore does not reinstate a hard-coded custom-method account instead of the configurable default',
+    );
     // Restore must reinstate accounting period-close guards, not only ledger guards.
     for (const trigger of [
       'accounting_journal_entries_closed_period_insert_guard',

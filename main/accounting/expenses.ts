@@ -142,11 +142,74 @@ export function listPaymentAccountMappings(db: DB): any[] {
   ];
   const rows = db.prepare('SELECT m.payment_method_key, m.account_id, a.account_code, a.name AS account_name, a.account_type, m.updated_by, m.updated_at FROM accounting_payment_method_mappings m JOIN accounting_accounts a ON a.id=m.account_id').all() as any[];
   const byKey = new Map(rows.map((row) => [row.payment_method_key, row]));
-  return methods.map((method) => ({ ...method, ...(byKey.get(method.payment_method_key) || { account_id: null, account_code: null, account_name: null }) }));
+  return methods.map((method) => ({ ...method, ...(byKey.get(method.payment_method_key) || { account_id: null, account_code: null, account_name: null, account_type: null }) }));
 }
+
+function configuredDefaultPaymentAccountId(db: DB): string {
+  const row = db.prepare("SELECT value FROM settings WHERE key='accounting_default_payment_account_id'").get() as { value: string | null } | undefined;
+  // Compatibility fallback only applies when the setting row is absent.
+  return row ? (typeof row.value === 'string' ? row.value.trim() : '') : 'acct-payment-clearing';
+}
+
+export function getDefaultPaymentAccountMapping(db: DB): any {
+  const accountId = configuredDefaultPaymentAccountId(db);
+  const account = accountId ? db.prepare(
+    'SELECT id, account_code, name AS account_name, account_type, system_key, is_active, is_postable FROM accounting_accounts WHERE id=?',
+  ).get(accountId) as any : undefined;
+  return {
+    account_id: accountId || null,
+    account_code: account?.account_code ?? null,
+    account_name: account?.account_name ?? null,
+    account_type: account?.account_type ?? null,
+    system_key: account?.system_key ?? null,
+    is_active: account?.is_active ?? null,
+    is_postable: account?.is_postable ?? null,
+  };
+}
+
+function resolveDefaultPaymentAccount(db: DB): string {
+  const accountId = configuredDefaultPaymentAccountId(db);
+  if (!accountId) fail('payment_default_mapping_invalid', 'Configure a valid default payment account (cash, bank, or payment clearing) before posting money.', 409);
+  try {
+    return mappedAccount(db, 'default', accountId);
+  } catch (error) {
+    if (error instanceof AccountingExpenseError) {
+      fail('payment_default_mapping_invalid', 'The default payment account must be an active, postable cash, bank, or payment-clearing account.', 409);
+    }
+    throw error;
+  }
+}
+
+export function setDefaultPaymentAccountMapping(db: DB, accountId: unknown, actorId: string | null): any {
+  const account = mappedAccount(db, 'default', accountId);
+  const before = db.prepare("SELECT value FROM settings WHERE key='accounting_default_payment_account_id'").get() as { value: string | null } | undefined;
+  db.transaction(() => {
+    db.prepare("INSERT INTO settings (key,value,updated_at) VALUES ('accounting_default_payment_account_id',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at")
+      .run(account, new Date().toISOString());
+    auditExpenseAction(
+      db, 'payment_method_mapping', 'default', before ? 'updated' : 'created', actorId,
+      before ? { account_id: before.value } : null, { account_id: account },
+    );
+  })();
+  return getDefaultPaymentAccountMapping(db);
+}
+
 export function setPaymentAccountMapping(db: DB, methodKey: unknown, accountId: unknown, actorId: string | null): any {
-  const key = paymentKey(db, methodKey); const account = mappedAccount(db, key, accountId);
+  const key = paymentKey(db, methodKey);
   const before = db.prepare('SELECT payment_method_key,account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as any;
+  const clearMapping = accountId == null || (typeof accountId === 'string' && accountId.trim() === '');
+  if (clearMapping) {
+    if (before) {
+      db.transaction(() => {
+        db.prepare('DELETE FROM accounting_payment_method_mappings WHERE payment_method_key=?').run(key);
+        auditExpenseAction(db, 'payment_method_mapping', key, 'reset_to_default', actorId, before, {
+          payment_method_key: key, account_id: null, uses_default_account: true,
+        });
+      })();
+    }
+    return listPaymentAccountMappings(db).find((m) => m.payment_method_key === key);
+  }
+  const account = mappedAccount(db, key, accountId);
   db.transaction(() => {
     db.prepare('INSERT INTO accounting_payment_method_mappings (payment_method_key,account_id,updated_by) VALUES (?,?,?) ON CONFLICT(payment_method_key) DO UPDATE SET account_id=excluded.account_id, updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP')
       .run(key, account, actorId);
@@ -160,8 +223,7 @@ function paymentInput(db: DB, input: any) {
   if (status === 'unpaid') return { paymentStatus: status, paymentMethodKey: null, paymentAccountId: null, paymentDate: null };
   const key = paymentKey(db, input?.payment_method_key, true);
   const mapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as { account_id: string } | undefined;
-  if (!mapping) fail('payment_mapping_required', 'Map this payment method to an accounting account before using it for a paid expense.', 409);
-  const paymentAccountId = mappedAccount(db, key, mapping.account_id);
+  const paymentAccountId = mapping ? mappedAccount(db, key, mapping.account_id) : resolveDefaultPaymentAccount(db);
   return { paymentStatus: status, paymentMethodKey: key, paymentAccountId: paymentAccountId, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
 }
 function configuredStoreCurrency(db: DB): string {

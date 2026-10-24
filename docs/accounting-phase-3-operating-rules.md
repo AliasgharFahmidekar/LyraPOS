@@ -47,15 +47,15 @@ This release uses a deliberately cash-received basis for POS revenue:
 ### 3.1 Only actual money enters accounting
 - Built-in `cash` maps by default to Cash Drawer (asset).
 - Built-in `card` maps by default to Payment Clearing (asset).
-- Any active custom payment method maps by default to Payment Clearing (asset), and can be mapped to another active postable asset in Accounting Settings.
-- Each accepted cash/card/custom payment line is a separate source event and creates **Dr mapped asset / Cr Sales Revenue** for its applied amount. A payment event ID makes retries idempotent.
+- The global default payment account is initially Payment Clearing (asset) and can be changed in Accounting Settings. A method-specific mapping takes precedence; when none is assigned, actual receipts and monetary refunds use the global default. Newly created custom methods use this fallback until an individual account is selected.
+- Each accepted cash/card/custom payment line is a separate source event and creates **Dr method-specific asset (or configured default asset when no method account is assigned) / Cr Sales Revenue** for its applied amount. A payment event ID makes retries idempotent.
 - `wallet`/`loyalty` payment lines are intentionally ignored by accounting. They must not be mapped to a liability, cash, bank or revenue account and must not create journals.
 - Loyalty point accrual, redemption, expiry and balance changes remain entirely in the POS loyalty subsystem. Accounting must not read or post the loyalty ledger.
 - Discounts and cashback are outside the accounting subsystem. No separate discount/cashback journal is allowed. Only the actual money that the POS accepts through a real payment method is recorded.
-- Missing, inactive, wrong-type or unmapped real payment methods fail closed; they must never be silently routed to another account.
+- Unknown/inactive payment methods, an invalid explicit mapping, or an invalid default account fail closed. A missing method-specific assignment is valid only when the configured default account is valid; no invalid explicit mapping may silently fall back.
 
 ### 3.2 Defaults and overrides
-Payment methods are channels, not necessarily bank accounts. Keep the existing POS payment-method manager as the source of truth. The accounting mapping UI only chooses the destination asset account for real money received; it does not manage loyalty or discount behavior.
+Payment methods are channels, not necessarily bank accounts. Keep the existing POS payment-method manager as the source of truth. Accounting Settings offers one global default cash/bank/payment-clearing account and optional per-method overrides. Clearing an override means “use default”; it does not alter method identity or historical journal entries. The global default applies to future postings only and does not rewrite previously posted journals. The mapping UI does not manage loyalty or discount behavior.
 
 
 ## 4. Refund policy
@@ -159,7 +159,8 @@ A payment request is retried with the same idempotency/source identity:
 | Card/custom payment | Debit configured asset/clearing account and credit Sales Revenue by applied amount |
 | Multiple payment lines | Distinct event IDs; each actual-money line posts once |
 | Loyalty credit / wallet redemption / discount | No accounting journal, no account mapping and no effect on accounting balances. |
-| Missing/inactive/wrong-type mapping after cutover | Posting fails and source transaction rolls back |
+| Missing method-specific mapping with a valid default | Receipt/refund uses the configured default account |
+| Inactive/wrong-type explicit mapping or invalid default after cutover | Posting fails and source transaction rolls back |
 | Full/partial cash or card/custom monetary refund | One refund journal from committed refund ID; debit contra-revenue and credit actual payout asset. |
 | Wallet/store-credit refund | Ignored by accounting; no journal. |
 | Duplicate refund replay | No duplicate refund journal |

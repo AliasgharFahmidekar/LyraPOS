@@ -241,9 +241,29 @@ async function main(): Promise<void> {
       .set(manager).send({ account_id: 'acct-inventory' });
     equal(invalidMappingResponse.status, 400, 'payment methods cannot be mapped to inventory');
     equal(invalidMappingResponse.body.code, 'invalid_payment_account', 'invalid payment account mapping has stable error code');
+    const defaultMappingResponse = await request(app).get('/api/accounting/payment-account-mappings').set(manager);
+    equal(defaultMappingResponse.status, 200, 'payment mapping API returns mappings and global default');
+    equal(defaultMappingResponse.body.default_account?.account_id, 'acct-payment-clearing', 'default payment account is seeded to Payment Clearing');
+
+    const invalidDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
+      .set(manager).send({ account_id: 'acct-inventory' });
+    equal(invalidDefaultResponse.status, 400, 'default payment account cannot be mapped to inventory');
+    const changedDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
+      .set(manager).send({ account_id: 'acct-bank' });
+    equal(changedDefaultResponse.status, 200, 'manager can configure the global default payment account');
+    equal(changedDefaultResponse.body.default_account?.account_id, 'acct-bank', 'default mapping API returns the saved bank account');
+
     const mappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
       .set(manager).send({ account_id: 'acct-cash-drawer' });
     equal(mappingResponse.status, 200, 'manager can configure payment-account mapping');
+    const clearedMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
+      .set(manager).send({ account_id: '' });
+    equal(clearedMappingResponse.status, 200, 'manager can clear an individual mapping to use the default');
+    equal(clearedMappingResponse.body.mapping?.account_id, null, 'cleared mapping is represented as fallback');
+    const resetMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
+      .set(manager).send({ account_id: 'acct-cash-drawer' });
+    equal(resetMappingResponse.status, 200, 'individual cash mapping can be restored');
+    await request(app).put('/api/accounting/payment-account-mappings/default').set(manager).send({ account_id: 'acct-payment-clearing' });
     db.prepare("UPDATE accounting_payment_method_mappings SET account_id='acct-inventory' WHERE payment_method_key='card'").run();
     const invalidPersistedMapping = await request(app).post('/api/accounting/expenses')
       .set(manager).set('Idempotency-Key', 'accounting-invalid-persisted-mapping')

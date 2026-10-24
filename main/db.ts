@@ -3013,17 +3013,6 @@ const ACCOUNTING_ACCOUNT_DEFINITION_GUARD_SQL = `
       `;
 
 const ACCOUNTING_SALES_TRIGGER_SQL = `
-  CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_default_mapping
-  AFTER INSERT ON payment_methods
-  WHEN NOT EXISTS (
-    SELECT 1 FROM accounting_payment_method_mappings
-    WHERE payment_method_key = 'custom:' || NEW.id
-  )
-  BEGIN
-    INSERT INTO accounting_payment_method_mappings (payment_method_key, account_id)
-    VALUES ('custom:' || NEW.id, 'acct-payment-clearing');
-  END;
-
   CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_mapping_cleanup
   AFTER DELETE ON payment_methods
   BEGIN
@@ -7337,6 +7326,25 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         DROP TRIGGER IF EXISTS accounting_loans_audit_insert;
       `);
       db.exec(ACCOUNTING_LOAN_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 118,
+    name: 'accounting_default_payment_account',
+    up: () => {
+      const defaultAccount = db.prepare(
+        "SELECT id, account_type, system_key, is_active, is_postable FROM accounting_accounts WHERE id='acct-payment-clearing'",
+      ).get() as { id: string; account_type: string; system_key: string | null; is_active: number; is_postable: number } | undefined;
+      if (!defaultAccount || defaultAccount.account_type !== 'asset' || defaultAccount.system_key !== 'payment_clearing'
+          || defaultAccount.is_active !== 1 || defaultAccount.is_postable !== 1) {
+        throw new Error('Cannot configure default payment account: the seeded Payment Clearing account is unavailable.');
+      }
+      db.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('accounting_default_payment_account_id', ?, ?)")
+        .run('acct-payment-clearing', now());
+      // New custom methods use the configurable default when the owner has not assigned an account.
+      // Existing custom mappings are preserved until an owner explicitly clears or changes them.
+      db.exec('DROP TRIGGER IF EXISTS accounting_custom_payment_method_default_mapping');
+      db.exec(ACCOUNTING_SALES_TRIGGER_SQL);
     },
   },
 ] ; 

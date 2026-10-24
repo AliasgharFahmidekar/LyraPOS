@@ -70,16 +70,27 @@ function postingAccountBySystemKey(db: DB, key: string, expectedType: string): s
 }
 
 function mappedPaymentAccount(db: DB, methodKey: string): { id: string; type: string } {
-  const mapping = db.prepare(
-    'SELECT a.id, a.account_type, a.system_key, a.is_active, a.is_postable FROM accounting_payment_method_mappings AS m JOIN accounting_accounts AS a ON a.id = m.account_id WHERE m.payment_method_key = ?',
-  ).get(methodKey) as { id: string; account_type: string; system_key: string | null; is_active: number; is_postable: number } | undefined;
-  const expectedType = 'asset';
-  if (!mapping) fail('payment_mapping_required', 'Map payment method "' + methodKey + '" to an accounting account before recording this financial event.', 409);
-  if (mapping.is_active !== 1 || mapping.is_postable !== 1 || mapping.account_type !== expectedType
-      || !['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(mapping.system_key ?? '')) {
+  const explicit = db.prepare(
+    'SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key = ?',
+  ).get(methodKey) as { account_id: string } | undefined;
+  const isDefault = !explicit;
+  let accountId = explicit?.account_id;
+  if (isDefault) {
+    const setting = db.prepare("SELECT value FROM settings WHERE key='accounting_default_payment_account_id'").get() as { value: string | null } | undefined;
+    // Compatibility fallback only applies when the setting row is absent.
+    accountId = setting ? (typeof setting.value === 'string' ? setting.value.trim() : '') : 'acct-payment-clearing';
+  }
+  const mapping = accountId ? db.prepare(
+    'SELECT id, account_type, system_key, is_active, is_postable FROM accounting_accounts WHERE id = ?',
+  ).get(accountId) as { id: string; account_type: string; system_key: string | null; is_active: number; is_postable: number } | undefined : undefined;
+  const valid = Boolean(mapping && mapping.is_active === 1 && mapping.is_postable === 1
+    && mapping.account_type === 'asset'
+    && ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(mapping.system_key ?? ''));
+  if (!valid) {
+    if (isDefault) fail('payment_default_mapping_invalid', 'The default payment account must be an active postable cash, bank, or payment-clearing account.', 409);
     fail('payment_mapping_invalid', 'The accounting mapping for "' + methodKey + '" must target an active postable cash, bank, or payment-clearing account.', 409);
   }
-  return { id: mapping.id, type: mapping.account_type };
+  return { id: mapping!.id, type: mapping!.account_type };
 }
 
 function paymentMethodKey(db: DB, payment: any): string {
