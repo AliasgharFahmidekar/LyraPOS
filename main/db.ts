@@ -2819,7 +2819,7 @@ const ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL = `
 
 const ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL = `
         CREATE TRIGGER IF NOT EXISTS accounting_expense_posted_fields_immutable
-        BEFORE UPDATE OF category_id, expense_account_id, expense_date, amount_minor, currency_code,
+        BEFORE UPDATE OF category_id, expense_account_id, expense_date, due_date, amount_minor, currency_code,
           description, payee, reference_number, payment_status, payment_method_key, payment_account_id, payment_date
         ON accounting_expenses
         WHEN OLD.status IN ('posted', 'reversed')
@@ -7346,6 +7346,25 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       // Existing custom mappings are preserved until an owner explicitly clears or changes them.
       db.exec('DROP TRIGGER IF EXISTS accounting_custom_payment_method_default_mapping');
       db.exec(ACCOUNTING_SALES_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 119,
+    name: 'accounting_expense_due_dates',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_expenses ADD COLUMN due_date TEXT CHECK (
+          due_date IS NULL OR (
+            length(due_date) = 10 AND due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+          )
+        );
+        CREATE INDEX accounting_expenses_due_date_idx
+          ON accounting_expenses(due_date, payment_status, status);
+        DROP TRIGGER IF EXISTS accounting_expense_posted_fields_immutable;
+      `);
+      // Recreate the immutable-fields guard with due_date included. This is a
+      // forward-only additive migration; historical migration SQL stays intact.
+      db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
     },
   },
 ] ; 
