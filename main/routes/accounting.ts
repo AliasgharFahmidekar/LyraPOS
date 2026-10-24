@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
+import ExcelJS from 'exceljs';
 import { getDatabase } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
-import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, getDefaultPaymentAccountMapping, setDefaultPaymentAccountMapping, updateDraftExpense, postExpense, reverseExpense } from '../accounting/expenses';
+import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, getDefaultPaymentAccountMapping, setDefaultPaymentAccountMapping, updateDraftExpense, postExpense, reverseExpense, cancelDraftExpense } from '../accounting/expenses';
 import { AccountingAccountError, createManagedAccountingAccount, listManagedAccountingAccounts, updateManagedAccountingAccount } from '../accounting/chart-of-accounts';
 import { AccountingLedgerError } from '../accounting/ledger';
 import { createCashBankTransfer, listCashBankTransfers } from '../accounting/transfers';
@@ -278,6 +279,88 @@ router.put('/payment-account-mappings/:key', managerOnly, (req, res) => {
   try { res.json({ mapping: setPaymentAccountMapping(getDatabase(), decodeURIComponent(String(req.params.key)), req.body?.account_id, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
+router.get('/expenses/export.xlsx', managerOnly, async (req, res) => {
+  try {
+    const db = getDatabase();
+    const rows: any[] = [];
+    let offset = 0;
+    const pageSize = 500;
+    while (true) {
+      const page = listExpenses(db, { ...req.query, limit: pageSize, offset });
+      rows.push(...page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    const isPersian = String(req.query.locale || 'fa').toLowerCase().startsWith('fa');
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'LyraPOS';
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet(isPersian ? 'هزینه‌ها' : 'Expenses', {
+      views: [{ state: 'frozen', ySplit: 1, rightToLeft: isPersian }],
+    });
+    sheet.columns = isPersian ? [
+      { header: 'تاریخ هزینه', key: 'expense_date', width: 16 },
+      { header: 'سررسید', key: 'due_date', width: 16 },
+      { header: 'شرح', key: 'description', width: 32 },
+      { header: 'دسته‌بندی', key: 'category', width: 22 },
+      { header: 'پرداخت به', key: 'payee', width: 22 },
+      { header: 'شماره پیگیری', key: 'reference', width: 20 },
+      { header: 'مبلغ', key: 'amount', width: 18 },
+      { header: 'واحد پول', key: 'currency', width: 12 },
+      { header: 'وضعیت پرداخت', key: 'payment_status', width: 18 },
+      { header: 'وضعیت دفتر کل', key: 'ledger_status', width: 18 },
+      { header: 'حساب پرداخت‌کننده', key: 'payment_account', width: 26 },
+      { header: 'تاریخ پرداخت', key: 'payment_date', width: 16 },
+    ] : [
+      { header: 'Expense date', key: 'expense_date', width: 16 },
+      { header: 'Due date', key: 'due_date', width: 16 },
+      { header: 'Description', key: 'description', width: 32 },
+      { header: 'Category', key: 'category', width: 22 },
+      { header: 'Payee', key: 'payee', width: 22 },
+      { header: 'Reference', key: 'reference', width: 20 },
+      { header: 'Amount', key: 'amount', width: 18 },
+      { header: 'Currency', key: 'currency', width: 12 },
+      { header: 'Payment status', key: 'payment_status', width: 18 },
+      { header: 'Ledger status', key: 'ledger_status', width: 18 },
+      { header: 'Payment account', key: 'payment_account', width: 26 },
+      { header: 'Payment date', key: 'payment_date', width: 16 },
+    ];
+    const factor = getAccountingMinorUnitFactor(String(rows[0]?.currency_code || 'IRR'));
+    for (const expense of rows) {
+      sheet.addRow({
+        expense_date: expense.expense_date || '',
+        due_date: expense.due_date || '',
+        description: expense.description || '',
+        category: expense.category_name || '',
+        payee: expense.payee || '',
+        reference: expense.reference_number || '',
+        amount: Number(expense.amount_minor || 0) / getAccountingMinorUnitFactor(String(expense.currency_code || 'IRR')),
+        currency: expense.currency_code || '',
+        payment_status: isPersian
+          ? (expense.payment_status === 'paid' ? 'پرداخت‌شده' : expense.is_overdue ? 'عقب‌افتاده' : 'پرداخت‌نشده')
+          : (expense.payment_status === 'paid' ? 'Paid' : expense.is_overdue ? 'Overdue' : 'Unpaid'),
+        ledger_status: isPersian
+          ? ({ draft: 'پیش‌نویس', posted: 'ثبت‌شده', reversed: 'برگشت‌خورده' } as Record<string, string>)[expense.status] || expense.status
+          : ({ draft: 'Draft', posted: 'Posted', reversed: 'Reversed' } as Record<string, string>)[expense.status] || expense.status,
+        payment_account: expense.payment_account_name || '',
+        payment_date: expense.payment_date || '',
+      });
+    }
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+    sheet.autoFilter = { from: 'A1', to: 'L1' };
+    sheet.getColumn('amount').numFmt = '#,##0.00;[Red]-#,##0.00';
+    sheet.eachRow((row, rowNumber) => {
+      row.alignment = { vertical: 'middle', horizontal: isPersian ? 'right' : 'left', wrapText: rowNumber === 1 };
+      if (rowNumber > 1) row.height = 20;
+    });
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="lyrapos-expenses.xlsx"');
+    res.status(200).send(buffer);
+  } catch (error) { respondError(res, error); }
+});
 router.get('/expenses', managerOnly, (req, res) => {
   try { res.json({ expenses: listExpenses(getDatabase(), req.query) }); }
   catch (error) { respondError(res, error); }
@@ -296,6 +379,10 @@ router.put('/expenses/:id', managerOnly, (req, res) => {
 });
 router.post('/expenses/:id/post', managerOnly, (req, res) => {
   try { res.json({ expense: postExpense(getDatabase(), String(req.params.id), actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/expenses/:id/cancel', managerOnly, (req, res) => {
+  try { res.json({ expense: cancelDraftExpense(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.post('/expenses/:id/reverse', managerOnly, (req, res) => {
