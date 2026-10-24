@@ -88,10 +88,11 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
   const description = optionalText(input?.description, 'description', 500);
   const reference = optionalText(input?.reference_number, 'reference_number', 160);
   const loanDate = date(input?.loan_date, 'loan_date');
+  const accountingStartDate = mode === 'opening' ? date(input?.accounting_start_date ?? loanDate, 'accounting_start_date') : loanDate;
   const currentBusinessDate = accountingDate(db, new Date().toISOString());
-  if (loanDate > currentBusinessDate) {
-    fail('loan_date_in_future', 'Loan receipt/opening date cannot be in the future. Record the loan when it actually exists.', 400);
-  }
+  if (loanDate > currentBusinessDate) fail('loan_date_in_future', 'Loan origination date cannot be in the future.', 400);
+  if (accountingStartDate > currentBusinessDate) fail('accounting_start_date_in_future', 'Accounting opening date cannot be in the future.', 400);
+  if (accountingStartDate < loanDate) fail('opening_date_before_origination', 'The accounting opening date cannot precede the actual loan origination date.', 400);
   const currencyCode = currency(db);
   if (input?.currency_code !== undefined && String(input.currency_code).trim().toUpperCase() !== currencyCode) fail('currency_mismatch', 'Loan must use the configured store currency.', 409);
   const liability = account(db, input?.liability_account_id, ['liability'], 'liability_account_id');
@@ -108,12 +109,20 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
   if (!Number.isSafeInteger(original) || original <= 0 || initialOutstanding > original) {
     fail('invalid_original_principal', 'Original principal must be positive and at least the remaining principal.');
   }
+  const rawHistorical = mode === 'opening'
+    ? (input?.historical_principal_repaid_minor === undefined || input?.historical_principal_repaid_minor === null || input?.historical_principal_repaid_minor === ''
+      ? original - initialOutstanding : input.historical_principal_repaid_minor)
+    : 0;
+  if (!Number.isSafeInteger(rawHistorical) || rawHistorical < 0 || rawHistorical !== original - initialOutstanding) {
+    fail('invalid_historical_principal_repaid', 'Historical principal repaid must equal original principal minus the opening outstanding principal.');
+  }
+  const historicalPrincipalRepaid = rawHistorical;
   const cash = mode === 'new' ? liquid(db, input?.cash_account_id) : null;
   if (mode === 'opening' && input?.cash_account_id != null && input.cash_account_id !== '') {
     fail('opening_loan_cash_forbidden', 'An existing loan opening balance must not create a new cash/bank movement.');
   }
   const idempotencyKey = key(idempotencyInput);
-  const payload = {mode,lender,description,reference,loanDate,currencyCode,original,initialOutstanding,liabilityAccountId:liability.id,cashAccountId:cash?.id ?? null};
+  const payload = {mode,lender,description,reference,loanDate,accountingStartDate,currencyCode,original,initialOutstanding,historicalPrincipalRepaid,liabilityAccountId:liability.id,cashAccountId:cash?.id ?? null};
   const payloadHash = hash(payload);
   return db.transaction(() => {
     const old = db.prepare('SELECT * FROM accounting_loans WHERE idempotency_key=?').get(idempotencyKey) as any;
@@ -123,15 +132,17 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
     }
     const id = randomUUID();
     db.prepare(`INSERT INTO accounting_loans
-      (id,mode,lender,description,reference_number,loan_date,currency_code,original_principal_minor,initial_outstanding_minor,
+      (id,mode,lender,description,reference_number,loan_date,origination_date,accounting_start_date,currency_code,
+       original_principal_minor,initial_outstanding_minor,historical_principal_repaid_minor,
        liability_account_id,cash_account_id,idempotency_key,payload_hash,created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(id,mode,lender,description,reference,loanDate,currencyCode,original,initialOutstanding,liability.id,cash?.id ?? null,idempotencyKey,payloadHash,actor(actorId));
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id,mode,lender,description,reference,loanDate,loanDate,accountingStartDate,currencyCode,
+        original,initialOutstanding,historicalPrincipalRepaid,liability.id,cash?.id ?? null,idempotencyKey,payloadHash,actor(actorId));
     const offset = mode === 'new' ? cash!.id : 'acct-opening-balance-equity';
     const lines = mode === 'new'
       ? [{accountId:offset,debitMinor:initialOutstanding,creditMinor:0,description:'Loan proceeds received'},{accountId:liability.id,debitMinor:0,creditMinor:initialOutstanding,description:'Loan principal liability'}]
       : [{accountId:offset,debitMinor:initialOutstanding,creditMinor:0,description:'Opening balance offset; no new cash received'},{accountId:liability.id,debitMinor:0,creditMinor:initialOutstanding,description:'Existing outstanding loan principal'}];
-    const journal = post(db,{entryDate:loanDate,description:(mode==='new'?'Loan received: ':'Opening loan balance: ')+lender,currencyCode,lines,actorId,sourceId:id,sourceEvent:mode==='new'?'loan_received':'loan_opening_balance',idempotencyKey:'loan:'+id+':'+mode});
+    const journal = post(db,{entryDate:accountingStartDate,description:(mode==='new'?'Loan received: ':'Opening loan balance: ')+lender,currencyCode,lines,actorId,sourceId:id,sourceEvent:mode==='new'?'loan_received':'loan_opening_balance',idempotencyKey:'loan:'+id+':'+mode});
     db.prepare('UPDATE accounting_loans SET initial_journal_entry_id=? WHERE id=?').run(journal.id,id);
     return {...loanRow(db,id),duplicate:false,remaining_principal_minor:initialOutstanding,entry_number:journal.entryNumber};
   })();
@@ -144,7 +155,7 @@ export function listLoans(db: DB, filters: any = {}): any[] {
     FROM accounting_loans l JOIN accounting_accounts a ON a.id=l.liability_account_id
     LEFT JOIN accounting_accounts cash ON cash.id=l.cash_account_id
     LEFT JOIN accounting_journal_entries j ON j.id=l.initial_journal_entry_id
-    WHERE (? IS NULL OR l.status=?) ORDER BY l.loan_date,l.created_at,l.id`).all(status,status) as any[];
+    WHERE (? IS NULL OR l.status=?) ORDER BY COALESCE(l.accounting_start_date,l.loan_date),l.created_at,l.id`).all(status,status) as any[];
   return rows.map(loan => {
     const remaining = outstanding(db,loan);
     const installments = db.prepare(`SELECT i.*, due.entry_number AS due_entry_number, settlement.entry_number AS settlement_entry_number FROM accounting_loan_installments i
@@ -153,16 +164,36 @@ export function listLoans(db: DB, filters: any = {}): any[] {
       WHERE i.loan_id=? ORDER BY i.due_date,i.created_at,i.id`).all(loan.id) as any[];
     const pending = db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
     return {...loan,remaining_principal_minor:remaining,principal_repaid_minor:Number(loan.initial_outstanding_minor)-remaining,
+      historical_principal_repaid_minor:Number(loan.historical_principal_repaid_minor ?? 0),
       status:remaining===0 && Number(pending.count)===0?'closed':loan.status,installments};
   });
 }
+export function updateLoanOriginationDate(db: DB, loanIdInput: unknown, originationDateInput: unknown, actorId: string | null): any {
+  const originationDate = date(originationDateInput, 'origination_date');
+  return db.transaction(() => {
+    const loan = loanRow(db, loanIdInput);
+    if (loan.mode !== 'opening') fail('loan_origination_not_editable', 'Only existing opening-balance loans can have their historical origination date recorded.', 409);
+    const accountingStartDate = loan.accounting_start_date ?? loan.loan_date;
+    if (originationDate > accountingStartDate) fail('loan_origination_after_accounting_start', 'The original loan date cannot follow the accounting opening date.', 400);
+    if (loan.origination_date === originationDate) return {...loan, duplicate: true};
+    if (loan.origination_date) fail('loan_origination_already_recorded', 'The historical origination date has already been recorded.', 409);
+    db.prepare('UPDATE accounting_loans SET origination_date=? WHERE id=?').run(originationDate, loan.id);
+    db.prepare(`INSERT INTO accounting_audit_log (entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES ('accounting_loan',?,?, ?, ?, ?)`)
+      .run(loan.id, 'origination_date_recorded', actor(actorId),
+        JSON.stringify({origination_date: null}),
+        JSON.stringify({origination_date: originationDate, accounting_start_date: accountingStartDate}));
+    return {...loanRow(db, loan.id), duplicate: false};
+  })();
+}
+
 export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any, actorId: string | null, idempotencyInput: unknown): any {
   const loan = loanRow(db,loanIdInput);
   if (!Array.isArray(input?.installments) || input.installments.length<1 || input.installments.length>120) fail('invalid_installments','Provide between 1 and 120 instalments.');
   const idempotencyKey=key(idempotencyInput);
   const normalized: Array<{dueDate:string;principal:number;interest:number;fees:number;interestAccountId:string|null;feesAccountId:string|null;auto:boolean;index:number}> = input.installments.map((item:any,index:number)=>{
     const dueDate=date(item?.due_date,'due_date');
-    if (dueDate < loan.loan_date) fail('installment_before_loan_date','An installment due date cannot precede the loan date.');
+    if (dueDate < (loan.accounting_start_date ?? loan.loan_date)) fail('installment_before_loan_date','An installment due date cannot precede the accounting start date.');
     const principal=item?.principal_minor, interest=item?.interest_minor ?? 0, fees=item?.fees_minor ?? 0;
     for(const [field,value] of [['principal_minor',principal],['interest_minor',interest],['fees_minor',fees]] as [string,any][]) {
       if(!Number.isSafeInteger(value)||value<0) fail('invalid_'+field,field+' must be a non-negative integer.');
@@ -214,7 +245,7 @@ export function registerLoanInstallment(db: DB, installmentIdInput: unknown, act
     if(item.status==='cancelled') fail('installment_cancelled','Cancelled instalment cannot be registered.',409);
     if(item.due_date>asOf) fail('installment_not_due','Instalment cannot be registered before its due date.',409);
     const loan=loanRow(db,item.loan_id);
-    if (item.due_date < loan.loan_date) fail('installment_before_loan_date','An installment due date cannot precede the loan date.',409);
+    if (item.due_date < (loan.accounting_start_date ?? loan.loan_date)) fail('installment_before_loan_date','An installment due date cannot precede the accounting start date.',409);
     const closedPeriod = db.prepare("SELECT 1 FROM accounting_period_closures WHERE status='closed' AND ? BETWEEN period_start AND period_end LIMIT 1").get(item.due_date);
     if (closedPeriod) fail('period_closed','Accounting period is closed; reopen it with a reason before registering the installment due event.',409);
     const dueLines:any[]=[];
