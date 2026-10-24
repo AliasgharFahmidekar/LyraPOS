@@ -12,7 +12,8 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 
 const dbModule = require('../main/db');
-const { initDatabase, getDatabase, getCurrentSchemaVersion, closeDatabase } = dbModule;
+const { initDatabase, getDatabase, getCurrentSchemaVersion, closeDatabase, MIGRATIONS } = dbModule;
+const originalMigrations = [...MIGRATIONS];
 const loans = require('../main/accounting/loans');
 const { getAccountingManagementReport } = require('../main/accounting/reports');
 const { getAccountingForecast } = require('../main/accounting/forecast');
@@ -315,4 +316,54 @@ function main(): void {
     Module._load = originalLoad;
   }
 }
+
+function migrationUpgradeChecks(): void {
+  const priorDir = activeTestDir;
+  activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lyra-accounting-loan-v116-upgrade-'));
+  try {
+    closeDatabase();
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations.filter((migration: any) => migration.version <= 116));
+    initDatabase();
+    const legacyDb = getDatabase();
+    equal(getCurrentSchemaVersion(), 116, 'legacy-loan upgrade fixture starts at schema v116');
+    legacyDb.prepare(`
+      INSERT INTO accounting_loans
+        (id,mode,status,lender,loan_date,currency_code,original_principal_minor,initial_outstanding_minor,
+         liability_account_id,cash_account_id,initial_journal_entry_id,idempotency_key,payload_hash,created_by)
+      VALUES ('legacy-v116-loan','opening','active','Legacy lender','2026-10-01','IRR',1000,700,
+        'acct-loans-payable',NULL,NULL,'legacy-v116-loan-key',?, 'test-owner')
+    `).run('a'.repeat(64));
+    const entriesBefore = (legacyDb.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
+    closeDatabase();
+
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations);
+    initDatabase();
+    const upgradedDb = getDatabase();
+    equal(getCurrentSchemaVersion(), 117, 'legacy-loan fixture upgrades to schema v117');
+    const upgradedLoan = upgradedDb.prepare(`
+      SELECT origination_date,accounting_start_date,historical_principal_repaid_minor,cash_account_id
+      FROM accounting_loans WHERE id='legacy-v116-loan'
+    `).get() as any;
+    equal(upgradedLoan.origination_date, null, 'migration does not guess the actual origination date of a legacy opening loan');
+    equal(upgradedLoan.accounting_start_date, '2026-10-01', 'migration preserves legacy opening date as accounting start');
+    equal(upgradedLoan.historical_principal_repaid_minor, 300, 'migration calculates historical principal repayments from known amounts');
+    equal(upgradedLoan.cash_account_id, null, 'migration does not invent a cash account for an existing loan');
+    equal((upgradedDb.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, entriesBefore,
+      'v116-to-v117 migration posts no artificial cash or journal entry');
+    ok(!!upgradedDb.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='accounting_loans_opening_fields_insert_guard'").get(),
+      'v117 migration reinstates loan opening-field integrity guard');
+    equal((upgradedDb.pragma('integrity_check') as any[])[0].integrity_check, 'ok', 'v116-to-v117 loan migration preserves SQLite integrity');
+    console.log('✓ legacy loan migration tests passed');
+  } finally {
+    try { closeDatabase(); } catch {}
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations);
+    fs.rmSync(activeTestDir, { recursive: true, force: true });
+    activeTestDir = priorDir;
+  }
+}
+
 main();
+migrationUpgradeChecks();
