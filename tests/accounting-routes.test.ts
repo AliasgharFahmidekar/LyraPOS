@@ -394,7 +394,11 @@ async function main(): Promise<void> {
     equal(cancelUnpaid.body.expense?.status, 'cancelled', 'cancel route reports the cancelled state');
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? AND action='cancelled'").get(unpaidId) as any).count, 1,
       'cancellation is preserved in the audit log even after the draft is removed');
-    equal((await request(app).get('/api/accounting/expenses/' + unpaidId).set(manager)).status, 404, 'cancelled draft no longer appears as an active expense');
+    const cancelledDetails = await request(app).get('/api/accounting/expenses/' + unpaidId).set(manager);
+    equal(cancelledDetails.status, 200, 'cancelled expense remains inspectable for audit/idempotency');
+    equal(cancelledDetails.body.expense?.status, 'cancelled', 'expense detail identifies the cancelled state');
+    equal((await request(app).get('/api/accounting/expenses?limit=100').set(manager)).body.expenses.some((e: any) => e.id === unpaidId), false,
+      'cancelled draft is hidden from the active expense list');
 
     const excelExport = await request(app).get('/api/accounting/expenses/export.xlsx?locale=fa').set(manager);
     equal(excelExport.status, 200, 'manager can export the live expense list to Excel');
