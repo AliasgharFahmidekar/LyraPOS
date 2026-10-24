@@ -28,10 +28,10 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const {
-  initTestDb, createApp, startServer, seedOwnerUser, seedManagerUser, seedCategory, seedProduct,
+  initTestDb, createApp, startServer, seedOwnerUser, seedManagerUser, seedCategory, seedProduct, seedCustomer,
   api, assert, assertEqual, getResults, closeDatabase, getDatabase, now,
 } = require('./helpers/test-setup');
-const { orderRoutes } = require('../main/routes/orders');
+const { orderRoutes, resetPinRateLimitForTests } = require('../main/routes/orders');
 const { billRoutes } = require('../main/routes/bills');
 const { refundRoutes } = require('../main/routes/refunds');
 const { reportRoutes } = require('../main/routes/reports');
@@ -115,6 +115,20 @@ async function main() {
       method: 'POST', body: { bill_id: gatedBill.id, amount: 100, method: 'cash', override_pin: '1234' }, headers: cashierAuth,
     });
     assertEqual(cashierGated.status, 403, 'a cashier cannot initiate a refund even with an owner or manager PIN');
+
+    // Historical aliases that are not the real wallet flow must not mutate a bill.
+    const aliasBill = await newPaidBill('prod-refund');
+    const refundsBeforeAlias = (db.prepare('SELECT COUNT(*) AS n FROM refunds WHERE bill_id=?').get(aliasBill.bill.id) as any).n;
+    const unsupportedCreditAlias = await api(baseUrl, '/api/refunds', {
+      method: 'POST',
+      body: { bill_id: aliasBill.bill.id, amount: aliasBill.bill.paid_amount, method: 'Store Credit', override_pin: '9999', approver_id: ownerId },
+      headers: ownerAuth,
+    });
+    assertEqual(unsupportedCreditAlias.status, 400, 'legacy store_credit alias is rejected instead of being treated as a completed refund');
+    assertEqual((db.prepare('SELECT COUNT(*) AS n FROM refunds WHERE bill_id=?').get(aliasBill.bill.id) as any).n, refundsBeforeAlias,
+      'rejected non-monetary alias creates no refund row');
+    assertEqual((db.prepare('SELECT payment_status FROM bills WHERE id=?').get(aliasBill.bill.id) as any).payment_status, 'paid',
+      'rejected non-monetary alias leaves the paid bill untouched');
 
     // ── PIN approval: missing (no budget cost) ─────────────────────────────
     const noPinBill = await newPaidBill('prod-refund');
@@ -328,6 +342,28 @@ async function main() {
       headers: ownerAuth,
     });
     assertEqual(sixthAttempt.status, 429, 'the 6th refund call reaching PIN approval is throttled regardless of a correct PIN');
+
+    // Verify case-insensitive wallet input follows the canonical crediting path.
+    resetPinRateLimitForTests();
+    db.prepare("INSERT INTO settings (key,value,updated_at) VALUES ('loyalty_enabled','true',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").run(now());
+    seedCustomer(db, 'customer-wallet-refund', 'Wallet Refund Customer');
+    const walletBill = await newPaidBill('prod-refund');
+    db.prepare('UPDATE bills SET customer_id=? WHERE id=?').run('customer-wallet-refund', walletBill.bill.id);
+    const journalCountBeforeWallet = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
+    const walletRefund = await api(baseUrl, '/api/refunds', {
+      method: 'POST',
+      body: { bill_id: walletBill.bill.id, amount: walletBill.bill.paid_amount, method: 'WALLET', override_pin: '9999', approver_id: ownerId },
+      headers: ownerAuth,
+    });
+    assertEqual(walletRefund.status, 201, 'uppercase WALLET is normalized to the canonical store-credit flow');
+    assertEqual(walletRefund.data.refund.method, 'wallet', 'the stored method is canonicalized to wallet');
+    assertEqual(walletRefund.data.bill.payment_status, 'refunded', 'successful wallet credit closes the refunded balance');
+    const walletCredit = db.prepare("SELECT amount FROM loyalty_ledger WHERE bill_id=? AND type='credit'").get(walletBill.bill.id) as any;
+    assertEqual(Number(walletCredit?.amount), Number(walletBill.bill.paid_amount), 'wallet refund credits exactly the amount refunded');
+    assertEqual((db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='refund' AND source_id=?").get(String(walletRefund.data.refund.id)) as any).n, 0,
+      'wallet refund remains excluded from accounting journals');
+    assertEqual((db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, journalCountBeforeWallet,
+      'wallet credit changes customer credit, not cash/bank or sales ledgers');
   } finally {
     server.close();
     closeDatabase();

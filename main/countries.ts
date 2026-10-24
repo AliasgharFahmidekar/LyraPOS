@@ -380,9 +380,21 @@ export function getCurrencyFractionDigits(currency: string): number {
   }
 }
 
-// Resolves the minor-unit factor (e.g. 1 for JPY, 100 for USD) for currency arithmetic.
+// Resolves the minor-unit factor used by locale/input currency arithmetic
+// (e.g. 1 for JPY, 100 for USD). This intentionally preserves the existing
+// IRR input/display precision behavior and must not be used as a ledger-unit
+// contract for currencies whose stored POS amount is already an integer rial.
 export function getCurrencyMinorUnitFactor(currency: string): number {
   return Math.pow(10, getCurrencyFractionDigits(currency));
+}
+
+// Ledger amounts are stored as integer units of the configured currency's
+// accounting denomination. LyraPOS stores Iranian amounts canonically in rial;
+// unlike the legacy UI fraction-digit preference, one stored IRR unit is one
+// rial, not one hundredth of a rial. Other currencies use their ISO minor unit.
+export function getAccountingMinorUnitFactor(currency: string): number {
+  if (currency.trim().toUpperCase() === IRAN_CURRENCY) return 1;
+  return getCurrencyMinorUnitFactor(currency);
 }
 
 // Centralized adapter for input/display conversions across currencies and display preferences.
@@ -432,6 +444,175 @@ export const getCurrencyUnitAdapter = (
     formatInput: (displayAmount: number) => String(Number(displayAmount.toFixed(decimals))),
   };
 };
+
+export interface AccountingMoneyOptions {
+  currency: string;
+  /** Decimal places in stored accounting minor-unit amounts (IRR uses 0: one unit is one rial). */
+  fractionDigits: number;
+  locale?: string;
+  countryCode?: string;
+  preferences?: LocalePreferences;
+}
+
+/** Format canonical ledger minor units using the tenant's configured currency display preference. */
+export function formatAccountingMoney(amountMinor: number, options: AccountingMoneyOptions): string {
+  const fractionDigits = Number.isInteger(options.fractionDigits) && options.fractionDigits >= 0 && options.fractionDigits <= 6
+    ? options.fractionDigits : 0;
+  return formatMoney(
+    amountMinor / (10 ** fractionDigits),
+    options.currency,
+    options.locale ?? 'en-US',
+    options.preferences,
+  );
+}
+
+/** Render a stored ledger amount as an editable value in the configured display unit (e.g. toman). */
+export function formatAccountingAmountInput(amountMinor: number, options: AccountingMoneyOptions): string {
+  const fractionDigits = Number.isInteger(options.fractionDigits) && options.fractionDigits >= 0 && options.fractionDigits <= 6
+    ? options.fractionDigits : 0;
+  const adapter = getCurrencyUnitAdapter(options.currency, options.countryCode, options.preferences);
+  return adapter.formatInput(adapter.toDisplay(amountMinor / (10 ** fractionDigits)));
+}
+
+/**
+ * Parse a user-entered amount in the displayed unit into canonical integer ledger units.
+ * For IRR this converts toman back to rial when the tenant chose toman display; no stored
+ * ledger amount is divided or rewritten. Values that cannot map exactly to integer units fail closed.
+ */
+function localeGroupingShape(locale?: string): { group: string; decimal: string; primary: number; secondary: number } {
+  try {
+    const formatter = new Intl.NumberFormat(locale || 'en-US');
+    const symbols = formatter.formatToParts(1234567890123.4);
+    const groups = symbols.filter((part) => part.type === 'integer').map((part) => part.value.length);
+    const group = symbols.find((part) => part.type === 'group')?.value ?? ',';
+    const decimal = symbols.find((part) => part.type === 'decimal')?.value ?? '.';
+    return {
+      group,
+      decimal,
+      primary: groups[groups.length - 1] || 3,
+      secondary: groups.length > 1 ? groups[groups.length - 2] : (groups[groups.length - 1] || 3),
+    };
+  } catch {
+    return { group: ',', decimal: '.', primary: 3, secondary: 3 };
+  }
+}
+
+function validGroupedInteger(value: string, separators: string[], locale?: string): boolean {
+  const usedSeparators = [...new Set([...value].filter((character) => separators.includes(character)))];
+  if (usedSeparators.length === 0) return /^\d+$/.test(value);
+  // Mixed grouping characters are almost always a malformed or ambiguous amount.
+  if (usedSeparators.length !== 1) return false;
+  const groups = value.split(usedSeparators[0]);
+  if (groups.length < 2 || groups.some((group) => !/^\d+$/.test(group))) return false;
+  const shape = localeGroupingShape(locale);
+  if (groups[groups.length - 1].length !== shape.primary) return false;
+  for (let index = groups.length - 2; index > 0; index--) {
+    if (groups[index].length !== shape.secondary) return false;
+  }
+  return groups[0].length >= 1 && groups[0].length <= shape.secondary;
+}
+
+/**
+ * Parse a user-entered amount in the configured display unit into canonical integer
+ * ledger units. Grouping separators are validated instead of blindly removed: malformed
+ * input such as "12,34" in an en-US locale is rejected, not silently turned into 1234.
+ * Iranian accounting values remain canonical rials; a toman display is converted back
+ * exactly and values representing fractional rials are rejected.
+ */
+export function parseAccountingAmountToMinor(
+  rawValue: unknown,
+  options: AccountingMoneyOptions,
+  allowZero = false,
+): number | null {
+  if (typeof rawValue !== 'string') return null;
+  let normalized = rawValue.trim()
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+  if (!normalized) return null;
+
+  const shape = localeGroupingShape(options.locale);
+  const DECIMAL = '\u0001';
+  const GROUP = '\u0002';
+  // The Arabic/Persian numeric punctuation has unambiguous decimal/grouping meaning.
+  normalized = normalized.replace(/[٫]/g, DECIMAL).replace(/[٬]/g, GROUP);
+  // Preserve non-ASCII locale separators as distinct markers (e.g. French narrow NBSP).
+  if (shape.decimal !== '.' && shape.decimal !== ',' && shape.decimal !== DECIMAL && shape.decimal !== GROUP) {
+    normalized = normalized.split(shape.decimal).join(DECIMAL);
+  }
+  if (shape.group !== '.' && shape.group !== ',' && shape.group !== DECIMAL && shape.group !== GROUP) {
+    normalized = normalized.split(shape.group).join(GROUP);
+  }
+  // Locale whitespace grouping is accepted only when the grouped integer is well-formed.
+  const whitespaceGroups = ['\u00A0', '\u202F', '\u2009', ' '];
+  if (whitespaceGroups.includes(shape.group)) {
+    for (const separator of whitespaceGroups) {
+      if (separator !== shape.group) normalized = normalized.split(separator).join('');
+    }
+  }
+
+  const decimalMarkerCount = normalized.split(DECIMAL).length - 1;
+  if (decimalMarkerCount > 1) return null;
+
+  let decimalToken: string | null = decimalMarkerCount === 1 ? DECIMAL : null;
+  const dotCount = normalized.split('.').length - 1;
+  const commaCount = normalized.split(',').length - 1;
+  if (!decimalToken && dotCount > 0 && commaCount > 0) {
+    // For common pasted formats (1,234.56 or 1.234,56), the last punctuation mark
+    // is the decimal separator. The preceding punctuation must pass grouping validation.
+    const lastDot = normalized.lastIndexOf('.');
+    const lastComma = normalized.lastIndexOf(',');
+    decimalToken = lastDot > lastComma ? '.' : ',';
+  } else if (!decimalToken && (dotCount > 0 || commaCount > 0)) {
+    const token = dotCount > 0 ? '.' : ',';
+    const count = dotCount + commaCount;
+    if (token === shape.decimal) {
+      decimalToken = token;
+    } else if (token === shape.group) {
+      const groupingValid = validGroupedInteger(normalized, [token], options.locale);
+      if (groupingValid) decimalToken = null;
+      else if (token === '.' && count === 1) decimalToken = '.';
+      else return null;
+    } else if (token === '.') {
+      // A dot decimal is accepted as a practical keyboard/input fallback even in
+      // locales whose native decimal mark differs. A valid locale grouping is not.
+      if (validGroupedInteger(normalized, [token], options.locale)
+          && token === shape.group) decimalToken = null;
+      else decimalToken = '.';
+    } else {
+      // A comma that is neither the locale decimal mark nor valid grouping is ambiguous.
+      // Reject it instead of risking a 100x/1000x accounting error.
+      if (validGroupedInteger(normalized, [token], options.locale)) decimalToken = null;
+      else return null;
+    }
+  }
+
+  if (decimalToken) {
+    if (normalized.split(decimalToken).length !== 2) return null;
+  }
+  const split = decimalToken ? normalized.split(decimalToken) : [normalized, ''];
+  let integerPart = split[0];
+  const fractionalPart = split[1] || '';
+  if (!/^\d*[\d.,\u0002]*$/.test(integerPart) || (decimalToken && !/^\d*$/.test(fractionalPart))) return null;
+
+  const groupingSeparators = [GROUP, ',', '.'].filter((separator) => separator !== decimalToken);
+  const presentSeparators = [...new Set([...integerPart].filter((character) => groupingSeparators.includes(character)))];
+  if (presentSeparators.length > 0) {
+    if (!validGroupedInteger(integerPart, presentSeparators, options.locale)) return null;
+    integerPart = integerPart.split(presentSeparators[0]).join('');
+  }
+  if (!/^\d+$/.test(integerPart)) return null;
+
+  const fraction = fractionalPart;
+  const adapter = getCurrencyUnitAdapter(options.currency, options.countryCode, options.preferences);
+  if (fraction.length > adapter.maxDecimals) return null;
+  const displayAmount = Number(integerPart + (fraction ? '.' + fraction : ''));
+  if (!Number.isFinite(displayAmount)) return null;
+  const fractionDigits = Number.isInteger(options.fractionDigits) && options.fractionDigits >= 0 && options.fractionDigits <= 6
+    ? options.fractionDigits : 0;
+  const storedAmount = adapter.toStored(displayAmount);
+  const result = storedAmount * (10 ** fractionDigits);
+  return Number.isSafeInteger(result) && (allowZero ? result >= 0 : result > 0) ? result : null;
+}
 
 export const formatCurrencyForTenant = (
   amount: number,

@@ -99,9 +99,15 @@ function main() {
   console.log('='.repeat(60));
 
   const {
-    initDatabase, getDatabase, closeDatabase, getCurrentSchemaVersion, buildIdealSchemaDb,
+    initDatabase, getDatabase, closeDatabase, getCurrentSchemaVersion, buildIdealSchemaDb, MIGRATIONS,
   } = require('../main/db');
   const { runHealthCheck } = require('../main/services/schema-health');
+
+  const rerunMigration = (version: number) => {
+    const migration = MIGRATIONS.find((candidate: any) => candidate.version === version);
+    assert.ok(migration, 'migration v' + version + ' exists');
+    getDatabase().transaction(() => migration.up())();
+  };
 
   // ── The real chain, against a real old install, must not throw ──────────
   try {
@@ -335,9 +341,11 @@ function main() {
     preservedAt,
   );
   db.prepare("UPDATE settings SET value = 'true' WHERE key = 'split_checks_enabled'").run();
-  db.pragma('user_version = 37');
-  closeDatabase();
-  initDatabase();
+  // Replay only v38 and v60, the migrations under test. Never lower the
+  // global schema version on a current database: that replays unrelated,
+  // newer migrations and can create duplicate objects.
+  rerunMigration(38);
+  rerunMigration(60);
   assert.equal(getCurrentSchemaVersion(), latestSchemaVersion);
   assert.equal(runHealthCheck().findings.length, 0);
   const preservedPack = getDatabase().prepare(`
@@ -358,14 +366,13 @@ function main() {
     'v60 preserves an existing split-check choice',
   );
   getDatabase().prepare(`UPDATE settings SET value = 'false' WHERE key = 'diagnostics_consent'`).run();
-  getDatabase().pragma('user_version = 46');
-  closeDatabase();
-  initDatabase();
+  rerunMigration(47);
+  assert.equal(getCurrentSchemaVersion(), latestSchemaVersion, 'rerunning v47 does not change the schema version');
   const diagnosticsSetting = getDatabase().prepare(
     `SELECT value FROM settings WHERE key = 'diagnostics_consent'`,
   ).get() as { value: string };
   assert.equal(diagnosticsSetting.value, 'false', 'v47 preserves an existing diagnostics opt-out');
-  console.log('   ✓ reopening is idempotent and preserves an already-active country pack');
+  console.log('   ✓ targeted migration reruns preserve active tax packs and opt-out settings');
   closeDatabase();
 
   console.log('='.repeat(60));

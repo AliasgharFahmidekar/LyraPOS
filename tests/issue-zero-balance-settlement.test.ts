@@ -178,6 +178,21 @@ async function main(): Promise<void> {
       assertEqual(orderRow(db, orderId).status, 'completed', 'item-discount-zero-balance: order completed after settle');
     }
 
+    // ── discount cannot erase already received money ──
+    console.log('\\n─── discount-below-received: discount cannot reduce total below cash already received ───');
+    {
+      const { billId } = await newTakeawayOrder('prod-1000');
+      const firstPayment = await pay(billId, { method: 'cash', amount: 400 });
+      assert(firstPayment.status >= 200 && firstPayment.status < 300, 'discount-below-received: partial receipt succeeds');
+      const disc = await applyBillDiscount(billId, { type: 'amount', value: 700, reason: 'must not undercut cash received' });
+      assertEqual(disc.status, 409, 'discount-below-received: discount below collected amount is rejected');
+      const unchanged = billRow(db, billId);
+      assertEqual(Number(unchanged.total), 1000, 'discount-below-received: rejected discount preserves original total');
+      assertEqual(Number(unchanged.discount_amount), 0, 'discount-below-received: rejected discount is not persisted');
+      assertEqual(Number(unchanged.paid_amount), 400, 'discount-below-received: previously received cash is preserved');
+      assertEqual(Number(unchanged.balance), 600, 'discount-below-received: original outstanding balance is preserved');
+    }
+
     // ── zero-total sibling auto-closes ──
     console.log('\n─── zero-total-split-sibling: zero-total sibling auto-closes, order completes ───');
     {

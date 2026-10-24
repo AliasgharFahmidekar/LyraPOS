@@ -2684,6 +2684,800 @@ function materializeRestoreSource(sourcePath: string, livePath: string): string 
   }
 }
 
+const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
+  'accounting_journal_entry_insert_draft',
+  'accounting_journal_entry_post_guard',
+  'accounting_journal_entry_immutable_update',
+  'accounting_journal_entry_immutable_delete',
+  'accounting_journal_line_immutable_insert',
+  'accounting_journal_line_immutable_update',
+  'accounting_journal_line_immutable_delete',
+  'accounting_system_account_delete_guard',
+  'accounting_posted_account_definition_guard',
+  'accounting_audit_log_no_update',
+  'accounting_audit_log_no_delete',
+  'accounting_expense_insert_guard',
+  'accounting_expense_update_guard',
+  'accounting_expense_idempotency_immutable',
+  'accounting_expense_posted_fields_immutable',
+  'accounting_expense_state_transition_guard',
+  'accounting_expense_posted_delete_guard',
+  'accounting_bill_finalization_fields_immutable',
+  'accounting_finalized_bill_amounts_immutable',
+  'accounting_custom_payment_method_default_mapping',
+  'accounting_custom_payment_method_mapping_cleanup',
+  'accounting_journal_entries_closed_period_insert_guard',
+  'accounting_journal_entries_closed_period_guard',
+  'accounting_period_closures_no_delete',
+  'accounting_period_closures_insert_guard',
+  'accounting_period_closures_update_guard',
+  'accounting_period_closures_no_overlap_insert',
+  'accounting_period_closures_no_overlap_update',
+  'accounting_period_closures_audit_insert',
+  'accounting_period_closures_audit_update',
+  'accounting_closed_period_posted_entry_update_guard',
+  'accounting_closed_period_posted_entry_delete_guard',
+  'accounting_closed_period_posted_line_insert_guard',
+  'accounting_closed_period_posted_line_update_guard',
+  'accounting_closed_period_posted_line_delete_guard',
+  'accounting_future_items_state_guard',
+  'accounting_future_items_no_delete',
+  'accounting_future_items_audit_insert',
+  'accounting_future_items_audit_update',
+  'accounting_loans_no_delete',
+  'accounting_loans_status_guard',
+  'accounting_loans_status_audit',
+  'accounting_loans_identity_guard',
+  'accounting_loans_opening_fields_insert_guard',
+  'accounting_loan_batch_no_update',
+  'accounting_loan_batch_no_delete',
+  'accounting_loan_installment_no_delete',
+  'accounting_loan_installment_registration_guard',
+  'accounting_loan_installment_identity_guard',
+  'accounting_loan_installment_state_guard',
+  'accounting_loan_installment_settled_immutable',
+  'accounting_loans_audit_insert',
+  'accounting_loans_audit_update',
+  'accounting_loan_batch_audit_insert',
+  'accounting_loan_installment_audit_insert',
+  'accounting_loan_installment_audit_update',
+] as const;
+
+/**
+ * Data-only restore is a privileged database replacement operation. Accounting
+ * immutability triggers protect normal application writes, but must be removed
+ * transactionally while replacing historical rows from a validated backup.
+ * The v100 trigger definitions stay frozen in one shared SQL constant so
+ * migration 100 remains reproducible. Newer hardening migrations are applied
+ * separately and are also reinstated by the restore path.
+ */
+/**
+ * Expense-specific integrity guards introduced by migration 103. Kept separate
+ * from migration 100's ledger SQL because the expense table does not exist yet
+ * when a new database first runs migration 100. The restore path also drops and
+ * recreates these guards around a validated data-only restore.
+ */
+const ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL = `
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_insert_guard
+        BEFORE INSERT ON accounting_expenses
+        BEGIN
+          SELECT CASE WHEN typeof(NEW.amount_minor) <> 'integer'
+            OR NEW.amount_minor < 1
+            OR NEW.amount_minor > 9007199254740991
+            THEN RAISE(ABORT, 'Accounting expense amount must be a positive safe integer') END;
+          SELECT CASE WHEN date(NEW.expense_date, '+0 days') IS NULL
+            OR date(NEW.expense_date, '+0 days') <> NEW.expense_date
+            THEN RAISE(ABORT, 'Accounting expense date must be a real calendar date') END;
+          SELECT CASE WHEN COALESCE((SELECT value FROM settings WHERE key = 'currency'), '') = ''
+            OR NEW.currency_code <> (SELECT value FROM settings WHERE key = 'currency')
+            THEN RAISE(ABORT, 'Accounting expense currency must match the configured store currency') END;
+          SELECT CASE WHEN
+            (NEW.idempotency_key IS NULL AND NEW.idempotency_payload_hash IS NOT NULL)
+            OR (NEW.idempotency_key IS NOT NULL AND (
+              length(trim(NEW.idempotency_key)) < 1
+              OR length(NEW.idempotency_key) > 128
+              OR NEW.idempotency_payload_hash IS NULL
+              OR length(NEW.idempotency_payload_hash) <> 64
+              OR NEW.idempotency_payload_hash GLOB '*[^0-9a-f]*'
+            ))
+            THEN RAISE(ABORT, 'Accounting expense idempotency key and payload hash are invalid') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_update_guard
+        BEFORE UPDATE ON accounting_expenses
+        BEGIN
+          SELECT CASE WHEN typeof(NEW.amount_minor) <> 'integer'
+            OR NEW.amount_minor < 1
+            OR NEW.amount_minor > 9007199254740991
+            THEN RAISE(ABORT, 'Accounting expense amount must be a positive safe integer') END;
+          SELECT CASE WHEN date(NEW.expense_date, '+0 days') IS NULL
+            OR date(NEW.expense_date, '+0 days') <> NEW.expense_date
+            THEN RAISE(ABORT, 'Accounting expense date must be a real calendar date') END;
+          SELECT CASE WHEN COALESCE((SELECT value FROM settings WHERE key = 'currency'), '') = ''
+            OR NEW.currency_code <> (SELECT value FROM settings WHERE key = 'currency')
+            THEN RAISE(ABORT, 'Accounting expense currency must match the configured store currency') END;
+          SELECT CASE WHEN
+            (NEW.idempotency_key IS NULL AND NEW.idempotency_payload_hash IS NOT NULL)
+            OR (NEW.idempotency_key IS NOT NULL AND (
+              length(trim(NEW.idempotency_key)) < 1
+              OR length(NEW.idempotency_key) > 128
+              OR NEW.idempotency_payload_hash IS NULL
+              OR length(NEW.idempotency_payload_hash) <> 64
+              OR NEW.idempotency_payload_hash GLOB '*[^0-9a-f]*'
+            ))
+            THEN RAISE(ABORT, 'Accounting expense idempotency key and payload hash are invalid') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_idempotency_immutable
+        BEFORE UPDATE OF idempotency_key, idempotency_payload_hash ON accounting_expenses
+        WHEN OLD.idempotency_key IS NOT NEW.idempotency_key
+          OR OLD.idempotency_payload_hash IS NOT NEW.idempotency_payload_hash
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting expense idempotency identity is immutable');
+        END;
+      `;
+
+const ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL = `
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_posted_fields_immutable
+        BEFORE UPDATE OF category_id, expense_account_id, expense_date, amount_minor, currency_code,
+          description, payee, reference_number, payment_status, payment_method_key, payment_account_id, payment_date
+        ON accounting_expenses
+        WHEN OLD.status IN ('posted', 'reversed')
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting expense details are immutable; use a reversal');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_state_transition_guard
+        BEFORE UPDATE OF status, posted_journal_entry_id, reversal_journal_entry_id, reversal_reason
+        ON accounting_expenses
+        BEGIN
+          SELECT CASE WHEN NOT (
+            (OLD.status = 'draft' AND NEW.status IN ('draft', 'posted'))
+            OR (OLD.status = 'posted' AND NEW.status IN ('posted', 'reversed'))
+            OR (OLD.status = 'reversed' AND NEW.status = 'reversed')
+          ) THEN RAISE(ABORT, 'Invalid accounting expense state transition') END;
+
+          SELECT CASE WHEN NEW.status = 'draft' AND (
+            NEW.posted_journal_entry_id IS NOT NULL
+            OR NEW.reversal_journal_entry_id IS NOT NULL
+            OR NEW.reversal_reason IS NOT NULL
+          ) THEN RAISE(ABORT, 'Draft accounting expenses cannot reference posting or reversal journals') END;
+
+          SELECT CASE WHEN NEW.status = 'posted' AND (
+            NEW.posted_journal_entry_id IS NULL
+            OR (SELECT status FROM accounting_journal_entries WHERE id = NEW.posted_journal_entry_id) IS NOT 'posted'
+            OR NEW.reversal_journal_entry_id IS NOT NULL
+            OR NEW.reversal_reason IS NOT NULL
+          ) THEN RAISE(ABORT, 'Posted expenses require a posted journal and no reversal metadata') END;
+
+          SELECT CASE WHEN OLD.status = 'posted' AND NEW.status = 'posted' AND (
+            NEW.posted_journal_entry_id IS NOT OLD.posted_journal_entry_id
+            OR NEW.reversal_journal_entry_id IS NOT OLD.reversal_journal_entry_id
+            OR NEW.reversal_reason IS NOT OLD.reversal_reason
+          ) THEN RAISE(ABORT, 'Posted expense journal identity is immutable') END;
+
+          SELECT CASE WHEN NEW.status = 'reversed' AND (
+            OLD.status <> 'posted'
+            OR NEW.posted_journal_entry_id IS NOT OLD.posted_journal_entry_id
+            OR NEW.posted_journal_entry_id IS NULL
+            OR NEW.reversal_journal_entry_id IS NULL
+            OR NEW.reversal_journal_entry_id = NEW.posted_journal_entry_id
+            OR COALESCE(length(trim(NEW.reversal_reason)), 0) = 0
+            OR (SELECT status FROM accounting_journal_entries WHERE id = NEW.posted_journal_entry_id) IS NOT 'posted'
+            OR (SELECT status FROM accounting_journal_entries WHERE id = NEW.reversal_journal_entry_id) IS NOT 'posted'
+          ) THEN RAISE(ABORT, 'Expense reversal requires the original and reversal journals to be posted and a reason') END;
+
+          SELECT CASE WHEN OLD.status = 'reversed' AND (
+            NEW.status IS NOT OLD.status
+            OR NEW.posted_journal_entry_id IS NOT OLD.posted_journal_entry_id
+            OR NEW.reversal_journal_entry_id IS NOT OLD.reversal_journal_entry_id
+            OR NEW.reversal_reason IS NOT OLD.reversal_reason
+          ) THEN RAISE(ABORT, 'Reversed accounting expense history is immutable') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_expense_posted_delete_guard
+        BEFORE DELETE ON accounting_expenses
+        WHEN OLD.status IN ('posted', 'reversed')
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting expenses cannot be deleted');
+        END;
+      `;
+
+const ACCOUNTING_LEDGER_TRIGGER_SQL = `
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_insert_draft
+        BEFORE INSERT ON accounting_journal_entries
+        WHEN NEW.status <> 'draft'
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting journal entries must start as drafts');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_post_guard
+        BEFORE UPDATE OF status ON accounting_journal_entries
+        WHEN OLD.status = 'draft' AND NEW.status = 'posted'
+        BEGIN
+          SELECT CASE WHEN
+            (SELECT COUNT(*) FROM accounting_journal_lines WHERE journal_entry_id = NEW.id) < 2
+            THEN RAISE(ABORT, 'Accounting journal requires at least two lines') END;
+          SELECT CASE WHEN
+            COALESCE((SELECT SUM(debit_minor) - SUM(credit_minor)
+              FROM accounting_journal_lines WHERE journal_entry_id = NEW.id), 1) <> 0
+            THEN RAISE(ABORT, 'Accounting journal debits must equal credits') END;
+          SELECT CASE WHEN
+            COALESCE((SELECT SUM(debit_minor)
+              FROM accounting_journal_lines WHERE journal_entry_id = NEW.id), 0) <= 0
+            THEN RAISE(ABORT, 'Accounting journal total must be greater than zero') END;
+          SELECT CASE WHEN EXISTS (
+            SELECT 1
+            FROM accounting_journal_lines AS line
+            JOIN accounting_accounts AS account ON account.id = line.account_id
+            WHERE line.journal_entry_id = NEW.id
+              AND (account.is_active <> 1 OR account.is_postable <> 1)
+          ) THEN RAISE(ABORT, 'Accounting journal contains an inactive or non-postable account') END;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_immutable_update
+        BEFORE UPDATE ON accounting_journal_entries
+        WHEN OLD.status = 'posted'
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal entries are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_entry_immutable_delete
+        BEFORE DELETE ON accounting_journal_entries
+        WHEN OLD.status = 'posted'
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal entries cannot be deleted');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_insert
+        BEFORE INSERT ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = NEW.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_update
+        BEFORE UPDATE ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = OLD.journal_entry_id AND status = 'posted'
+        ) OR EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = NEW.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_journal_line_immutable_delete
+        BEFORE DELETE ON accounting_journal_lines
+        WHEN EXISTS (
+          SELECT 1 FROM accounting_journal_entries
+          WHERE id = OLD.journal_entry_id AND status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'Posted accounting journal lines are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_system_account_delete_guard
+        BEFORE DELETE ON accounting_accounts
+        WHEN OLD.is_system = 1
+        BEGIN
+          SELECT RAISE(ABORT, 'System accounting accounts cannot be deleted');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_posted_account_definition_guard
+        BEFORE UPDATE OF account_code, account_type, normal_balance, parent_account_id ON accounting_accounts
+        WHEN OLD.is_system = 1 OR EXISTS (
+          SELECT 1
+          FROM accounting_journal_lines AS line
+          JOIN accounting_journal_entries AS entry ON entry.id = line.journal_entry_id
+          WHERE line.account_id = OLD.id AND entry.status = 'posted'
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'System or posted accounting account definitions are immutable');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_audit_log_no_update
+        BEFORE UPDATE ON accounting_audit_log
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting audit records are append-only');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_audit_log_no_delete
+        BEFORE DELETE ON accounting_audit_log
+        BEGIN
+          SELECT RAISE(ABORT, 'Accounting audit records are append-only');
+        END;
+      `;
+
+const ACCOUNTING_ACCOUNT_DEFINITION_GUARD_SQL = `
+        CREATE TRIGGER IF NOT EXISTS accounting_posted_account_definition_guard
+        BEFORE UPDATE OF account_code, account_type, normal_balance, parent_account_id, is_system, system_key ON accounting_accounts
+        WHEN OLD.is_system = 1
+          OR NEW.is_system = 1
+          OR OLD.system_key IS NOT NULL
+          OR NEW.system_key IS NOT NULL
+          OR EXISTS (
+            SELECT 1
+            FROM accounting_journal_lines AS line
+            JOIN accounting_journal_entries AS entry ON entry.id = line.journal_entry_id
+            WHERE line.account_id = OLD.id AND entry.status = 'posted'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'System or posted accounting account definitions are immutable');
+        END;
+      `;
+
+const ACCOUNTING_SALES_TRIGGER_SQL = `
+
+  CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_mapping_cleanup
+  AFTER DELETE ON payment_methods
+  BEGIN
+    DELETE FROM accounting_payment_method_mappings WHERE payment_method_key = 'custom:' || OLD.id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_bill_finalization_fields_immutable
+  BEFORE UPDATE OF accounting_finalized_at, accounting_snapshot_json, accounting_sale_journal_entry_id ON bills
+  WHEN OLD.accounting_finalized_at IS NOT NULL AND (
+    NEW.accounting_finalized_at IS NOT OLD.accounting_finalized_at
+    OR NEW.accounting_snapshot_json IS NOT OLD.accounting_snapshot_json
+    OR NEW.accounting_sale_journal_entry_id IS NOT OLD.accounting_sale_journal_entry_id
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'ACCOUNTING_FINALIZED_BILL_IMMUTABLE');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_finalized_bill_amounts_immutable
+  BEFORE UPDATE OF bill_number, order_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
+    discount_amount, discount_type, discount_value, discount_reason, delivery_charge,
+    packaging_charge, service_charge, table_charge, takeaway_charge, round_off, total,
+    split_group_id, split_label ON bills
+  WHEN OLD.accounting_finalized_at IS NOT NULL AND (
+    NEW.bill_number IS NOT OLD.bill_number OR NEW.order_id IS NOT OLD.order_id
+    OR NEW.subtotal IS NOT OLD.subtotal OR NEW.tax_amount IS NOT OLD.tax_amount
+    OR NEW.tax_breakdown IS NOT OLD.tax_breakdown OR NEW.tax_snapshot IS NOT OLD.tax_snapshot
+    OR NEW.discount_amount IS NOT OLD.discount_amount OR NEW.discount_type IS NOT OLD.discount_type
+    OR NEW.discount_value IS NOT OLD.discount_value OR NEW.discount_reason IS NOT OLD.discount_reason
+    OR NEW.delivery_charge IS NOT OLD.delivery_charge OR NEW.packaging_charge IS NOT OLD.packaging_charge
+    OR NEW.service_charge IS NOT OLD.service_charge OR NEW.table_charge IS NOT OLD.table_charge
+    OR NEW.takeaway_charge IS NOT OLD.takeaway_charge OR NEW.round_off IS NOT OLD.round_off
+    OR NEW.total IS NOT OLD.total OR NEW.split_group_id IS NOT OLD.split_group_id
+    OR NEW.split_label IS NOT OLD.split_label
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'ACCOUNTING_FINALIZED_BILL_AMOUNT_IMMUTABLE');
+  END;
+`;
+
+function recreateAccountingAccountDefinitionGuard(db: Database.Database): void {
+  // v100 shipped the original trigger. Replace it explicitly so both upgraded
+  // databases and privileged restore paths use the hardened identity guard.
+  db.exec('DROP TRIGGER IF EXISTS accounting_posted_account_definition_guard');
+  db.exec(ACCOUNTING_ACCOUNT_DEFINITION_GUARD_SQL);
+}
+
+function dropAccountingLedgerRestoreTriggers(db: Database.Database): void {
+  for (const triggerName of ACCOUNTING_LEDGER_RESTORE_TRIGGERS) {
+    db.exec(`DROP TRIGGER IF EXISTS ${triggerName}`);
+  }
+}
+
+const ACCOUNTING_PERIOD_CLOSE_TRIGGER_SQL = `
+  CREATE TRIGGER accounting_journal_entries_closed_period_insert_guard
+    BEFORE INSERT ON accounting_journal_entries
+    WHEN NEW.status = 'posted' AND EXISTS (
+      SELECT 1 FROM accounting_period_closures AS period
+      WHERE period.status = 'closed' AND NEW.entry_date BETWEEN period.period_start AND period.period_end
+    )
+    BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED'); END;
+  CREATE TRIGGER accounting_journal_entries_closed_period_guard
+    BEFORE UPDATE OF status ON accounting_journal_entries
+    WHEN NEW.status = 'posted' AND OLD.status != 'posted' AND EXISTS (
+      SELECT 1 FROM accounting_period_closures AS period
+      WHERE period.status = 'closed' AND NEW.entry_date BETWEEN period.period_start AND period.period_end
+    )
+    BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED'); END;
+  CREATE TRIGGER accounting_period_closures_no_delete
+    BEFORE DELETE ON accounting_period_closures
+    BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_IMMUTABLE'); END;
+  CREATE TRIGGER accounting_closed_period_posted_entry_update_guard
+    BEFORE UPDATE ON accounting_journal_entries
+    WHEN OLD.status = 'posted' AND (
+      EXISTS ( SELECT 1 FROM accounting_period_closures AS period
+        WHERE period.status = 'closed' AND OLD.entry_date BETWEEN period.period_start AND period.period_end )
+      OR EXISTS ( SELECT 1 FROM accounting_period_closures AS period
+        WHERE period.status = 'closed' AND NEW.entry_date BETWEEN period.period_start AND period.period_end )
+    )
+    BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
+  CREATE TRIGGER accounting_closed_period_posted_entry_delete_guard
+    BEFORE DELETE ON accounting_journal_entries
+    WHEN OLD.status = 'posted' AND EXISTS (
+      SELECT 1 FROM accounting_period_closures AS period
+      WHERE period.status = 'closed' AND OLD.entry_date BETWEEN period.period_start AND period.period_end
+    )
+    BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
+  CREATE TRIGGER accounting_closed_period_posted_line_insert_guard
+    BEFORE INSERT ON accounting_journal_lines
+    WHEN EXISTS ( SELECT 1 FROM accounting_journal_entries AS entry
+      JOIN accounting_period_closures AS period ON period.status = 'closed'
+      AND entry.entry_date BETWEEN period.period_start AND period.period_end
+      WHERE entry.id = NEW.journal_entry_id AND entry.status = 'posted' )
+    BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
+  CREATE TRIGGER accounting_closed_period_posted_line_update_guard
+    BEFORE UPDATE ON accounting_journal_lines
+    WHEN EXISTS ( SELECT 1 FROM accounting_journal_entries AS entry
+      JOIN accounting_period_closures AS period ON period.status = 'closed'
+      AND entry.entry_date BETWEEN period.period_start AND period.period_end
+      WHERE entry.id = OLD.journal_entry_id AND entry.status = 'posted' )
+      OR EXISTS ( SELECT 1 FROM accounting_journal_entries AS entry
+      JOIN accounting_period_closures AS period ON period.status = 'closed'
+      AND entry.entry_date BETWEEN period.period_start AND period.period_end
+      WHERE entry.id = NEW.journal_entry_id AND entry.status = 'posted' )
+    BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
+  CREATE TRIGGER accounting_closed_period_posted_line_delete_guard
+    BEFORE DELETE ON accounting_journal_lines
+    WHEN EXISTS ( SELECT 1 FROM accounting_journal_entries AS entry
+      JOIN accounting_period_closures AS period ON period.status = 'closed'
+      AND entry.entry_date BETWEEN period.period_start AND period.period_end
+      WHERE entry.id = OLD.journal_entry_id AND entry.status = 'posted' )
+    BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE'); END;
+`;
+
+const ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL = `
+  -- A period record must start in the closed state. Reopened records can
+  -- only be produced by the audited state transition below.
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_insert_guard
+    BEFORE INSERT ON accounting_period_closures
+    WHEN NEW.status != 'closed'
+      OR NEW.reopen_reason IS NOT NULL
+      OR NEW.reopened_by IS NOT NULL
+      OR NEW.reopened_at IS NOT NULL
+      OR length(trim(COALESCE(NEW.close_reason, ''))) = 0
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION');
+    END;
+
+  -- The date range and identity are permanent. Only close -> reopen -> reclose
+  -- transitions are supported; every accepted insert/update is audited by SQL
+  -- so direct database writes cannot bypass the accounting audit trail.
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_update_guard
+    BEFORE UPDATE ON accounting_period_closures
+    WHEN NEW.id IS NOT OLD.id
+      OR NEW.period_start IS NOT OLD.period_start
+      OR NEW.period_end IS NOT OLD.period_end
+      OR NOT (
+        (OLD.status = 'closed' AND NEW.status = 'reopened'
+          AND NEW.close_reason IS OLD.close_reason
+          AND NEW.closed_by IS OLD.closed_by
+          AND NEW.closed_at IS OLD.closed_at
+          AND length(trim(COALESCE(NEW.reopen_reason, ''))) > 0
+          AND NEW.reopened_by IS NOT NULL
+          AND NEW.reopened_at IS NOT NULL)
+        OR
+        (OLD.status = 'reopened' AND NEW.status = 'closed'
+          AND NEW.reopen_reason IS NULL
+          AND NEW.reopened_by IS NULL
+          AND NEW.reopened_at IS NULL
+          AND length(trim(COALESCE(NEW.close_reason, ''))) > 0)
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_no_overlap_insert
+    BEFORE INSERT ON accounting_period_closures
+    WHEN NEW.status = 'closed' AND EXISTS (
+      SELECT 1 FROM accounting_period_closures AS existing
+      WHERE existing.status = 'closed'
+        AND existing.period_start <= NEW.period_end
+        AND existing.period_end >= NEW.period_start
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_OVERLAP');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_no_overlap_update
+    BEFORE UPDATE ON accounting_period_closures
+    WHEN NEW.status = 'closed' AND EXISTS (
+      SELECT 1 FROM accounting_period_closures AS existing
+      WHERE existing.id != NEW.id
+        AND existing.status = 'closed'
+        AND existing.period_start <= NEW.period_end
+        AND existing.period_end >= NEW.period_start
+    )
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_OVERLAP');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_audit_insert
+    AFTER INSERT ON accounting_period_closures
+    BEGIN
+      INSERT INTO accounting_audit_log
+        (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+      VALUES (
+        'accounting_period', NEW.id, 'closed', NEW.closed_by, NULL,
+        json_object(
+          'id', NEW.id, 'period_start', NEW.period_start, 'period_end', NEW.period_end,
+          'status', NEW.status, 'close_reason', NEW.close_reason, 'closed_by', NEW.closed_by,
+          'closed_at', NEW.closed_at, 'reopen_reason', NEW.reopen_reason,
+          'reopened_by', NEW.reopened_by, 'reopened_at', NEW.reopened_at
+        )
+      );
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_period_closures_audit_update
+    AFTER UPDATE ON accounting_period_closures
+    BEGIN
+      INSERT INTO accounting_audit_log
+        (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+      VALUES (
+        'accounting_period', NEW.id,
+        CASE NEW.status WHEN 'reopened' THEN 'reopened' ELSE 'reclosed' END,
+        CASE NEW.status WHEN 'reopened' THEN NEW.reopened_by ELSE NEW.closed_by END,
+        json_object(
+          'id', OLD.id, 'period_start', OLD.period_start, 'period_end', OLD.period_end,
+          'status', OLD.status, 'close_reason', OLD.close_reason, 'closed_by', OLD.closed_by,
+          'closed_at', OLD.closed_at, 'reopen_reason', OLD.reopen_reason,
+          'reopened_by', OLD.reopened_by, 'reopened_at', OLD.reopened_at
+        ),
+        json_object(
+          'id', NEW.id, 'period_start', NEW.period_start, 'period_end', NEW.period_end,
+          'status', NEW.status, 'close_reason', NEW.close_reason, 'closed_by', NEW.closed_by,
+          'closed_at', NEW.closed_at, 'reopen_reason', NEW.reopen_reason,
+          'reopened_by', NEW.reopened_by, 'reopened_at', NEW.reopened_at
+        )
+      );
+    END;
+`;
+
+const ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL = `
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_state_guard
+    BEFORE UPDATE ON accounting_future_items
+    BEGIN
+      -- Check source immutability first and within the same trigger, because SQLite does
+      -- not promise ordering between multiple BEFORE UPDATE triggers on one table.
+      SELECT CASE WHEN
+        NEW.id IS NOT OLD.id
+        OR NEW.record_type IS NOT OLD.record_type
+        OR NEW.direction IS NOT OLD.direction
+        OR NEW.due_date IS NOT OLD.due_date
+        OR NEW.amount_minor IS NOT OLD.amount_minor
+        OR NEW.currency_code IS NOT OLD.currency_code
+        OR NEW.description IS NOT OLD.description
+        OR NEW.counterparty IS NOT OLD.counterparty
+        OR NEW.reference_number IS NOT OLD.reference_number
+        OR NEW.classification_account_id IS NOT OLD.classification_account_id
+        OR NEW.auto_register IS NOT OLD.auto_register
+        OR NEW.idempotency_key IS NOT OLD.idempotency_key
+        OR NEW.payload_hash IS NOT OLD.payload_hash
+        OR NEW.created_by IS NOT OLD.created_by
+        OR NEW.created_at IS NOT OLD.created_at
+        THEN RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_PAYLOAD_IMMUTABLE') END;
+      SELECT CASE WHEN NOT (
+        (OLD.status = 'scheduled' AND NEW.status IN ('awaiting_confirmation', 'registered', 'cancelled', 'failed'))
+        OR (OLD.status = 'awaiting_confirmation' AND NEW.status IN ('registered', 'cancelled', 'failed'))
+        OR (OLD.status = 'failed' AND NEW.status IN ('registered', 'cancelled', 'failed'))
+        OR (OLD.status = 'registered' AND NEW.status = 'settled')
+      ) THEN RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_INVALID_TRANSITION') END;
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_no_delete
+    BEFORE DELETE ON accounting_future_items
+    BEGIN
+      SELECT RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_IMMUTABLE');
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_audit_insert
+    AFTER INSERT ON accounting_future_items
+    BEGIN
+      INSERT INTO accounting_audit_log
+        (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+      VALUES (
+        'accounting_future_item', NEW.id, 'created', NEW.created_by, NULL,
+        json_object(
+          'id', NEW.id, 'record_type', NEW.record_type, 'direction', NEW.direction,
+          'due_date', NEW.due_date, 'amount_minor', NEW.amount_minor, 'currency_code', NEW.currency_code,
+          'description', NEW.description, 'counterparty', NEW.counterparty, 'reference_number', NEW.reference_number,
+          'classification_account_id', NEW.classification_account_id, 'auto_register', NEW.auto_register,
+          'status', NEW.status, 'idempotency_key', NEW.idempotency_key, 'payload_hash', NEW.payload_hash
+        )
+      );
+    END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_future_items_audit_update
+    AFTER UPDATE ON accounting_future_items
+    BEGIN
+      INSERT INTO accounting_audit_log
+        (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+      VALUES (
+        'accounting_future_item', NEW.id,
+        CASE NEW.status
+          WHEN 'awaiting_confirmation' THEN 'due_awaiting_confirmation'
+          WHEN 'registered' THEN 'registered'
+          WHEN 'settled' THEN 'settled'
+          WHEN 'cancelled' THEN 'cancelled'
+          WHEN 'failed' THEN 'registration_failed'
+          ELSE 'state_updated'
+        END,
+        NEW.status_actor_id,
+        json_object(
+          'status', OLD.status, 'due_journal_entry_id', OLD.due_journal_entry_id,
+          'settlement_journal_entry_id', OLD.settlement_journal_entry_id,
+          'settlement_account_id', OLD.settlement_account_id, 'registered_at', OLD.registered_at,
+          'settled_at', OLD.settled_at, 'cancelled_at', OLD.cancelled_at,
+          'last_error_code', OLD.last_error_code, 'last_error_message', OLD.last_error_message
+        ),
+        json_object(
+          'status', NEW.status, 'due_journal_entry_id', NEW.due_journal_entry_id,
+          'settlement_journal_entry_id', NEW.settlement_journal_entry_id,
+          'settlement_account_id', NEW.settlement_account_id, 'registered_at', NEW.registered_at,
+          'settled_at', NEW.settled_at, 'cancelled_at', NEW.cancelled_at,
+          'last_error_code', NEW.last_error_code, 'last_error_message', NEW.last_error_message
+        )
+      );
+    END;
+`;
+
+const ACCOUNTING_LOAN_TRIGGER_SQL = `
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_no_delete BEFORE DELETE ON accounting_loans
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_status_guard BEFORE UPDATE ON accounting_loans
+    WHEN NOT (OLD.status=NEW.status OR (OLD.status='active' AND NEW.status='closed'))
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INVALID_STATUS_TRANSITION'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_opening_fields_insert_guard BEFORE INSERT ON accounting_loans
+    WHEN NEW.accounting_start_date IS NULL OR NEW.origination_date IS NULL
+      OR (NEW.mode='new' AND (NEW.accounting_start_date<>NEW.loan_date OR NEW.origination_date<>NEW.loan_date OR NEW.historical_principal_repaid_minor<>0))
+      OR (NEW.mode='opening' AND (NEW.origination_date>NEW.accounting_start_date OR NEW.historical_principal_repaid_minor<>NEW.original_principal_minor-NEW.initial_outstanding_minor))
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_OPENING_FIELDS_INVALID'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_identity_guard BEFORE UPDATE ON accounting_loans
+    WHEN NEW.id<>OLD.id OR NEW.mode<>OLD.mode OR NEW.lender<>OLD.lender
+      OR COALESCE(NEW.description,'')<>COALESCE(OLD.description,'')
+      OR COALESCE(NEW.reference_number,'')<>COALESCE(OLD.reference_number,'')
+      OR NEW.loan_date<>OLD.loan_date OR NEW.currency_code<>OLD.currency_code
+      OR COALESCE(NEW.accounting_start_date,'')<>COALESCE(OLD.accounting_start_date,'')
+      OR NEW.historical_principal_repaid_minor<>OLD.historical_principal_repaid_minor
+      OR (OLD.mode='new' AND COALESCE(NEW.origination_date,'')<>COALESCE(OLD.origination_date,''))
+      OR (OLD.mode='opening' AND OLD.origination_date IS NOT NULL AND COALESCE(NEW.origination_date,'')<>COALESCE(OLD.origination_date,''))
+      OR (NEW.origination_date IS NOT NULL AND NEW.origination_date>NEW.accounting_start_date)
+      OR NEW.original_principal_minor<>OLD.original_principal_minor
+      OR NEW.initial_outstanding_minor<>OLD.initial_outstanding_minor
+      OR NEW.liability_account_id<>OLD.liability_account_id
+      OR COALESCE(NEW.cash_account_id,'')<>COALESCE(OLD.cash_account_id,'')
+      OR NEW.idempotency_key<>OLD.idempotency_key OR NEW.payload_hash<>OLD.payload_hash
+      OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
+      OR (OLD.initial_journal_entry_id IS NOT NULL AND NEW.initial_journal_entry_id<>OLD.initial_journal_entry_id)
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IDENTITY_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_batch_no_update BEFORE UPDATE ON accounting_loan_installment_batches
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_batch_no_delete BEFORE DELETE ON accounting_loan_installment_batches
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_no_delete BEFORE DELETE ON accounting_loan_installments
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_registration_guard BEFORE UPDATE OF status ON accounting_loan_installments
+    WHEN NEW.status='registered' AND OLD.status<>'registered' AND (
+      (NEW.interest_minor + NEW.fees_minor > 0 AND (
+        NEW.due_journal_entry_id IS NULL OR NOT EXISTS (
+          SELECT 1 FROM accounting_journal_entries entry
+          WHERE entry.id=NEW.due_journal_entry_id AND entry.status='posted'
+            AND entry.source_type='accounting_loan' AND entry.source_id=NEW.id
+            AND entry.source_event='installment_due_registration'
+        )
+      )) OR ((NEW.interest_minor + NEW.fees_minor)=0 AND NEW.due_journal_entry_id IS NOT NULL)
+    )
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_DUE_JOURNAL_REQUIRED'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR NEW.due_date<>OLD.due_date OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor OR COALESCE(NEW.interest_account_id,'')<>COALESCE(OLD.interest_account_id,'') OR COALESCE(NEW.fees_account_id,'')<>COALESCE(OLD.fees_account_id,'') OR NEW.auto_register<>OLD.auto_register OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'') OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') AND NEW.status<>'settled' BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments WHEN OLD.status='settled' AND ( NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'') OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'') OR COALESCE(NEW.due_journal_entry_id,'')<>COALESCE(OLD.due_journal_entry_id,'') OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'') OR COALESCE(NEW.settlement_payload_hash,'')<>COALESCE(OLD.settlement_payload_hash,'') OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'') OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,'') ) BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
+    WHEN NOT (
+      (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','cancelled','failed')) OR
+      (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','cancelled','failed')) OR
+      (OLD.status='failed' AND NEW.status IN ('registered','cancelled')) OR
+      (OLD.status='registered' AND NEW.status IN ('settled')) OR
+      (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed')
+              AND COALESCE(NEW.registered_at,'')=COALESCE(OLD.registered_at,'')
+              AND COALESCE(NEW.registered_by,'')=COALESCE(OLD.registered_by,'')
+              AND COALESCE(NEW.settlement_date,'')=COALESCE(OLD.settlement_date,'')
+              AND COALESCE(NEW.due_journal_entry_id,'')=COALESCE(OLD.due_journal_entry_id,'')
+              AND COALESCE(NEW.settlement_account_id,'')=COALESCE(OLD.settlement_account_id,'')
+              AND COALESCE(NEW.settlement_journal_entry_id,'')=COALESCE(OLD.settlement_journal_entry_id,'')
+              AND COALESCE(NEW.settlement_idempotency_key,'')=COALESCE(OLD.settlement_idempotency_key,'')
+              AND COALESCE(NEW.settlement_payload_hash,'')=COALESCE(OLD.settlement_payload_hash,'')
+              AND COALESCE(NEW.settled_at,'')=COALESCE(OLD.settled_at,'')
+              AND COALESCE(NEW.settled_by,'')=COALESCE(OLD.settled_by,'')
+              AND COALESCE(NEW.cancellation_reason,'')=COALESCE(OLD.cancellation_reason,'')
+              AND COALESCE(NEW.cancelled_by,'')=COALESCE(OLD.cancelled_by,'')
+              AND COALESCE(NEW.cancelled_at,'')=COALESCE(OLD.cancelled_at,''))
+    )
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_INVALID_TRANSITION'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_audit_insert AFTER INSERT ON accounting_loans
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan',NEW.id,'created',NEW.created_by,NULL,json_object('mode',NEW.mode,'lender',NEW.lender,
+        'loan_date',NEW.loan_date,'origination_date',NEW.origination_date,'accounting_start_date',NEW.accounting_start_date,
+        'original_principal_minor',NEW.original_principal_minor,'initial_outstanding_minor',NEW.initial_outstanding_minor,
+        'historical_principal_repaid_minor',NEW.historical_principal_repaid_minor,'currency_code',NEW.currency_code,
+        'liability_account_id',NEW.liability_account_id,'cash_account_id',NEW.cash_account_id)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_audit_update AFTER UPDATE ON accounting_loans
+    WHEN OLD.initial_journal_entry_id IS NULL AND NEW.initial_journal_entry_id IS NOT NULL
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan',NEW.id,'initial_journal_linked',NEW.created_by,
+        json_object('initial_journal_entry_id',OLD.initial_journal_entry_id),
+        json_object('initial_journal_entry_id',NEW.initial_journal_entry_id)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_status_audit AFTER UPDATE OF status ON accounting_loans
+    WHEN OLD.status<>NEW.status
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan',NEW.id,'closed',NEW.created_by,json_object('status',OLD.status),json_object('status',NEW.status)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_batch_audit_insert AFTER INSERT ON accounting_loan_installment_batches
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan_installment_batch',NEW.id,'created',NEW.created_by,NULL,
+        json_object('loan_id',NEW.loan_id,'idempotency_key',NEW.idempotency_key)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_audit_insert AFTER INSERT ON accounting_loan_installments
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan_installment',NEW.id,'scheduled',NEW.created_by,NULL,
+        json_object('loan_id',NEW.loan_id,'due_date',NEW.due_date,'principal_minor',NEW.principal_minor,
+          'interest_minor',NEW.interest_minor,'fees_minor',NEW.fees_minor,'auto_register',NEW.auto_register)); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loan_installment_audit_update AFTER UPDATE ON accounting_loan_installments
+    BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+      VALUES('accounting_loan_installment',NEW.id,NEW.status,COALESCE(NEW.settled_by,NEW.cancelled_by,NEW.registered_by),
+        json_object('status',OLD.status),json_object('status',NEW.status,'settlement_date',NEW.settlement_date,
+          'due_journal_entry_id',NEW.due_journal_entry_id,'settlement_journal_entry_id',NEW.settlement_journal_entry_id,
+          'cancellation_reason',NEW.cancellation_reason,'last_error_code',NEW.last_error_code,'last_error_message',NEW.last_error_message)); END;
+`;
+
+function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
+  if (!getTables(db).includes('accounting_accounts')) return;
+  db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
+  if (getTables(db).includes('accounting_period_closures')
+    && getTables(db).includes('accounting_journal_entries')
+    && getTables(db).includes('accounting_journal_lines')) {
+    db.exec(ACCOUNTING_PERIOD_CLOSE_TRIGGER_SQL);
+    db.exec(ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL);
+  }
+  if (
+    getTables(db).includes('bills')
+    && getTables(db).includes('payment_methods')
+    && getTables(db).includes('accounting_payment_method_mappings')
+    && getTables(db).includes('accounting_accounts')
+    && getColumns(db, 'bills').includes('accounting_finalized_at')
+    && getColumns(db, 'bills').includes('accounting_snapshot_json')
+    && getColumns(db, 'bills').includes('accounting_sale_journal_entry_id')
+  ) {
+    // Older backups may contain v104 mapping tables but lack the v105 bill columns.
+    // Reinstall Phase 3 triggers only once the v105 schema shape exists.
+    db.exec(ACCOUNTING_SALES_TRIGGER_SQL);
+  }
+  if (getTables(db).includes('accounting_expenses')) {
+    db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
+    db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
+  }
+  if (getTables(db).includes('accounting_future_items')) {
+    db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
+  }
+  if (getTables(db).includes('accounting_loans') && getTables(db).includes('accounting_loan_installments')) {
+    db.exec(ACCOUNTING_LOAN_TRIGGER_SQL);
+  }
+  recreateAccountingAccountDefinitionGuard(db);
+}
+
+function ensureLoanPayableSystemAccount(dbInstance: Database.Database): void {
+  const existing = dbInstance.prepare("SELECT id FROM accounting_accounts WHERE system_key='loans_payable'").get();
+  if (existing) return;
+  const parent = dbInstance.prepare("SELECT id FROM accounting_accounts WHERE id='acct-liabilities' AND account_type='liability'").get();
+  if (!parent) throw new Error('Cannot seed Loans payable: the liability parent account is missing.');
+  const accountId = 'acct-loans-payable';
+  if (dbInstance.prepare('SELECT 1 FROM accounting_accounts WHERE id=?').get(accountId)) {
+    throw new Error('Cannot seed Loans payable: the reserved account id is already used by a different account.');
+  }
+  let accountCode = 2030;
+  while (dbInstance.prepare('SELECT 1 FROM accounting_accounts WHERE account_code=?').get(String(accountCode))) accountCode++;
+  dbInstance.prepare(`INSERT INTO accounting_accounts
+    (id,system_key,account_code,name,account_type,normal_balance,parent_account_id,is_system,is_active,is_postable)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(accountId,'loans_payable',String(accountCode),'Loans payable','liability','credit','acct-liabilities',1,1,1);
+}
+
 function dataOnlyRestore(
   backupPath: string,
   backupVersion: number,
@@ -2837,6 +3631,11 @@ function dataOnlyRestore(
     currentDb.exec('BEGIN IMMEDIATE');
     inTransaction = true;
 
+    // Restoring a validated backup is a privileged replacement operation.
+    // Temporarily remove accounting immutability triggers inside this transaction
+    // so old posted rows/audit records can be replaced; rollback restores them.
+    dropAccountingLedgerRestoreTriggers(currentDb);
+
     for (const tableName of commonTables) {
       throwIfDatabaseMaintenanceAborted(signal);
       if (!isSafeIdentifier(tableName)) {
@@ -2863,6 +3662,30 @@ function dataOnlyRestore(
       console.log(`[DB] Restored ${tableName}: ${commonColumns.length} columns`);
     }
 
+    // Older backups may predate the dedicated loan liability account and v117
+    // loan metadata. Rebuild only deterministic metadata from the preserved loan
+    // amounts; the actual origination date of an old opening loan remains unknown.
+    ensureLoanPayableSystemAccount(currentDb);
+    if (getTables(currentDb).includes('accounting_loans')) {
+      const loanColumns = new Set(getColumns(currentDb, 'accounting_loans'));
+      if (['mode','loan_date','origination_date','accounting_start_date','original_principal_minor','initial_outstanding_minor','historical_principal_repaid_minor']
+        .every((column) => loanColumns.has(column))) {
+        currentDb.prepare(`
+          UPDATE accounting_loans
+          SET accounting_start_date=COALESCE(accounting_start_date, loan_date),
+              origination_date=CASE WHEN mode='new' THEN COALESCE(origination_date, loan_date) ELSE origination_date END,
+              historical_principal_repaid_minor=CASE WHEN mode='opening'
+                THEN original_principal_minor-initial_outstanding_minor ELSE 0 END
+          WHERE accounting_start_date IS NULL
+             OR (mode='new' AND origination_date IS NULL)
+             OR historical_principal_repaid_minor <>
+                CASE WHEN mode='opening' THEN original_principal_minor-initial_outstanding_minor ELSE 0 END
+        `).run();
+      }
+    }
+
+    // Re-enable the normal accounting invariants before validating/committing.
+    recreateAccountingLedgerRestoreTriggers(currentDb);
     mergeUserSecurityState(currentDb, preservedUserSecurity);
     mergeUserStationSecurityState(currentDb, preservedUserStations, preservedUserSecurity.map((row) => row.id), preservedStationSecurity);
     mergeKdsEnabledSetting(currentDb, preservedKdsEnabled);
@@ -5468,7 +6291,1064 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       ).run(now());
     },
   },
-];
+
+  {
+    version: 100,
+    name: 'add_accounting_ledger_foundation',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS accounting_accounts (
+          id TEXT PRIMARY KEY,
+          system_key TEXT UNIQUE,
+          account_code TEXT NOT NULL UNIQUE CHECK (length(trim(account_code)) > 0),
+          name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+          account_type TEXT NOT NULL CHECK (account_type IN ('asset', 'liability', 'equity', 'revenue', 'expense')),
+          normal_balance TEXT NOT NULL CHECK (normal_balance IN ('debit', 'credit')),
+          parent_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0, 1)),
+          is_postable INTEGER NOT NULL DEFAULT 1 CHECK (is_postable IN (0, 1)),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          description TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounting_accounts_parent
+          ON accounting_accounts(parent_account_id);
+        CREATE INDEX IF NOT EXISTS idx_accounting_accounts_type_active
+          ON accounting_accounts(account_type, is_active);
+
+        CREATE TABLE IF NOT EXISTS accounting_sequences (
+          name TEXT PRIMARY KEY,
+          value INTEGER NOT NULL DEFAULT 0 CHECK (typeof(value) = 'integer' AND value >= 0)
+        );
+        INSERT OR IGNORE INTO accounting_sequences(name, value) VALUES ('journal-entry', 0);
+
+        CREATE TABLE IF NOT EXISTS accounting_journal_entries (
+          id TEXT PRIMARY KEY,
+          entry_number TEXT NOT NULL UNIQUE,
+          entry_date TEXT NOT NULL CHECK (entry_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          description TEXT NOT NULL CHECK (length(trim(description)) > 0),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'posted')),
+          source_type TEXT,
+          source_id TEXT,
+          source_event TEXT,
+          idempotency_key TEXT UNIQUE CHECK (idempotency_key IS NULL OR length(trim(idempotency_key)) > 0),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+          created_by TEXT,
+          posted_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          posted_at TEXT,
+          metadata_json TEXT,
+          CHECK (
+            (source_type IS NULL AND source_id IS NULL AND source_event IS NULL)
+            OR
+            (source_type IS NOT NULL AND length(trim(source_type)) > 0
+              AND source_id IS NOT NULL AND length(trim(source_id)) > 0
+              AND source_event IS NOT NULL AND length(trim(source_event)) > 0)
+          ),
+          CHECK ((status = 'draft' AND posted_at IS NULL) OR (status = 'posted' AND posted_at IS NOT NULL))
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounting_entries_date
+          ON accounting_journal_entries(entry_date, entry_number);
+        CREATE INDEX IF NOT EXISTS idx_accounting_entries_status_date
+          ON accounting_journal_entries(status, entry_date);
+        CREATE INDEX IF NOT EXISTS idx_accounting_entries_source
+          ON accounting_journal_entries(source_type, source_id, source_event);
+        CREATE UNIQUE INDEX IF NOT EXISTS accounting_journal_source_event_unique
+          ON accounting_journal_entries(source_type, source_id, source_event)
+          WHERE source_type IS NOT NULL AND source_id IS NOT NULL AND source_event IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS accounting_journal_lines (
+          id TEXT PRIMARY KEY,
+          journal_entry_id TEXT NOT NULL REFERENCES accounting_journal_entries(id) ON DELETE CASCADE,
+          line_no INTEGER NOT NULL CHECK (line_no > 0),
+          account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          description TEXT,
+          debit_minor INTEGER NOT NULL DEFAULT 0 CHECK (typeof(debit_minor) = 'integer' AND debit_minor >= 0),
+          credit_minor INTEGER NOT NULL DEFAULT 0 CHECK (typeof(credit_minor) = 'integer' AND credit_minor >= 0),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (journal_entry_id, line_no),
+          CHECK (
+            (debit_minor > 0 AND credit_minor = 0)
+            OR
+            (credit_minor > 0 AND debit_minor = 0)
+          )
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounting_lines_entry
+          ON accounting_journal_lines(journal_entry_id, line_no);
+        CREATE INDEX IF NOT EXISTS idx_accounting_lines_account
+          ON accounting_journal_lines(account_id, journal_entry_id);
+
+        CREATE TABLE IF NOT EXISTS accounting_audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          actor_user_id TEXT,
+          before_json TEXT,
+          after_json TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounting_audit_entity
+          ON accounting_audit_log(entity_type, entity_id, id);
+        CREATE INDEX IF NOT EXISTS idx_accounting_audit_created
+          ON accounting_audit_log(created_at, id);
+
+        ${ACCOUNTING_LEDGER_TRIGGER_SQL}
+      `);
+
+      const accounts = [
+        ['acct-assets', 'assets', '1000', 'Assets', 'asset', 'debit', null, 1, 0],
+        ['acct-cash-drawer', 'cash_drawer', '1010', 'Cash drawer', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-bank', 'bank_accounts', '1020', 'Bank accounts', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-payment-clearing', 'payment_clearing', '1030', 'Payment clearing', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-receivables', 'accounts_receivable', '1100', 'Accounts receivable', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-inventory', 'inventory', '1200', 'Inventory', 'asset', 'debit', 'acct-assets', 1, 1],
+        ['acct-liabilities', 'liabilities', '2000', 'Liabilities', 'liability', 'credit', null, 1, 0],
+        ['acct-payables', 'accounts_payable', '2010', 'Accounts payable', 'liability', 'credit', 'acct-liabilities', 1, 1],
+        ['acct-customer-advances', 'customer_advances', '2020', 'Customer advances', 'liability', 'credit', 'acct-liabilities', 1, 1],
+        ['acct-equity', 'equity', '3000', 'Equity', 'equity', 'credit', null, 1, 0],
+        ['acct-owner-capital', 'owner_capital', '3010', 'Owner capital', 'equity', 'credit', 'acct-equity', 1, 1],
+        ['acct-owner-drawings', 'owner_drawings', '3020', 'Owner drawings', 'equity', 'debit', 'acct-equity', 1, 1],
+        ['acct-income', 'income', '4000', 'Income', 'revenue', 'credit', null, 1, 0],
+        ['acct-sales-revenue', 'sales_revenue', '4010', 'Sales revenue', 'revenue', 'credit', 'acct-income', 1, 1],
+        ['acct-sales-discounts', 'sales_discounts', '4020', 'Sales discounts', 'revenue', 'debit', 'acct-income', 1, 1],
+        ['acct-other-income', 'other_income', '4030', 'Other income', 'revenue', 'credit', 'acct-income', 1, 1],
+        ['acct-expenses', 'expenses', '5000', 'Expenses', 'expense', 'debit', null, 1, 0],
+        ['acct-cogs', 'cost_of_goods_sold', '5010', 'Cost of goods sold', 'expense', 'debit', 'acct-expenses', 1, 1],
+        ['acct-operating-expenses', 'operating_expenses', '5020', 'Operating expenses', 'expense', 'debit', 'acct-expenses', 1, 1],
+        ['acct-payment-fees', 'payment_processing_fees', '5030', 'Payment processing fees', 'expense', 'debit', 'acct-expenses', 1, 1],
+      ] as const;
+      const insertAccount = db.prepare(
+        'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)',
+      );
+      for (const account of accounts) insertAccount.run(...account);
+    },
+  },
+  {
+    version: 101,
+    name: 'protect_accounting_system_account_identity',
+    up: () => {
+      // Migration 100 remains immutable; this forward migration hardens the
+      // system-account identity guard for both fresh and already-upgraded DBs.
+      recreateAccountingAccountDefinitionGuard(db);
+    },
+  },
+
+  {
+    version: 102,
+    name: 'accounting_expense_foundation',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_expense_categories (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+          expense_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          created_by TEXT,
+          updated_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE accounting_payment_method_mappings (
+          payment_method_key TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          updated_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (
+            payment_method_key IN ('cash', 'card', 'loyalty')
+            OR (payment_method_key GLOB 'custom:[1-9]*' AND substr(payment_method_key, 8) NOT GLOB '*[^0-9]*')
+          )
+        );
+
+        CREATE TABLE accounting_expenses (
+          id TEXT PRIMARY KEY,
+          category_id TEXT NOT NULL REFERENCES accounting_expense_categories(id) ON DELETE RESTRICT,
+          expense_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          expense_date TEXT NOT NULL CHECK (
+            length(expense_date) = 10 AND expense_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+          ),
+          amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          description TEXT NOT NULL CHECK (length(trim(description)) > 0),
+          payee TEXT,
+          reference_number TEXT,
+          payment_status TEXT NOT NULL DEFAULT 'unpaid' CHECK (payment_status IN ('unpaid', 'paid')),
+          payment_method_key TEXT,
+          payment_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          payment_date TEXT CHECK (
+            payment_date IS NULL OR (
+              length(payment_date) = 10 AND payment_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+            )
+          ),
+          status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'posted', 'reversed')),
+          posted_journal_entry_id TEXT UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          created_by TEXT,
+          updated_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (
+            (payment_status = 'unpaid' AND payment_method_key IS NULL AND payment_account_id IS NULL AND payment_date IS NULL)
+            OR (payment_status = 'paid' AND payment_method_key IS NOT NULL AND payment_account_id IS NOT NULL AND payment_date IS NOT NULL)
+          ),
+          CHECK (
+            (status = 'draft' AND posted_journal_entry_id IS NULL)
+            OR (status IN ('posted', 'reversed') AND posted_journal_entry_id IS NOT NULL)
+          )
+        );
+
+        CREATE INDEX accounting_expenses_date_idx
+          ON accounting_expenses(expense_date DESC, created_at DESC);
+        CREATE INDEX accounting_expenses_category_idx
+          ON accounting_expenses(category_id, expense_date DESC);
+        CREATE INDEX accounting_expenses_status_idx
+          ON accounting_expenses(status, payment_status, expense_date DESC);
+      `);
+    },
+  },
+  {
+    version: 103,
+    name: 'accounting_expense_integrity_and_idempotency',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_expenses ADD COLUMN idempotency_key TEXT;
+        ALTER TABLE accounting_expenses ADD COLUMN idempotency_payload_hash TEXT;
+        CREATE UNIQUE INDEX accounting_expenses_idempotency_key_unique
+          ON accounting_expenses(idempotency_key) WHERE idempotency_key IS NOT NULL;
+      `);
+      db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 104,
+    name: 'accounting_expense_posting_and_reversal',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_expenses ADD COLUMN reversal_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT;
+        ALTER TABLE accounting_expenses ADD COLUMN reversal_reason TEXT;
+        CREATE UNIQUE INDEX accounting_expenses_reversal_journal_unique
+          ON accounting_expenses(reversal_journal_entry_id) WHERE reversal_journal_entry_id IS NOT NULL;
+      `);
+      db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
+    },
+  },
+
+  {
+    version: 105,
+    name: 'accounting_sales_collections_and_refunds',
+    up: () => {
+      const billColumns = getColumns(db, 'bills');
+      if (!billColumns.includes('accounting_finalized_at')) {
+        db.exec('ALTER TABLE bills ADD COLUMN accounting_finalized_at TEXT');
+      }
+      if (!billColumns.includes('accounting_snapshot_json')) {
+        db.exec('ALTER TABLE bills ADD COLUMN accounting_snapshot_json TEXT');
+      }
+      if (!billColumns.includes('accounting_sale_journal_entry_id')) {
+        db.exec('ALTER TABLE bills ADD COLUMN accounting_sale_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT');
+      }
+      // The migration timestamp is the default accounting cutover. Existing bills/payments
+      // are not automatically journaled during upgrade; operators can reconcile/open balances
+      // separately before using accounting. This setting is deliberately not retroactive.
+      const cutoverAt = now();
+      db.prepare(`
+        INSERT OR IGNORE INTO settings (key, value, updated_at)
+        VALUES ('accounting_cutover_at', ?, ?)
+      `).run(cutoverAt, cutoverAt);
+
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS accounting_bills_sale_journal_unique
+          ON bills(accounting_sale_journal_entry_id)
+          WHERE accounting_sale_journal_entry_id IS NOT NULL;
+
+        INSERT OR IGNORE INTO accounting_accounts
+          (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable, description)
+        VALUES
+          ('acct-sales-tax-payable', 'sales_tax_payable', '2040', 'Tax collected (internal liability)', 'liability', 'credit', 'acct-liabilities', 1, 1, 1,
+           'Generic management-accounting liability for tax amounts already calculated by the POS. Not a jurisdiction-specific tax account or compliance claim.');
+
+        -- Monetary refunds need their own contra-revenue account. Discounts themselves are not posted.
+        INSERT OR IGNORE INTO accounting_accounts
+          (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable, description)
+        VALUES
+          ('acct-sales-returns', 'sales_returns', '4040', 'Sales returns and refunds', 'revenue', 'debit', 'acct-income', 1, 1, 1,
+           'Contra-revenue for actual monetary refunds. POS discounts and loyalty cashback are not journaled.');
+
+        -- Existing owner-defined mappings win. Cash and card get conservative defaults.
+        -- Custom payment methods default to clearing on creation so POS collection behavior
+        -- remains usable; owners can map each method to a more specific liquid asset in Settings.
+        INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          VALUES ('cash', 'acct-cash-drawer');
+        INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          VALUES ('card', 'acct-payment-clearing');
+        -- Loyalty wallet is POS-only and intentionally has no accounting mapping.
+        INSERT OR IGNORE INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          SELECT 'custom:' || id, 'acct-payment-clearing' FROM payment_methods WHERE is_active = 1;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_default_mapping
+        AFTER INSERT ON payment_methods
+        WHEN NOT EXISTS (
+          SELECT 1 FROM accounting_payment_method_mappings
+          WHERE payment_method_key = 'custom:' || NEW.id
+        )
+        BEGIN
+          INSERT INTO accounting_payment_method_mappings (payment_method_key, account_id)
+          VALUES ('custom:' || NEW.id, 'acct-payment-clearing');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_mapping_cleanup
+        AFTER DELETE ON payment_methods
+        BEGIN
+          DELETE FROM accounting_payment_method_mappings WHERE payment_method_key = 'custom:' || OLD.id;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_bill_finalization_fields_immutable
+        BEFORE UPDATE OF accounting_finalized_at, accounting_snapshot_json, accounting_sale_journal_entry_id ON bills
+        WHEN OLD.accounting_finalized_at IS NOT NULL AND (
+          NEW.accounting_finalized_at IS NOT OLD.accounting_finalized_at
+          OR NEW.accounting_snapshot_json IS NOT OLD.accounting_snapshot_json
+          OR NEW.accounting_sale_journal_entry_id IS NOT OLD.accounting_sale_journal_entry_id
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_FINALIZED_BILL_IMMUTABLE');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS accounting_finalized_bill_amounts_immutable
+        BEFORE UPDATE OF bill_number, order_id, subtotal, tax_amount, tax_breakdown, tax_snapshot,
+          discount_amount, discount_type, discount_value, discount_reason, delivery_charge,
+          packaging_charge, service_charge, table_charge, takeaway_charge, round_off, total,
+          split_group_id, split_label ON bills
+        WHEN OLD.accounting_finalized_at IS NOT NULL AND (
+          NEW.bill_number IS NOT OLD.bill_number OR NEW.order_id IS NOT OLD.order_id
+          OR NEW.subtotal IS NOT OLD.subtotal OR NEW.tax_amount IS NOT OLD.tax_amount
+          OR NEW.tax_breakdown IS NOT OLD.tax_breakdown OR NEW.tax_snapshot IS NOT OLD.tax_snapshot
+          OR NEW.discount_amount IS NOT OLD.discount_amount OR NEW.discount_type IS NOT OLD.discount_type
+          OR NEW.discount_value IS NOT OLD.discount_value OR NEW.discount_reason IS NOT OLD.discount_reason
+          OR NEW.delivery_charge IS NOT OLD.delivery_charge OR NEW.packaging_charge IS NOT OLD.packaging_charge
+          OR NEW.service_charge IS NOT OLD.service_charge OR NEW.table_charge IS NOT OLD.table_charge
+          OR NEW.takeaway_charge IS NOT OLD.takeaway_charge OR NEW.round_off IS NOT OLD.round_off
+          OR NEW.total IS NOT OLD.total OR NEW.split_group_id IS NOT OLD.split_group_id
+          OR NEW.split_label IS NOT OLD.split_label
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_FINALIZED_BILL_AMOUNT_IMMUTABLE');
+        END;
+      `);
+    },
+
+  },
+
+  {
+    version: 106,
+    name: 'accounting_opening_balances_and_history',
+    up: () => {
+      db.exec(`
+        INSERT OR IGNORE INTO accounting_accounts
+          (id, system_key, account_code, name, account_type, normal_balance, parent_account_id,
+           is_system, is_active, is_postable, description)
+        VALUES
+          ('acct-opening-balance-equity', 'opening_balance_equity', '3050', 'Opening balance equity',
+           'equity', 'credit', 'acct-equity', 1, 1, 1,
+           'Balancing equity account for one-time opening balances. It is not sales income or owner contribution.');
+
+        CREATE TABLE accounting_opening_balances (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL UNIQUE REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          opening_date TEXT NOT NULL CHECK (length(opening_date)=10 AND opening_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          amount_minor INTEGER NOT NULL CHECK (typeof(amount_minor)='integer' AND amount_minor > 0),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          source_classification TEXT NOT NULL CHECK (source_classification IN
+            ('cash_on_hand','bank_balance','accounts_receivable','accounts_payable','owner_equity','other_asset','other_liability','other_equity')),
+          journal_entry_id TEXT NOT NULL UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_accounting_opening_balances_date
+          ON accounting_opening_balances(opening_date, account_id);
+
+        CREATE TRIGGER accounting_opening_balances_immutable_update
+        BEFORE UPDATE ON accounting_opening_balances
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_OPENING_BALANCE_IMMUTABLE');
+        END;
+        CREATE TRIGGER accounting_opening_balances_immutable_delete
+        BEFORE DELETE ON accounting_opening_balances
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_OPENING_BALANCE_IMMUTABLE');
+        END;
+      `);
+    },
+  },
+
+  {
+    version: 107,
+    name: 'accounting_pre_cutover_reconciliation',
+    up: () => {
+      db.exec(`
+        INSERT OR IGNORE INTO accounting_accounts
+          (id, system_key, account_code, name, account_type, normal_balance, parent_account_id,
+           is_system, is_active, is_postable, description)
+        VALUES
+          ('acct-reconciliation-adjustment-equity', 'reconciliation_adjustment_equity', '3060',
+           'Reconciliation adjustments', 'equity', 'credit', 'acct-equity', 1, 1, 1,
+           'Non-operating equity offset for documented balance reconciliation adjustments; never sales income or operating expense.');
+
+        CREATE TABLE accounting_reconciliation_adjustments (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          adjustment_date TEXT NOT NULL CHECK (length(adjustment_date)=10 AND adjustment_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          system_balance_minor INTEGER NOT NULL CHECK (typeof(system_balance_minor)='integer'),
+          verified_balance_minor INTEGER NOT NULL CHECK (typeof(verified_balance_minor)='integer' AND verified_balance_minor >= 0),
+          difference_minor INTEGER NOT NULL CHECK (typeof(difference_minor)='integer' AND difference_minor <> 0),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          reason TEXT NOT NULL CHECK (length(trim(reason)) BETWEEN 1 AND 500),
+          source_reference TEXT CHECK (source_reference IS NULL OR length(trim(source_reference)) <= 160),
+          journal_entry_id TEXT NOT NULL UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_accounting_reconciliation_adjustments_date
+          ON accounting_reconciliation_adjustments(adjustment_date, account_id);
+        CREATE INDEX idx_accounting_reconciliation_adjustments_created
+          ON accounting_reconciliation_adjustments(created_at, id);
+
+        CREATE TRIGGER accounting_reconciliation_adjustments_immutable_update
+        BEFORE UPDATE ON accounting_reconciliation_adjustments
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE');
+        END;
+        CREATE TRIGGER accounting_reconciliation_adjustments_immutable_delete
+        BEFORE DELETE ON accounting_reconciliation_adjustments
+        BEGIN
+          SELECT RAISE(ABORT, 'ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE');
+        END;
+      `);
+    },
+  },
+  {
+    version: 108,
+    name: 'accounting_tax_payment_expense_account',
+    up: () => {
+      // Under LyraPOS's cash-received bookkeeping policy, sales receipts are
+      // recognized from actual money received. When tax is later paid, that
+      // payment is explicitly recorded as an expense rather than retroactively
+      // reallocating bill-level tax snapshots out of earlier receipts.
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable, description) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1, ?)',
+      ).run(
+        'acct-tax-expenses', 'tax_expenses', '5040', 'Taxes paid', 'expense', 'debit', 'acct-expenses',
+        'Cash-basis management expense for tax payments actually made. This is not a statutory tax-liability calculation.',
+      );
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_expense_categories (id, name, expense_account_id, is_active) VALUES (?, ?, ?, 1)',
+      ).run('expense-category-general', 'General expenses', 'acct-operating-expenses');
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_expense_categories (id, name, expense_account_id, is_active) VALUES (?, ?, ?, 1)',
+      ).run('expense-category-tax-payments', 'Taxes paid', 'acct-tax-expenses');
+    },
+  },
+  {
+    version: 109,
+    name: 'accounting_period_close_controls',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_period_closures (
+          id TEXT PRIMARY KEY,
+          period_start TEXT NOT NULL,
+          period_end TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('closed', 'reopened')),
+          close_reason TEXT NOT NULL,
+          closed_by TEXT,
+          closed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          reopen_reason TEXT,
+          reopened_by TEXT,
+          reopened_at TEXT,
+          CHECK (period_start <= period_end),
+          CHECK (
+            (status = 'closed' AND reopen_reason IS NULL AND reopened_by IS NULL AND reopened_at IS NULL)
+            OR
+            (status = 'reopened' AND reopen_reason IS NOT NULL AND reopened_by IS NOT NULL AND reopened_at IS NOT NULL)
+          )
+        );
+        CREATE INDEX accounting_period_closures_range_status
+          ON accounting_period_closures(status, period_start, period_end);
+        CREATE TRIGGER accounting_journal_entries_closed_period_insert_guard
+          BEFORE INSERT ON accounting_journal_entries
+          WHEN NEW.status = 'posted'
+            AND EXISTS (
+              SELECT 1 FROM accounting_period_closures AS period
+              WHERE period.status = 'closed'
+                AND NEW.entry_date BETWEEN period.period_start AND period.period_end
+            )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED');
+          END;
+        CREATE TRIGGER accounting_journal_entries_closed_period_guard
+          BEFORE UPDATE OF status ON accounting_journal_entries
+          WHEN NEW.status = 'posted' AND OLD.status != 'posted'
+            AND EXISTS (
+              SELECT 1 FROM accounting_period_closures AS period
+              WHERE period.status = 'closed'
+                AND NEW.entry_date BETWEEN period.period_start AND period.period_end
+            )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED');
+          END;
+        CREATE TRIGGER accounting_period_closures_no_delete
+          BEFORE DELETE ON accounting_period_closures
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSE_IMMUTABLE');
+          END;
+      `);
+    },
+  },
+  {
+    version: 110,
+    name: 'accounting_closed_period_posted_entry_immutability',
+    up: () => {
+      db.exec(`
+        CREATE TRIGGER accounting_closed_period_posted_entry_update_guard
+          BEFORE UPDATE ON accounting_journal_entries
+          WHEN OLD.status = 'posted' AND (
+            EXISTS (
+              SELECT 1 FROM accounting_period_closures AS period
+              WHERE period.status = 'closed'
+                AND OLD.entry_date BETWEEN period.period_start AND period.period_end
+            )
+            OR EXISTS (
+              SELECT 1 FROM accounting_period_closures AS period
+              WHERE period.status = 'closed'
+                AND NEW.entry_date BETWEEN period.period_start AND period.period_end
+            )
+          )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE');
+          END;
+        CREATE TRIGGER accounting_closed_period_posted_entry_delete_guard
+          BEFORE DELETE ON accounting_journal_entries
+          WHEN OLD.status = 'posted'
+            AND EXISTS (
+              SELECT 1 FROM accounting_period_closures AS period
+              WHERE period.status = 'closed'
+                AND OLD.entry_date BETWEEN period.period_start AND period.period_end
+            )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE');
+          END;
+        CREATE TRIGGER accounting_closed_period_posted_line_insert_guard
+          BEFORE INSERT ON accounting_journal_lines
+          WHEN EXISTS (
+            SELECT 1 FROM accounting_journal_entries AS entry
+            JOIN accounting_period_closures AS period
+              ON period.status = 'closed'
+             AND entry.entry_date BETWEEN period.period_start AND period.period_end
+            WHERE entry.id = NEW.journal_entry_id AND entry.status = 'posted'
+          )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE');
+          END;
+        CREATE TRIGGER accounting_closed_period_posted_line_update_guard
+          BEFORE UPDATE ON accounting_journal_lines
+          WHEN EXISTS (
+            SELECT 1 FROM accounting_journal_entries AS entry
+            JOIN accounting_period_closures AS period
+              ON period.status = 'closed'
+             AND entry.entry_date BETWEEN period.period_start AND period.period_end
+            WHERE entry.id = OLD.journal_entry_id AND entry.status = 'posted'
+          ) OR EXISTS (
+            SELECT 1 FROM accounting_journal_entries AS entry
+            JOIN accounting_period_closures AS period
+              ON period.status = 'closed'
+             AND entry.entry_date BETWEEN period.period_start AND period.period_end
+            WHERE entry.id = NEW.journal_entry_id AND entry.status = 'posted'
+          )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE');
+          END;
+        CREATE TRIGGER accounting_closed_period_posted_line_delete_guard
+          BEFORE DELETE ON accounting_journal_lines
+          WHEN EXISTS (
+            SELECT 1 FROM accounting_journal_entries AS entry
+            JOIN accounting_period_closures AS period
+              ON period.status = 'closed'
+             AND entry.entry_date BETWEEN period.period_start AND period.period_end
+            WHERE entry.id = OLD.journal_entry_id AND entry.status = 'posted'
+          )
+          BEGIN
+            SELECT RAISE(ABORT, 'ACCOUNTING_PERIOD_CLOSED_IMMUTABLE');
+          END;
+      `);
+    },
+  },
+  {
+    version: 111,
+    name: 'accounting_period_close_record_immutability_and_audit',
+    up: () => {
+      db.exec(ACCOUNTING_PERIOD_RECORD_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 112,
+    name: 'accounting_future_receipts_and_cheques',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_future_items (
+          id TEXT PRIMARY KEY,
+          record_type TEXT NOT NULL CHECK (record_type IN ('receipt', 'cheque')),
+          direction TEXT NOT NULL CHECK (direction IN ('incoming', 'outgoing')),
+          due_date TEXT NOT NULL CHECK (
+            length(due_date)=10 AND due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+          ),
+          amount_minor INTEGER NOT NULL CHECK (
+            typeof(amount_minor)='integer' AND amount_minor > 0 AND amount_minor <= 9007199254740991
+          ),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          description TEXT NOT NULL CHECK (length(trim(description)) BETWEEN 1 AND 500),
+          counterparty TEXT CHECK (counterparty IS NULL OR length(trim(counterparty)) <= 200),
+          reference_number TEXT CHECK (reference_number IS NULL OR length(trim(reference_number)) <= 160),
+          classification_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          auto_register INTEGER NOT NULL CHECK (auto_register IN (0, 1)),
+          status TEXT NOT NULL DEFAULT 'scheduled'
+            CHECK (status IN ('scheduled', 'awaiting_confirmation', 'registered', 'settled', 'cancelled', 'failed')),
+          due_journal_entry_id TEXT UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          settlement_journal_entry_id TEXT UNIQUE REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          settlement_idempotency_key TEXT UNIQUE CHECK (settlement_idempotency_key IS NULL OR length(trim(settlement_idempotency_key)) BETWEEN 1 AND 200),
+          settlement_payload_hash TEXT CHECK (settlement_payload_hash IS NULL OR length(settlement_payload_hash)=64),
+          settlement_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          registered_at TEXT,
+          registered_by TEXT,
+          settled_at TEXT,
+          settled_by TEXT,
+          cancelled_at TEXT,
+          cancelled_by TEXT,
+          cancellation_reason TEXT CHECK (cancellation_reason IS NULL OR length(trim(cancellation_reason)) BETWEEN 1 AND 500),
+          last_error_code TEXT CHECK (last_error_code IS NULL OR length(trim(last_error_code)) <= 100),
+          last_error_message TEXT CHECK (last_error_message IS NULL OR length(trim(last_error_message)) <= 500),
+          status_actor_id TEXT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (
+            (status IN ('scheduled', 'awaiting_confirmation', 'failed', 'cancelled')
+              AND due_journal_entry_id IS NULL AND registered_at IS NULL AND registered_by IS NULL)
+            OR
+            (status IN ('registered', 'settled')
+              AND due_journal_entry_id IS NOT NULL AND registered_at IS NOT NULL AND registered_by IS NOT NULL)
+          ),
+          CHECK (
+            (status = 'settled' AND settlement_journal_entry_id IS NOT NULL
+              AND settlement_idempotency_key IS NOT NULL AND settlement_payload_hash IS NOT NULL
+              AND settlement_account_id IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL)
+            OR
+            (status <> 'settled' AND settlement_journal_entry_id IS NULL
+              AND settlement_idempotency_key IS NULL AND settlement_payload_hash IS NULL
+              AND settlement_account_id IS NULL AND settled_at IS NULL AND settled_by IS NULL)
+          ),
+          CHECK (
+            (status = 'cancelled' AND cancelled_at IS NOT NULL AND cancelled_by IS NOT NULL
+              AND cancellation_reason IS NOT NULL AND length(trim(cancellation_reason)) > 0)
+            OR
+            (status <> 'cancelled' AND cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL)
+          ),
+          CHECK (
+            (status = 'failed' AND last_error_code IS NOT NULL)
+            OR (status <> 'failed' AND last_error_code IS NULL AND last_error_message IS NULL)
+          )
+        );
+        CREATE INDEX accounting_future_items_due_status ON accounting_future_items(status, due_date, auto_register);
+        CREATE INDEX accounting_future_items_direction_due ON accounting_future_items(direction, due_date, status);
+      `);
+      db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 113,
+    name: 'accounting_future_receipt_clearing_account',
+    up: () => {
+      // Keep due-but-uncollected receipts out of profit/loss. The balance is
+      // released to revenue only in the actual-settlement journal.
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1)',
+      ).run(
+        'acct-future-receipt-clearing', 'future_receipt_clearing', '2050',
+        'Future receipts pending settlement', 'liability', 'credit', 'acct-liabilities',
+      );
+      const account = db.prepare(
+        'SELECT id, system_key, account_code, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable FROM accounting_accounts WHERE id = ?',
+      ).get('acct-future-receipt-clearing') as {
+        id: string; system_key: string | null; account_code: string; account_type: string;
+        normal_balance: string; parent_account_id: string | null; is_system: number;
+        is_active: number; is_postable: number;
+      } | undefined;
+      if (!account || account.system_key !== 'future_receipt_clearing' || account.account_code !== '2050'
+        || account.account_type !== 'liability' || account.normal_balance !== 'credit'
+        || account.parent_account_id !== 'acct-liabilities' || account.is_system !== 1
+        || account.is_active !== 1 || account.is_postable !== 1) {
+        throw new Error('ACCOUNTING_FUTURE_RECEIPT_CLEARING_ACCOUNT_INVALID');
+      }
+    },
+  },
+
+  {
+    version: 114,
+    name: 'accounting_future_payment_clearing_account',
+    up: () => {
+      // Due-but-unpaid obligations must not be reported as paid expenses.
+      // This clearing asset offsets the payable until actual settlement.
+      db.prepare(
+        'INSERT OR IGNORE INTO accounting_accounts (id, system_key, account_code, name, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 1)',
+      ).run(
+        'acct-future-payment-clearing', 'future_payment_clearing', '1150',
+        'Future payments pending settlement', 'asset', 'debit', 'acct-assets',
+      );
+      const account = db.prepare(
+        'SELECT id, system_key, account_code, account_type, normal_balance, parent_account_id, is_system, is_active, is_postable FROM accounting_accounts WHERE id = ?',
+      ).get('acct-future-payment-clearing') as {
+        id: string; system_key: string | null; account_code: string; account_type: string;
+        normal_balance: string; parent_account_id: string | null; is_system: number;
+        is_active: number; is_postable: number;
+      } | undefined;
+      if (!account || account.system_key !== 'future_payment_clearing' || account.account_code !== '1150'
+        || account.account_type !== 'asset' || account.normal_balance !== 'debit'
+        || account.parent_account_id !== 'acct-assets' || account.is_system !== 1
+        || account.is_active !== 1 || account.is_postable !== 1) {
+        throw new Error('ACCOUNTING_FUTURE_PAYMENT_CLEARING_ACCOUNT_INVALID');
+      }
+    },
+  },
+  {
+    version: 115,
+    name: 'accounting_recurring_obligations',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_recurring_schedules (
+          id TEXT PRIMARY KEY,
+          direction TEXT NOT NULL CHECK (direction = 'outgoing'),
+          frequency TEXT NOT NULL CHECK (frequency IN ('monthly', 'every_n_days')),
+          interval_days INTEGER CHECK (interval_days IS NULL OR (typeof(interval_days)='integer' AND interval_days BETWEEN 1 AND 366)),
+          first_due_date TEXT NOT NULL CHECK (length(first_due_date)=10 AND first_due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          occurrence_count INTEGER NOT NULL CHECK (typeof(occurrence_count)='integer' AND occurrence_count BETWEEN 1 AND 120),
+          amount_minor INTEGER NOT NULL CHECK (typeof(amount_minor)='integer' AND amount_minor > 0 AND amount_minor <= 9007199254740991),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          description TEXT NOT NULL CHECK (length(trim(description)) BETWEEN 1 AND 500),
+          counterparty TEXT CHECK (counterparty IS NULL OR length(trim(counterparty)) <= 200),
+          classification_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          auto_register INTEGER NOT NULL CHECK (auto_register IN (0, 1)),
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled')),
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          cancelled_by TEXT,
+          cancellation_reason TEXT CHECK (cancellation_reason IS NULL OR length(trim(cancellation_reason)) BETWEEN 1 AND 500),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          cancelled_at TEXT,
+          CHECK ((frequency='monthly' AND interval_days IS NULL) OR (frequency='every_n_days' AND interval_days IS NOT NULL)),
+          CHECK ((status='active' AND cancelled_by IS NULL AND cancellation_reason IS NULL AND cancelled_at IS NULL)
+            OR (status='cancelled' AND cancelled_by IS NOT NULL AND cancellation_reason IS NOT NULL AND cancelled_at IS NOT NULL))
+        );
+        CREATE TABLE accounting_recurring_occurrences (
+          id TEXT PRIMARY KEY,
+          schedule_id TEXT NOT NULL REFERENCES accounting_recurring_schedules(id) ON DELETE RESTRICT,
+          occurrence_number INTEGER NOT NULL CHECK (typeof(occurrence_number)='integer' AND occurrence_number BETWEEN 1 AND 120),
+          due_date TEXT NOT NULL CHECK (length(due_date)=10 AND due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          future_item_id TEXT NOT NULL UNIQUE REFERENCES accounting_future_items(id) ON DELETE RESTRICT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(schedule_id, occurrence_number),
+          UNIQUE(schedule_id, due_date)
+        );
+        CREATE INDEX accounting_recurring_schedule_status ON accounting_recurring_schedules(status, first_due_date);
+        CREATE INDEX accounting_recurring_occurrence_due ON accounting_recurring_occurrences(due_date, schedule_id);
+        CREATE TRIGGER accounting_recurring_schedule_no_delete
+          BEFORE DELETE ON accounting_recurring_schedules
+          BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_RECURRING_SCHEDULE_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_recurring_occurrence_no_update
+          BEFORE UPDATE ON accounting_recurring_occurrences
+          BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_RECURRING_OCCURRENCE_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_recurring_occurrence_no_delete
+          BEFORE DELETE ON accounting_recurring_occurrences
+          BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_RECURRING_OCCURRENCE_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_recurring_schedule_identity_guard
+          BEFORE UPDATE ON accounting_recurring_schedules
+          WHEN NEW.id <> OLD.id OR NEW.direction <> OLD.direction OR NEW.frequency <> OLD.frequency
+            OR COALESCE(NEW.interval_days, -1) <> COALESCE(OLD.interval_days, -1)
+            OR NEW.first_due_date <> OLD.first_due_date OR NEW.occurrence_count <> OLD.occurrence_count
+            OR NEW.amount_minor <> OLD.amount_minor OR NEW.currency_code <> OLD.currency_code
+            OR NEW.description <> OLD.description OR COALESCE(NEW.counterparty, '') <> COALESCE(OLD.counterparty, '')
+            OR NEW.classification_account_id <> OLD.classification_account_id OR NEW.auto_register <> OLD.auto_register
+            OR NEW.idempotency_key <> OLD.idempotency_key OR NEW.payload_hash <> OLD.payload_hash
+            OR COALESCE(NEW.created_by, '') <> COALESCE(OLD.created_by, '')
+          BEGIN SELECT RAISE(ABORT, 'ACCOUNTING_RECURRING_SCHEDULE_IDENTITY_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_recurring_schedule_audit_insert
+          AFTER INSERT ON accounting_recurring_schedules
+          BEGIN
+            INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+            VALUES ('accounting_recurring_schedule', NEW.id, 'created', NEW.created_by, NULL,
+              json_object('id', NEW.id, 'frequency', NEW.frequency, 'interval_days', NEW.interval_days,
+                'first_due_date', NEW.first_due_date, 'occurrence_count', NEW.occurrence_count,
+                'amount_minor', NEW.amount_minor, 'currency_code', NEW.currency_code,
+                'classification_account_id', NEW.classification_account_id, 'auto_register', NEW.auto_register));
+          END;
+        CREATE TRIGGER accounting_recurring_schedule_audit_update
+          AFTER UPDATE ON accounting_recurring_schedules
+          BEGIN
+            INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+            VALUES ('accounting_recurring_schedule', NEW.id, 'cancelled', NEW.cancelled_by,
+              json_object('status', OLD.status), json_object('status', NEW.status, 'reason', NEW.cancellation_reason));
+          END;
+        CREATE TRIGGER accounting_recurring_occurrence_audit_insert
+          AFTER INSERT ON accounting_recurring_occurrences
+          BEGIN
+            INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+            VALUES ('accounting_recurring_occurrence', NEW.id, 'generated', NULL, NULL,
+              json_object('schedule_id', NEW.schedule_id, 'occurrence_number', NEW.occurrence_number,
+                'due_date', NEW.due_date, 'future_item_id', NEW.future_item_id));
+          END;
+      `);
+    },
+  },
+  {
+    version: 116,
+    name: 'accounting_loans_and_installments',
+    up: () => {
+      db.exec(`
+        CREATE TABLE accounting_loans (
+          id TEXT PRIMARY KEY,
+          mode TEXT NOT NULL CHECK (mode IN ('new','opening')),
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','closed')),
+          lender TEXT NOT NULL CHECK (length(trim(lender)) BETWEEN 1 AND 200),
+          description TEXT CHECK (description IS NULL OR length(trim(description)) <= 500),
+          reference_number TEXT CHECK (reference_number IS NULL OR length(trim(reference_number)) <= 160),
+          loan_date TEXT NOT NULL CHECK (length(loan_date)=10 AND loan_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          currency_code TEXT NOT NULL CHECK (currency_code GLOB '[A-Z][A-Z][A-Z]'),
+          original_principal_minor INTEGER NOT NULL CHECK (typeof(original_principal_minor)='integer' AND original_principal_minor > 0 AND original_principal_minor <= 9007199254740991),
+          initial_outstanding_minor INTEGER NOT NULL CHECK (typeof(initial_outstanding_minor)='integer' AND initial_outstanding_minor > 0 AND initial_outstanding_minor <= original_principal_minor),
+          liability_account_id TEXT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          cash_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          initial_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK ((mode='new' AND cash_account_id IS NOT NULL AND initial_outstanding_minor=original_principal_minor)
+            OR (mode='opening' AND cash_account_id IS NULL))
+        );
+        CREATE TABLE accounting_loan_installment_batches (
+          id TEXT PRIMARY KEY,
+          loan_id TEXT NOT NULL REFERENCES accounting_loans(id) ON DELETE RESTRICT,
+          idempotency_key TEXT NOT NULL UNIQUE CHECK (length(trim(idempotency_key)) BETWEEN 1 AND 200),
+          payload_hash TEXT NOT NULL CHECK (length(payload_hash)=64),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE accounting_loan_installments (
+          id TEXT PRIMARY KEY,
+          batch_id TEXT NOT NULL REFERENCES accounting_loan_installment_batches(id) ON DELETE RESTRICT,
+          loan_id TEXT NOT NULL REFERENCES accounting_loans(id) ON DELETE RESTRICT,
+          due_date TEXT NOT NULL CHECK (length(due_date)=10 AND due_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+          principal_minor INTEGER NOT NULL CHECK (typeof(principal_minor)='integer' AND principal_minor >= 0 AND principal_minor <= 9007199254740991),
+          interest_minor INTEGER NOT NULL CHECK (typeof(interest_minor)='integer' AND interest_minor >= 0 AND interest_minor <= 9007199254740991),
+          fees_minor INTEGER NOT NULL CHECK (typeof(fees_minor)='integer' AND fees_minor >= 0 AND fees_minor <= 9007199254740991),
+          interest_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          fees_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          auto_register INTEGER NOT NULL CHECK (auto_register IN (0,1)),
+          status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed')),
+          registered_at TEXT,
+          registered_by TEXT,
+          due_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          settlement_date TEXT CHECK (settlement_date IS NULL OR (length(settlement_date)=10 AND settlement_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')),
+          settlement_account_id TEXT REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+          settlement_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT,
+          settlement_idempotency_key TEXT UNIQUE,
+          settlement_payload_hash TEXT CHECK (settlement_payload_hash IS NULL OR length(settlement_payload_hash)=64),
+          settled_at TEXT,
+          settled_by TEXT,
+          cancellation_reason TEXT CHECK (cancellation_reason IS NULL OR length(trim(cancellation_reason)) BETWEEN 1 AND 500),
+          cancelled_by TEXT,
+          cancelled_at TEXT,
+          last_error_code TEXT CHECK (last_error_code IS NULL OR length(trim(last_error_code)) BETWEEN 1 AND 100),
+          last_error_message TEXT CHECK (last_error_message IS NULL OR length(trim(last_error_message)) BETWEEN 1 AND 500),
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (principal_minor + interest_minor + fees_minor > 0),
+          CHECK ((interest_minor=0 AND interest_account_id IS NULL) OR (interest_minor>0 AND interest_account_id IS NOT NULL)),
+          CHECK ((fees_minor=0 AND fees_account_id IS NULL) OR (fees_minor>0 AND fees_account_id IS NOT NULL)),
+          CHECK ((status='scheduled' AND registered_at IS NULL AND due_journal_entry_id IS NULL AND settlement_date IS NULL AND settlement_account_id IS NULL AND settlement_journal_entry_id IS NULL AND settlement_idempotency_key IS NULL AND settlement_payload_hash IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='awaiting_confirmation' AND registered_at IS NULL AND due_journal_entry_id IS NULL AND settlement_date IS NULL AND settlement_account_id IS NULL AND settlement_journal_entry_id IS NULL AND settlement_idempotency_key IS NULL AND settlement_payload_hash IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='registered' AND registered_at IS NOT NULL AND settlement_date IS NULL AND settlement_account_id IS NULL AND settlement_journal_entry_id IS NULL AND settlement_idempotency_key IS NULL AND settlement_payload_hash IS NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='settled' AND settlement_date IS NOT NULL AND settlement_account_id IS NOT NULL AND settlement_journal_entry_id IS NOT NULL AND settlement_idempotency_key IS NOT NULL AND settlement_payload_hash IS NOT NULL AND settled_at IS NOT NULL AND settled_by IS NOT NULL AND cancelled_at IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='cancelled' AND cancellation_reason IS NOT NULL AND cancelled_by IS NOT NULL AND cancelled_at IS NOT NULL AND due_journal_entry_id IS NULL AND settlement_date IS NULL AND settlement_account_id IS NULL AND settlement_journal_entry_id IS NULL AND settlement_idempotency_key IS NULL AND settlement_payload_hash IS NULL AND last_error_code IS NULL AND last_error_message IS NULL)
+            OR (status='failed' AND registered_at IS NULL AND registered_by IS NULL AND due_journal_entry_id IS NULL AND settlement_date IS NULL AND settlement_account_id IS NULL AND settlement_journal_entry_id IS NULL AND settlement_idempotency_key IS NULL AND settlement_payload_hash IS NULL AND cancelled_at IS NULL AND last_error_code IS NOT NULL AND last_error_message IS NOT NULL))
+        );
+        CREATE INDEX accounting_loans_status_date ON accounting_loans(mode,loan_date);
+        CREATE INDEX accounting_loan_installments_due ON accounting_loan_installments(status,due_date,auto_register);
+        CREATE INDEX accounting_loan_installments_loan_due ON accounting_loan_installments(loan_id,due_date);
+        CREATE TRIGGER accounting_loans_no_delete BEFORE DELETE ON accounting_loans
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loans_status_guard BEFORE UPDATE ON accounting_loans
+          WHEN NOT (OLD.status=NEW.status OR (OLD.status='active' AND NEW.status='closed'))
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INVALID_STATUS_TRANSITION'); END;
+        CREATE TRIGGER accounting_loans_identity_guard BEFORE UPDATE ON accounting_loans
+          WHEN NEW.id<>OLD.id OR NEW.mode<>OLD.mode OR NEW.lender<>OLD.lender
+            OR COALESCE(NEW.description,'')<>COALESCE(OLD.description,'')
+            OR COALESCE(NEW.reference_number,'')<>COALESCE(OLD.reference_number,'')
+            OR NEW.loan_date<>OLD.loan_date OR NEW.currency_code<>OLD.currency_code
+            OR NEW.original_principal_minor<>OLD.original_principal_minor
+            OR NEW.initial_outstanding_minor<>OLD.initial_outstanding_minor
+            OR NEW.liability_account_id<>OLD.liability_account_id
+            OR COALESCE(NEW.cash_account_id,'')<>COALESCE(OLD.cash_account_id,'')
+            OR NEW.idempotency_key<>OLD.idempotency_key OR NEW.payload_hash<>OLD.payload_hash
+            OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
+            OR (OLD.initial_journal_entry_id IS NOT NULL AND NEW.initial_journal_entry_id<>OLD.initial_journal_entry_id)
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IDENTITY_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_batch_no_update BEFORE UPDATE ON accounting_loan_installment_batches
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_batch_no_delete BEFORE DELETE ON accounting_loan_installment_batches
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_BATCH_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_installment_no_delete BEFORE DELETE ON accounting_loan_installments
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IMMUTABLE'); END;
+  CREATE TRIGGER accounting_loan_installment_registration_guard BEFORE UPDATE OF status ON accounting_loan_installments
+                  WHEN NEW.status='registered' AND OLD.status<>'registered' AND (
+                    (NEW.interest_minor + NEW.fees_minor > 0 AND (
+                      NEW.due_journal_entry_id IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM accounting_journal_entries entry
+                        WHERE entry.id=NEW.due_journal_entry_id AND entry.status='posted'
+                          AND entry.source_type='accounting_loan' AND entry.source_id=NEW.id
+                          AND entry.source_event='installment_due_registration'
+                      )
+                    )) OR ((NEW.interest_minor + NEW.fees_minor)=0 AND NEW.due_journal_entry_id IS NOT NULL)
+                  )
+                  BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_DUE_JOURNAL_REQUIRED'); END;
+        CREATE TRIGGER accounting_loan_installment_settled_immutable BEFORE UPDATE ON accounting_loan_installments
+          WHEN OLD.status='settled' AND (
+            NEW.status<>OLD.status OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'')
+            OR COALESCE(NEW.settlement_account_id,'')<>COALESCE(OLD.settlement_account_id,'')
+            OR COALESCE(NEW.settlement_journal_entry_id,'')<>COALESCE(OLD.settlement_journal_entry_id,'')
+            OR COALESCE(NEW.due_journal_entry_id,'')<>COALESCE(OLD.due_journal_entry_id,'')
+            OR COALESCE(NEW.settlement_idempotency_key,'')<>COALESCE(OLD.settlement_idempotency_key,'')
+            OR COALESCE(NEW.settlement_payload_hash,'')<>COALESCE(OLD.settlement_payload_hash,'')
+            OR COALESCE(NEW.settled_at,'')<>COALESCE(OLD.settled_at,'') OR COALESCE(NEW.settled_by,'')<>COALESCE(OLD.settled_by,'')
+          )
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_SETTLED_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments
+          WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR NEW.due_date<>OLD.due_date
+            OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor
+            OR COALESCE(NEW.interest_account_id,'')<>COALESCE(OLD.interest_account_id,'')
+            OR COALESCE(NEW.fees_account_id,'')<>COALESCE(OLD.fees_account_id,'')
+            OR NEW.auto_register<>OLD.auto_register OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
+            OR COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') AND NEW.status<>'settled'
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;
+        CREATE TRIGGER accounting_loans_audit_insert AFTER INSERT ON accounting_loans
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan',NEW.id,'created',NEW.created_by,NULL,json_object('mode',NEW.mode,'lender',NEW.lender,
+              'loan_date',NEW.loan_date,'original_principal_minor',NEW.original_principal_minor,
+              'initial_outstanding_minor',NEW.initial_outstanding_minor,'currency_code',NEW.currency_code,
+              'liability_account_id',NEW.liability_account_id,'cash_account_id',NEW.cash_account_id)); END;
+        CREATE TRIGGER accounting_loans_audit_update AFTER UPDATE ON accounting_loans
+          WHEN OLD.initial_journal_entry_id IS NULL AND NEW.initial_journal_entry_id IS NOT NULL
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan',NEW.id,'initial_journal_linked',NEW.created_by,
+              json_object('initial_journal_entry_id',OLD.initial_journal_entry_id),
+              json_object('initial_journal_entry_id',NEW.initial_journal_entry_id)); END;
+        CREATE TRIGGER accounting_loans_status_audit AFTER UPDATE OF status ON accounting_loans
+          WHEN OLD.status<>NEW.status
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan',NEW.id,'closed',NEW.created_by,json_object('status',OLD.status),json_object('status',NEW.status)); END;
+        CREATE TRIGGER accounting_loan_batch_audit_insert AFTER INSERT ON accounting_loan_installment_batches
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan_installment_batch',NEW.id,'created',NEW.created_by,NULL,
+              json_object('loan_id',NEW.loan_id,'idempotency_key',NEW.idempotency_key)); END;
+        CREATE TRIGGER accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments
+          WHEN NOT (
+            (OLD.status='scheduled' AND NEW.status IN ('awaiting_confirmation','registered','cancelled','failed')) OR
+            (OLD.status='awaiting_confirmation' AND NEW.status IN ('registered','cancelled','failed')) OR
+            (OLD.status='failed' AND NEW.status IN ('registered','cancelled')) OR
+            (OLD.status='registered' AND NEW.status IN ('settled')) OR
+            (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed')
+        AND COALESCE(NEW.registered_at,'')=COALESCE(OLD.registered_at,'')
+        AND COALESCE(NEW.registered_by,'')=COALESCE(OLD.registered_by,'')
+        AND COALESCE(NEW.settlement_date,'')=COALESCE(OLD.settlement_date,'')
+        AND COALESCE(NEW.due_journal_entry_id,'')=COALESCE(OLD.due_journal_entry_id,'')
+        AND COALESCE(NEW.settlement_account_id,'')=COALESCE(OLD.settlement_account_id,'')
+        AND COALESCE(NEW.settlement_journal_entry_id,'')=COALESCE(OLD.settlement_journal_entry_id,'')
+        AND COALESCE(NEW.settlement_idempotency_key,'')=COALESCE(OLD.settlement_idempotency_key,'')
+        AND COALESCE(NEW.settlement_payload_hash,'')=COALESCE(OLD.settlement_payload_hash,'')
+        AND COALESCE(NEW.settled_at,'')=COALESCE(OLD.settled_at,'')
+        AND COALESCE(NEW.settled_by,'')=COALESCE(OLD.settled_by,'')
+        AND COALESCE(NEW.cancellation_reason,'')=COALESCE(OLD.cancellation_reason,'')
+        AND COALESCE(NEW.cancelled_by,'')=COALESCE(OLD.cancelled_by,'')
+        AND COALESCE(NEW.cancelled_at,'')=COALESCE(OLD.cancelled_at,''))
+          )
+          BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_INVALID_TRANSITION'); END;
+        CREATE TRIGGER accounting_loan_installment_audit_insert AFTER INSERT ON accounting_loan_installments
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan_installment',NEW.id,'scheduled',NEW.created_by,NULL,
+              json_object('loan_id',NEW.loan_id,'due_date',NEW.due_date,'principal_minor',NEW.principal_minor,
+                'interest_minor',NEW.interest_minor,'fees_minor',NEW.fees_minor,'auto_register',NEW.auto_register)); END;
+        CREATE TRIGGER accounting_loan_installment_audit_update AFTER UPDATE ON accounting_loan_installments
+          BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
+            VALUES('accounting_loan_installment',NEW.id,NEW.status,COALESCE(NEW.settled_by,NEW.cancelled_by,NEW.registered_by),
+              json_object('status',OLD.status),json_object('status',NEW.status,'settlement_date',NEW.settlement_date,
+                'due_journal_entry_id',NEW.due_journal_entry_id,'settlement_journal_entry_id',NEW.settlement_journal_entry_id,
+                'cancellation_reason',NEW.cancellation_reason,'last_error_code',NEW.last_error_code,'last_error_message',NEW.last_error_message)); END;
+      `);
+      ensureLoanPayableSystemAccount(db);
+    },
+  },
+  {
+    version: 117,
+    name: 'accounting_existing_loan_dates_and_historical_principal',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_loans ADD COLUMN origination_date TEXT
+          CHECK (origination_date IS NULL OR (length(origination_date)=10 AND origination_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'));
+        ALTER TABLE accounting_loans ADD COLUMN accounting_start_date TEXT
+          CHECK (accounting_start_date IS NULL OR (length(accounting_start_date)=10 AND accounting_start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'));
+        ALTER TABLE accounting_loans ADD COLUMN historical_principal_repaid_minor INTEGER NOT NULL DEFAULT 0
+          CHECK (typeof(historical_principal_repaid_minor)='integer' AND historical_principal_repaid_minor>=0 AND historical_principal_repaid_minor<=9007199254740991);
+
+        -- Preserve the existing posting date; never guess an old origination date.
+        UPDATE accounting_loans
+        SET origination_date=CASE WHEN mode='new' THEN loan_date ELSE NULL END,
+            accounting_start_date=loan_date,
+            historical_principal_repaid_minor=CASE WHEN mode='opening'
+              THEN original_principal_minor-initial_outstanding_minor ELSE 0 END;
+
+        DROP TRIGGER IF EXISTS accounting_loans_identity_guard;
+        DROP TRIGGER IF EXISTS accounting_loans_opening_fields_insert_guard;
+        DROP TRIGGER IF EXISTS accounting_loans_audit_insert;
+      `);
+      db.exec(ACCOUNTING_LOAN_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 118,
+    name: 'accounting_default_payment_account',
+    up: () => {
+      const defaultAccount = db.prepare(
+        "SELECT id, account_type, system_key, is_active, is_postable FROM accounting_accounts WHERE id='acct-payment-clearing'",
+      ).get() as { id: string; account_type: string; system_key: string | null; is_active: number; is_postable: number } | undefined;
+      if (!defaultAccount || defaultAccount.account_type !== 'asset' || defaultAccount.system_key !== 'payment_clearing'
+          || defaultAccount.is_active !== 1 || defaultAccount.is_postable !== 1) {
+        throw new Error('Cannot configure default payment account: the seeded Payment Clearing account is unavailable.');
+      }
+      db.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES ('accounting_default_payment_account_id', ?, ?)")
+        .run('acct-payment-clearing', now());
+      // New custom methods use the configurable default when the owner has not assigned an account.
+      // Existing custom mappings are preserved until an owner explicitly clears or changes them.
+      db.exec('DROP TRIGGER IF EXISTS accounting_custom_payment_method_default_mapping');
+      db.exec(ACCOUNTING_SALES_TRIGGER_SQL);
+    },
+  },
+] ; 
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
   if (buildingIdealSchema) return;

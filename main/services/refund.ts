@@ -7,6 +7,7 @@ import { invertTaxBreakdown, invertTaxSnapshot } from './tax';
 import { getOpenSession, NO_CASH_SESSION_ID, requireOpenSessionForCashTender } from './shift-session-gate';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
 import { getCurrencyMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
+import { postCommittedRefund } from '../accounting/sales';
 
 type Database = ReturnType<typeof getDatabase>;
 
@@ -93,7 +94,21 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
     }
   }
 
-  requireOpenSessionForCashTender(db, [{ method: req.method }]);
+  const suppliedMethod = typeof req.method === 'string' ? req.method.trim() : '';
+  if (!suppliedMethod || suppliedMethod.length > 60) {
+    throw httpError('Refund method is required and must not exceed 60 characters', 400);
+  }
+  const normalizedMethod = suppliedMethod.toLowerCase().replace(/[\s-]+/g, '_');
+  // Historical non-monetary labels remain excluded by the posting layer, but must not
+  // be accepted as new refund methods: only the canonical wallet flow actually credits
+  // customer value. Otherwise the bill could be marked refunded without money or credit.
+  if (['loyalty', 'credit', 'store_credit', 'loyalty_wallet'].includes(normalizedMethod)) {
+    throw httpError('Use the canonical wallet method for store-credit refunds, or choose an active monetary payment method.', 400);
+  }
+  const isStoreCreditRefund = normalizedMethod === 'wallet';
+  const refundMethod = isStoreCreditRefund ? 'wallet' : suppliedMethod;
+
+  requireOpenSessionForCashTender(db, [{ method: refundMethod }]);
 
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(req.billId) as any;
   if (!bill) throw httpError('Bill not found', 404);
@@ -161,10 +176,6 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
   if (amountCents === undefined || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
     throw httpError('Refund amount is required', 400);
   }
-  if (!req.method || typeof req.method !== 'string' || req.method.length > 60) {
-    throw httpError('Refund method is required', 400);
-  }
-  const isStoreCreditRefund = req.method === 'wallet';
   if (isStoreCreditRefund) {
     const loyaltyEnabled = ['true', '1'].includes(getSettingValue('loyalty_enabled') || '');
     if (!loyaltyEnabled) throw httpError('Store credit is not enabled', 400);
@@ -214,7 +225,7 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
   const insertResult = db.prepare(`
     INSERT INTO refunds (bill_id, order_item_id, amount_cents, method, reason, shift_id, approved_by, created_by, created_at, cash_session_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(req.billId, req.orderItemId ?? null, amountCents, req.method, req.reason ?? null, req.shiftId ?? null, approver.id, req.createdByUserId, timestamp, cashSessionId);
+  `).run(req.billId, req.orderItemId ?? null, amountCents, refundMethod, req.reason ?? null, req.shiftId ?? null, approver.id, req.createdByUserId, timestamp, cashSessionId);
 
   const newRefundedCents = refundedCents + amountCents;
   const paymentStatus = newRefundedCents >= paidCents ? 'refunded' : 'partially_refunded';
@@ -238,12 +249,17 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
       refundId: insertResult.lastInsertRowid,
       billId: req.billId,
       amountCents,
-      method: req.method,
+      method: refundMethod,
       lateRefund,
       approvedBy: approver.id,
       reason: req.reason ?? null,
     },
   });
+
+  // Accounting consumes the committed refund row inside this same transaction.
+  // For pre-cutover legacy bills, the posting service records an explicit audit exception
+  // instead of backfilling an unmatched refund into the new ledger.
+  postCommittedRefund(db, String(insertResult.lastInsertRowid), req.createdByUserId);
 
   const refund = db.prepare('SELECT * FROM refunds WHERE id = ?').get(insertResult.lastInsertRowid);
   const freshBill = db.prepare('SELECT * FROM bills WHERE id = ?').get(req.billId);

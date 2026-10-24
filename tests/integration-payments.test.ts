@@ -109,6 +109,9 @@ async function main() {
     assertEqual(payments.length, 2, 'two payments recorded');
     assertEqual(payments[0].method, 'cash', 'first payment is cash');
     assertEqual(payments[1].method, 'UPI', 'second payment is UPI');
+    assert(typeof payments[0].payment_event_id === 'string' && payments[0].payment_event_id.length > 0, 'first payment has immutable accounting source identity');
+    assert(typeof payments[1].payment_event_id === 'string' && payments[1].payment_event_id.length > 0, 'second payment has immutable accounting source identity');
+    assert(payments[0].payment_event_id !== payments[1].payment_event_id, 'separate payment lines have distinct source identities');
 
     // ═══════════════════════════════════════════════════════════════════
     // Scenario B: Wallet Double-Spend Prevention

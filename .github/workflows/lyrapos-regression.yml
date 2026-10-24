@@ -48,3 +48,9 @@ jobs:
 
       - name: Run original test suite unchanged under virtual display
         run: xvfb-run -a npm test
+
+      - name: Build application TypeScript
+        run: npm run build
+
+      - name: Lint backend and frontend
+        run: npm run lint
