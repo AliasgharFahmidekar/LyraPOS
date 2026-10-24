@@ -125,18 +125,27 @@ try {
   throws(() => expenses.listExpenses(db, { status: 'unexpected' }), /status filter must be/i, 'invalid expense status filters are rejected');
   throws(() => expenses.listExpenses(db, { payment_status: 'unexpected' }), /payment status filter must be/i, 'invalid payment status filters are rejected');
   equal(expenses.getExpense(db, unpaid.id).id, unpaid.id, 'expense detail resolves the created record');
-  const cancelDraft = expenses.createExpense(db, {
+  const cancelPayload = {
     category_id: category.id, expense_date: '2026-10-11', due_date: '2000-01-01', amount_minor: 1234,
     currency_code: 'IRR', description: 'Draft to cancel', payment_status: 'unpaid',
-  }, 'manager-1');
+  };
+  const cancelDraft = expenses.createExpense(db, cancelPayload, 'manager-1', 'cancel-draft-test-key');
   const cancelled = expenses.cancelDraftExpense(db, cancelDraft.id, 'Entered by mistake', 'manager-1');
   equal(cancelled.status, 'cancelled', 'unpaid draft can be cancelled');
-  throws(() => expenses.getExpense(db, cancelDraft.id), /Expense was not found/i, 'cancelled draft is removed from active expenses');
+  equal(expenses.getExpense(db, cancelDraft.id).status, 'cancelled', 'cancelled draft retains an inspectable identity');
+  equal(expenses.listExpenses(db, {}).some((row: any) => row.id === cancelDraft.id), false, 'cancelled draft is omitted from the active expense list');
+  const cancelledRetry = expenses.createExpense(db, cancelPayload, 'manager-1', 'cancel-draft-test-key');
+  equal(cancelledRetry.id, cancelDraft.id, 'retrying the original request after cancellation cannot recreate a duplicate expense');
+  equal(cancelledRetry.status, 'cancelled', 'idempotent retry returns the cancelled state');
+  equal(expenses.cancelDraftExpense(db, cancelDraft.id, 'Entered by mistake', 'manager-1').duplicate, true, 'identical cancellation retry is idempotent');
   const cancellationAudit = db.prepare("SELECT action,after_json FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? ORDER BY id DESC LIMIT 1").get(cancelDraft.id) as any;
   equal(cancellationAudit.action, 'cancelled', 'cancelling a draft records an audit action');
   equal(JSON.parse(cancellationAudit.after_json).cancellation_reason, 'Entered by mistake', 'cancellation audit keeps the reason');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(cancelDraft.id) as any).count, 0, 'cancelling an unpaid draft creates no journal');
   throws(() => expenses.cancelDraftExpense(db, customPaid.id, 'Try cancel paid', 'manager-1'), /only draft expenses can be cancelled|paid expense cannot be cancelled/i, 'a paid expense cannot be cancelled or deleted');
+  throws(() => db.prepare('UPDATE accounting_expenses SET cancelled_at=NULL WHERE id=?').run(cancelDraft.id), /cancelled expense history is immutable/i, 'database prevents a cancelled draft from being reactivated');
+  throws(() => db.prepare('UPDATE accounting_expenses SET amount_minor=amount_minor+1 WHERE id=?').run(cancelDraft.id), /cancelled expense details are immutable/i, 'database prevents editing the financial values of a cancelled draft');
+  throws(() => db.prepare('DELETE FROM accounting_expenses WHERE id=?').run(cancelDraft.id), /cancelled expense identity and idempotency keys cannot be deleted/i, 'database preserves cancellation and idempotency identity');
 
   throws(() => expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-02-30', amount_minor: 100, currency_code: 'IRR', description: 'Invalid date',
