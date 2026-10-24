@@ -73,7 +73,15 @@ async function main(): Promise<void> {
       equal((await request(app).post('/api/accounting/expenses/not-an-id/post').set(headers).send({})).status, 403, role + ' cannot post accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/reverse').set(headers).send({ reason: 'x', reversal_date: '2026-10-11' })).status, 403, role + ' cannot reverse accounting expenses');
     }
-    equal((await request(app).get('/api/accounting/activities').set(cashier)).status, 403, 'cashier cannot read manual accounting activities');
+    for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
+      equal((await request(app).get('/api/accounting/payment-account-mappings').set(headers)).status, 403,
+        role + ' cannot read payment-account mappings');
+      equal((await request(app).put('/api/accounting/payment-account-mappings/default').set(headers).send({ account_id: 'acct-bank' })).status, 403,
+        role + ' cannot change the default payment account');
+      equal((await request(app).put('/api/accounting/payment-account-mappings/cash').set(headers).send({ account_id: 'acct-cash-drawer' })).status, 403,
+        role + ' cannot change a method-specific account mapping');
+    }
+        equal((await request(app).get('/api/accounting/activities').set(cashier)).status, 403, 'cashier cannot read manual accounting activities');
     equal((await request(app).get('/api/accounting/reconciliation').set(cashier)).status, 403, 'cashier cannot read accounting reconciliation');
     equal((await request(app).post('/api/accounting/reconciliation/adjustments').set(cashier).send({})).status, 403, 'cashier cannot post reconciliation adjustments');
     equal((await request(app).post('/api/accounting/activities').set(cashier).send({})).status, 403, 'cashier cannot create manual accounting activities');
@@ -245,7 +253,41 @@ async function main(): Promise<void> {
     equal(defaultMappingResponse.status, 200, 'payment mapping API returns mappings and global default');
     equal(defaultMappingResponse.body.default_account?.account_id, 'acct-payment-clearing', 'default payment account is seeded to Payment Clearing');
 
-    const invalidDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
+    const listedDefaultMappings = defaultMappingResponse.body.mappings as any[];
+    equal(listedDefaultMappings.find((m: any) => m.payment_method_key === 'wallet'), undefined,
+      'loyalty wallet is never exposed as an accounting payment method');
+
+    const customMethod = db.prepare(
+      'INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES (?,1,999,?,?)',
+    ).run('API Custom Transfer', now(), now());
+    const customMethodId = Number(customMethod.lastInsertRowid);
+    const customKey = 'custom:' + customMethodId;
+    const mappingBeforeAssignment = (await request(app).get('/api/accounting/payment-account-mappings').set(manager)).body.mappings
+      .find((m: any) => m.payment_method_key === customKey);
+    ok(mappingBeforeAssignment, 'custom payment method appears in the mapping settings');
+    equal(mappingBeforeAssignment.account_id, null, 'new custom payment method has no hard-coded account mapping');
+    const customMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/' + encodeURIComponent(customKey))
+      .set(manager).send({ account_id: 'acct-bank' });
+    equal(customMappingResponse.status, 200, 'manager can map a custom method to its designated bank account');
+    equal(customMappingResponse.body.mapping?.account_id, 'acct-bank', 'custom payment mapping API returns the assigned destination');
+    const clearCustomMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/' + encodeURIComponent(customKey))
+      .set(manager).send({ account_id: null });
+    equal(clearCustomMappingResponse.status, 200, 'manager can clear a custom mapping to use the default');
+    equal(clearCustomMappingResponse.body.mapping?.account_id, null, 'cleared custom mapping is represented as unassigned');
+    const customResetAudit = db.prepare(
+      "SELECT action,after_json FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id=? AND action='reset_to_default' ORDER BY id DESC LIMIT 1",
+    ).get(customKey) as any;
+    equal(customResetAudit?.action, 'reset_to_default', 'clearing a custom mapping is recorded in the accounting audit log');
+    equal(JSON.parse(customResetAudit.after_json).uses_default_account, true, 'audit explicitly records that the default account will be used');
+    const walletMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/wallet')
+      .set(manager).send({ account_id: 'acct-cash-drawer' });
+    equal(walletMappingResponse.status, 400, 'the loyalty wallet cannot be configured as an accounting payment method');
+    equal(walletMappingResponse.body.code, 'invalid_payment_method_key', 'wallet mapping rejection has a stable error code');
+    const invalidCustomMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/custom:999999')
+      .set(manager).send({ account_id: 'acct-bank' });
+    equal(invalidCustomMappingResponse.status, 404, 'a mapping cannot be assigned to a nonexistent custom payment method');
+
+        const invalidDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
       .set(manager).send({ account_id: 'acct-inventory' });
     equal(invalidDefaultResponse.status, 400, 'default payment account cannot be mapped to inventory');
     const changedDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
