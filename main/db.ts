@@ -2817,6 +2817,59 @@ const ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL = `
         END;
       `;
 
+const ACCOUNTING_EXPENSE_CANCELLATION_TRIGGER_SQL = `
+  CREATE TRIGGER IF NOT EXISTS accounting_expense_cancel_metadata_insert_guard
+  BEFORE INSERT ON accounting_expenses
+  WHEN NEW.cancelled_at IS NOT NULL OR NEW.cancellation_reason IS NOT NULL OR NEW.cancelled_by IS NOT NULL
+  BEGIN
+    SELECT RAISE(ABORT, 'Expense cancellation metadata may only be set by cancelling an unpaid draft');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_expense_cancel_metadata_update_guard
+  BEFORE UPDATE OF cancelled_at, cancellation_reason, cancelled_by ON accounting_expenses
+  BEGIN
+    SELECT CASE WHEN OLD.cancelled_at IS NOT NULL AND (
+      NEW.cancelled_at IS NOT OLD.cancelled_at
+      OR NEW.cancellation_reason IS NOT OLD.cancellation_reason
+      OR NEW.cancelled_by IS NOT OLD.cancelled_by
+    ) THEN RAISE(ABORT, 'Cancelled expense history is immutable') END;
+    SELECT CASE WHEN OLD.cancelled_at IS NULL AND NEW.cancelled_at IS NOT NULL AND (
+      OLD.status <> 'draft'
+      OR OLD.payment_status <> 'unpaid'
+      OR COALESCE(length(trim(NEW.cancellation_reason)), 0) = 0
+    ) THEN RAISE(ABORT, 'Only an unpaid draft with a reason may be cancelled') END;
+    SELECT CASE WHEN OLD.cancelled_at IS NULL AND NEW.cancelled_at IS NULL AND (
+      NEW.cancellation_reason IS NOT OLD.cancellation_reason
+      OR NEW.cancelled_by IS NOT OLD.cancelled_by
+    ) THEN RAISE(ABORT, 'Cancellation metadata must be set together') END;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_expense_cancelled_fields_immutable
+  BEFORE UPDATE OF category_id, expense_account_id, expense_date, due_date, amount_minor, currency_code,
+    description, payee, reference_number, payment_status, payment_method_key, payment_account_id, payment_date
+  ON accounting_expenses
+  WHEN OLD.cancelled_at IS NOT NULL
+  BEGIN
+    SELECT RAISE(ABORT, 'Cancelled expense details are immutable');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_expense_cancelled_no_post
+  BEFORE UPDATE OF status, posted_journal_entry_id ON accounting_expenses
+  WHEN OLD.cancelled_at IS NOT NULL AND (
+    NEW.status IS NOT OLD.status OR NEW.posted_journal_entry_id IS NOT OLD.posted_journal_entry_id
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'Cancelled expenses cannot be posted');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_expense_cancelled_delete_guard
+  BEFORE DELETE ON accounting_expenses
+  WHEN OLD.cancelled_at IS NOT NULL
+  BEGIN
+    SELECT RAISE(ABORT, 'Cancelled expense identity and idempotency keys cannot be deleted');
+  END;
+`;
+
 const ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL = `
         CREATE TRIGGER IF NOT EXISTS accounting_expense_posted_fields_immutable
         BEFORE UPDATE OF category_id, expense_account_id, expense_date, due_date, amount_minor, currency_code,
@@ -3452,6 +3505,9 @@ function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (getTables(db).includes('accounting_expenses')) {
     db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
     db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
+    if (getColumns(db, 'accounting_expenses').includes('cancelled_at')) {
+      db.exec(ACCOUNTING_EXPENSE_CANCELLATION_TRIGGER_SQL);
+    }
   }
   if (getTables(db).includes('accounting_future_items')) {
     db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
@@ -7365,6 +7421,19 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       // Recreate the immutable-fields guard with due_date included. This is a
       // forward-only additive migration; historical migration SQL stays intact.
       db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 120,
+    name: 'accounting_expense_cancellation_history',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_expenses ADD COLUMN cancelled_at TEXT;
+        ALTER TABLE accounting_expenses ADD COLUMN cancellation_reason TEXT;
+        ALTER TABLE accounting_expenses ADD COLUMN cancelled_by TEXT;
+        CREATE INDEX accounting_expenses_cancelled_idx ON accounting_expenses(cancelled_at, status, due_date);
+      `);
+      db.exec(ACCOUNTING_EXPENSE_CANCELLATION_TRIGGER_SQL);
     },
   },
 ] ; 
