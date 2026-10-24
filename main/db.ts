@@ -3672,8 +3672,27 @@ function dataOnlyRestore(
       console.log(`[DB] Restored ${tableName}: ${commonColumns.length} columns`);
     }
 
-    // Older backups predate the dedicated loan liability account; preserve the current schema contract.
+    // Older backups may predate the dedicated loan liability account and v117
+    // loan metadata. Rebuild only deterministic metadata from the preserved loan
+    // amounts; the actual origination date of an old opening loan remains unknown.
     ensureLoanPayableSystemAccount(currentDb);
+    if (getTables(currentDb).includes('accounting_loans')) {
+      const loanColumns = new Set(getColumns(currentDb, 'accounting_loans'));
+      if (['mode','loan_date','origination_date','accounting_start_date','original_principal_minor','initial_outstanding_minor','historical_principal_repaid_minor']
+        .every((column) => loanColumns.has(column))) {
+        currentDb.prepare(`
+          UPDATE accounting_loans
+          SET accounting_start_date=COALESCE(accounting_start_date, loan_date),
+              origination_date=CASE WHEN mode='new' THEN COALESCE(origination_date, loan_date) ELSE origination_date END,
+              historical_principal_repaid_minor=CASE WHEN mode='opening'
+                THEN original_principal_minor-initial_outstanding_minor ELSE 0 END
+          WHERE accounting_start_date IS NULL
+             OR (mode='new' AND origination_date IS NULL)
+             OR historical_principal_repaid_minor <>
+                CASE WHEN mode='opening' THEN original_principal_minor-initial_outstanding_minor ELSE 0 END
+        `).run();
+      }
+    }
 
     // Re-enable the normal accounting invariants before validating/committing.
     recreateAccountingLedgerRestoreTriggers(currentDb);
