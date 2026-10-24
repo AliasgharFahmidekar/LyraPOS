@@ -118,6 +118,8 @@ try {
   throws(() => expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-10-11', due_date: '2026-02-30', amount_minor: 100, currency_code: 'IRR', description: 'Invalid due date',
   }, 'manager-1'), /real calendar date/i, 'impossible due dates are rejected');
+  throws(() => db.prepare("UPDATE accounting_expenses SET due_date='2026-02-30' WHERE id=?").run(unpaid.id),
+    /due date must be a real calendar date/i, 'database rejects impossible due dates even when bypassing the service');
   throws(() => expenses.postExpense(db, unpaid.id, 'manager-1'), /only expenses already marked as paid/i, 'unpaid draft cannot be posted');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(unpaid.id) as any).count,
     0, 'unpaid expense creates no journal and cannot reduce cash');
