@@ -322,7 +322,7 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
     if(item.status!=='registered') fail('installment_not_registered','Register the due installment before confirming its actual payment.',409);
     const cash=liquid(db,settlementAccountId);
     const loan=loanRow(db,item.loan_id);
-    if(settlementDate<loan.loan_date) fail('settlement_before_loan_date','Settlement date cannot precede the loan date.');
+    if(settlementDate<(loan.accounting_start_date ?? loan.loan_date)) fail('settlement_before_loan_date','Settlement date cannot precede the accounting opening date.');
     if(settlementDate<item.due_date) fail('settlement_before_due_date','Settlement date cannot precede the installment due date.');
     if(item.principal_minor>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Principal payment exceeds current outstanding principal.',409);
     const total=Number(item.principal_minor)+Number(item.interest_minor)+Number(item.fees_minor);
