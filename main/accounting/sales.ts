@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { getAccountingMinorUnitFactor, getCurrencyMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 import { localDateInTimezone, now, parseDbTimestamp, tenantBusinessDayStartTime } from '../db';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
+import { isLiquidAccountSystemKey } from './chart-of-accounts';
 
 type DB = Database.Database;
 
@@ -85,7 +86,7 @@ function mappedPaymentAccount(db: DB, methodKey: string): { id: string; type: st
   ).get(accountId) as { id: string; account_type: string; system_key: string | null; is_active: number; is_postable: number } | undefined : undefined;
   const valid = Boolean(mapping && mapping.is_active === 1 && mapping.is_postable === 1
     && mapping.account_type === 'asset'
-    && ['cash_drawer', 'bank_accounts', 'payment_clearing'].includes(mapping.system_key ?? ''));
+    && isLiquidAccountSystemKey(mapping.system_key));
   if (!valid) {
     if (isDefault) fail('payment_default_mapping_invalid', 'The default payment account must be an active postable cash, bank, or payment-clearing account.', 409);
     fail('payment_mapping_invalid', 'The accounting mapping for "' + methodKey + '" must target an active postable cash, bank, or payment-clearing account.', 409);
