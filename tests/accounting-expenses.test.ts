@@ -353,7 +353,7 @@ try {
     expenses.setPaymentAccountMapping(fallbackDb, 'cash', 'acct-cash-drawer', 'manager-1');
     const explicitPaid = expenses.createExpense(fallbackDb, { ...basePayload, description: 'Payment uses explicitly selected account', payment_account_id: 'acct-cash-drawer' }, 'manager-1');
     equal(explicitPaid.payment_account_id, 'acct-cash-drawer', 'expense uses the account selected directly by the user');
-    const explicitJournal = db.prepare("SELECT id FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid'").get(explicitPaid.id) as { id: string };
+    const explicitJournal = fallbackDb.prepare("SELECT id FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid'").get(explicitPaid.id) as { id: string };
     equal((fallbackDb.prepare('SELECT account_id FROM accounting_journal_lines WHERE journal_entry_id=? AND credit_minor=1000').get(explicitJournal.id) as any).account_id, 'acct-cash-drawer', 'journal credits the explicitly selected source account');
     throws(() => expenses.createExpense(fallbackDb, { ...basePayload, description: 'Reject invalid selected account', payment_account_id: 'acct-inventory' }, 'manager-1'),
       /cash, bank, or payment-clearing/i, 'direct account selection rejects non-liquid accounting accounts');
