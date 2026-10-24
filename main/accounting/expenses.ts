@@ -48,7 +48,7 @@ const EXPENSE_AUDIT_FIELDS = [
   'id', 'category_id', 'expense_account_id', 'expense_date', 'due_date', 'amount_minor', 'currency_code',
   'description', 'payee', 'reference_number', 'payment_status', 'payment_method_key',
   'payment_account_id', 'payment_date', 'status', 'posted_journal_entry_id',
-  'reversal_journal_entry_id', 'reversal_reason',
+  'reversal_journal_entry_id', 'reversal_reason', 'cancelled_at', 'cancellation_reason', 'cancelled_by',
   'created_by', 'updated_by', 'created_at', 'updated_at',
 ] as const;
 
@@ -326,10 +326,12 @@ function expenseInput(db: DB, input: any) {
   };
 }
 function detail(db: DB, id: string): any {
-  return db.prepare("SELECT e.*, c.name AS category_name, e.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name, e.payment_account_id AS payment_account_id, pa.name AS payment_account_name, CASE WHEN e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime') THEN 1 ELSE 0 END AS is_overdue FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id WHERE e.id=?").get(id);
+  const row = db.prepare("SELECT e.*, c.name AS category_name, e.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name, e.payment_account_id AS payment_account_id, pa.name AS payment_account_name, CASE WHEN e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime') THEN 1 ELSE 0 END AS is_overdue FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id WHERE e.id=?").get(id) as any;
+  return row ? { ...row, status: row.cancelled_at ? 'cancelled' : row.status } : undefined;
 }
 export function listExpenses(db: DB, filters: any = {}): any[] {
-  const clauses: string[] = []; const values: any[] = [];
+  // Cancelled unpaid drafts remain in storage to preserve idempotency and audit identity, but are hidden from the active list.
+  const clauses: string[] = ['e.cancelled_at IS NULL']; const values: any[] = [];
   if (filters.from) { clauses.push('e.expense_date >= ?'); values.push(assertAccountingDate(filters.from, 'from')); }
   if (filters.to) { clauses.push('e.expense_date <= ?'); values.push(assertAccountingDate(filters.to, 'to')); }
   if (filters.category_id) { clauses.push('e.category_id = ?'); values.push(textValue(filters.category_id, 'category_id', 100)); }
@@ -349,8 +351,9 @@ export function listExpenses(db: DB, filters: any = {}): any[] {
   const limit = filters.limit === undefined ? 100 : Number(filters.limit), offset = filters.offset === undefined ? 0 : Number(filters.offset);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) fail('invalid_limit', 'Limit must be between 1 and 500.');
   if (!Number.isSafeInteger(offset) || offset < 0) fail('invalid_offset', 'Offset must be a non-negative integer.');
-  return db.prepare("SELECT e.*, c.name AS category_name, a.account_code AS expense_account_code, a.name AS expense_account_name, pa.name AS payment_account_name, CASE WHEN e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime') THEN 1 ELSE 0 END AS is_overdue FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id " + (clauses.length ? 'WHERE ' + clauses.join(' AND ') + ' ' : '') + 'ORDER BY e.expense_date DESC,e.created_at DESC,e.id DESC LIMIT ? OFFSET ?')
-    .all(...values, limit, offset);
+  const rows = db.prepare("SELECT e.*, c.name AS category_name, a.account_code AS expense_account_code, a.name AS expense_account_name, pa.name AS payment_account_name, CASE WHEN e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime') THEN 1 ELSE 0 END AS is_overdue FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id " + (clauses.length ? 'WHERE ' + clauses.join(' AND ') + ' ' : '') + 'ORDER BY e.expense_date DESC,e.created_at DESC,e.id DESC LIMIT ? OFFSET ?')
+    .all(...values, limit, offset) as any[];
+  return rows.map((row) => ({ ...row, status: row.cancelled_at ? 'cancelled' : row.status }));
 }
 export function getExpense(db: DB, id: string): any {
   const row = detail(db, textValue(id, 'expense_id', 100));
@@ -431,6 +434,7 @@ export function postExpense(db: DB, id: string, actorId: string | null): any {
     return { ...current, duplicate: true };
   }
   if (current.status === 'reversed') fail('expense_reversed', 'A reversed expense cannot be posted again.', 409);
+  if (current.status === 'cancelled') fail('expense_cancelled', 'A cancelled expense cannot be posted again.', 409);
   if (current.payment_status !== 'paid' || !current.payment_account_id || !current.payment_date) {
     fail('expense_unpaid', 'Only expenses already marked as paid can be posted in this stage.', 409);
   }
@@ -465,20 +469,25 @@ export function postExpense(db: DB, id: string, actorId: string | null): any {
   })();
 }
 
-/** Cancels an unpaid draft with a durable audit record; posted expenses require reversal. */
+/** Cancels an unpaid draft without deleting its identity, source key, or audit history. */
 export function cancelDraftExpense(db: DB, id: string, reasonInput: unknown, actorId: string | null): any {
   const expenseId = textValue(id, 'expense_id', 100);
   const reason = textValue(reasonInput, 'cancel_reason', 500);
   return db.transaction(() => {
     const current = getExpense(db, expenseId);
+    if (current.status === 'cancelled') {
+      if (current.cancellation_reason !== reason) fail('expense_cancellation_conflict', 'This expense was already cancelled with a different reason.', 409);
+      return { ...current, duplicate: true };
+    }
     if (current.status !== 'draft') fail('expense_not_cancellable', 'Only draft expenses can be cancelled. Posted expenses must be reversed.', 409);
     if (current.payment_status !== 'unpaid') fail('paid_expense_not_cancellable', 'A paid expense cannot be cancelled; post it or use a reasoned reversal.', 409);
-    auditExpenseAction(db, 'expense', expenseId, 'cancelled', actorId, expenseAuditSnapshot(current), {
-      ...expenseAuditSnapshot(current), status: 'cancelled', cancellation_reason: reason,
-    });
-    const deleted = db.prepare("DELETE FROM accounting_expenses WHERE id=? AND status='draft' AND payment_status='unpaid'").run(expenseId);
-    if (deleted.changes !== 1) fail('expense_not_cancellable', 'Expense could not be cancelled because its state changed.', 409);
-    return { id: expenseId, status: 'cancelled', cancellation_reason: reason, duplicate: false };
+    const cancelledAt = new Date().toISOString();
+    const result = db.prepare("UPDATE accounting_expenses SET cancelled_at=?, cancellation_reason=?, cancelled_by=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='draft' AND payment_status='unpaid' AND cancelled_at IS NULL")
+      .run(cancelledAt, reason, actorId, actorId, expenseId);
+    if (result.changes !== 1) fail('expense_not_cancellable', 'Expense could not be cancelled because its state changed.', 409);
+    const saved = getExpense(db, expenseId);
+    auditExpenseAction(db, 'expense', expenseId, 'cancelled', actorId, expenseAuditSnapshot(current), expenseAuditSnapshot(saved));
+    return { ...saved, duplicate: false };
   })();
 }
 
