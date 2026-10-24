@@ -263,10 +263,11 @@ async function run() {
     legacyLoanBackupDb.pragma('foreign_keys = OFF');
     legacyLoanBackupDb.prepare(`
       INSERT INTO accounting_loans
-        (id,mode,status,lender,loan_date,currency_code,original_principal_minor,initial_outstanding_minor,
-         liability_account_id,cash_account_id,initial_journal_entry_id,idempotency_key,payload_hash,created_by)
-      VALUES ('restore-legacy-v116-loan','opening','active','Legacy lender','2026-10-03','IRR',9000,6000,
-        'acct-loans-payable',NULL,NULL,'restore-legacy-v116-loan-key',?,'test-owner')
+        (id,mode,status,lender,loan_date,origination_date,accounting_start_date,historical_principal_repaid_minor,
+         currency_code,original_principal_minor,initial_outstanding_minor,liability_account_id,cash_account_id,
+         initial_journal_entry_id,idempotency_key,payload_hash,created_by)
+      VALUES ('restore-legacy-v116-loan','opening','active','Legacy lender','2026-10-03','2026-08-01','2026-10-03',3000,
+        'IRR',9000,6000,'acct-loans-payable',NULL,NULL,'restore-legacy-v116-loan-key',?,'test-owner')
     `).run('b'.repeat(64));
     legacyLoanBackupDb.close();
 
