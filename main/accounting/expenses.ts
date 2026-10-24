@@ -277,6 +277,33 @@ function expenseRequestHash(value: unknown): string {
   return createHash('sha256').update(serialized).digest('hex');
 }
 
+// Keep retries issued by the prior app version stable across the additive due-date/account-picker change.
+function legacyExpenseRequestHash(value: unknown): string {
+  const input: Record<string, unknown> = value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const paymentStatus = input.payment_status === undefined ? 'unpaid' : input.payment_status;
+  const canonicalRequest = {
+    category_id: normalizedHashText(input.category_id),
+    expense_date: normalizedHashText(input.expense_date),
+    amount_minor: input.amount_minor ?? null,
+    currency_code: typeof input.currency_code === 'string' ? input.currency_code.trim().toUpperCase() : (input.currency_code ?? null),
+    description: normalizedHashText(input.description),
+    payee: normalizedHashText(input.payee),
+    reference_number: normalizedHashText(input.reference_number),
+    payment_status: paymentStatus,
+    payment_method_key: paymentStatus === 'paid' ? normalizedHashText(input.payment_method_key) : null,
+    payment_date: paymentStatus === 'paid' ? normalizedHashText(input.payment_date) : null,
+  };
+  return createHash('sha256').update(JSON.stringify(canonicalRequest)).digest('hex');
+}
+function canMatchLegacyExpenseHash(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return true;
+  const input = value as Record<string, unknown>;
+  return (input.due_date == null || input.due_date === '')
+    && (input.payment_account_id == null || input.payment_account_id === '');
+}
+
 function expenseInput(db: DB, input: any) {
   const categoryId = textValue(input?.category_id, 'category_id', 100);
   const category = db.prepare('SELECT c.id,c.is_active,c.expense_account_id,a.account_type,a.is_active AS account_active,a.is_postable FROM accounting_expense_categories c JOIN accounting_accounts a ON a.id=c.expense_account_id WHERE c.id=?').get(categoryId) as any;
@@ -322,7 +349,7 @@ export function listExpenses(db: DB, filters: any = {}): any[] {
   const limit = filters.limit === undefined ? 100 : Number(filters.limit), offset = filters.offset === undefined ? 0 : Number(filters.offset);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) fail('invalid_limit', 'Limit must be between 1 and 500.');
   if (!Number.isSafeInteger(offset) || offset < 0) fail('invalid_offset', 'Offset must be a non-negative integer.');
-  return db.prepare("SELECT e.*, c.name AS category_name, a.account_code AS expense_account_code, a.name AS expense_account_name, CASE WHEN e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime') THEN 1 ELSE 0 END AS is_overdue FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id " + (clauses.length ? 'WHERE ' + clauses.join(' AND ') + ' ' : '') + 'ORDER BY e.expense_date DESC,e.created_at DESC,e.id DESC LIMIT ? OFFSET ?')
+  return db.prepare("SELECT e.*, c.name AS category_name, a.account_code AS expense_account_code, a.name AS expense_account_name, pa.name AS payment_account_name, CASE WHEN e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime') THEN 1 ELSE 0 END AS is_overdue FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id " + (clauses.length ? 'WHERE ' + clauses.join(' AND ') + ' ' : '') + 'ORDER BY e.expense_date DESC,e.created_at DESC,e.id DESC LIMIT ? OFFSET ?')
     .all(...values, limit, offset);
 }
 export function getExpense(db: DB, id: string): any {
@@ -333,6 +360,7 @@ export function getExpense(db: DB, id: string): any {
 export function createExpense(db: DB, input: any, actorId: string | null, idempotencyKeyInput?: unknown): any {
   const idempotencyKey = idempotencyKeyValue(idempotencyKeyInput);
   const requestHash = idempotencyKey ? expenseRequestHash(input) : null;
+  const legacyRequestHash = idempotencyKey && canMatchLegacyExpenseHash(input) ? legacyExpenseRequestHash(input) : null;
 
   // Resolve retries before revalidating mutable category/account mappings. A
   // retry must return the original record even if settings changed after commit.
@@ -340,7 +368,7 @@ export function createExpense(db: DB, input: any, actorId: string | null, idempo
     const existing = db.prepare('SELECT id, idempotency_payload_hash FROM accounting_expenses WHERE idempotency_key = ?').get(idempotencyKey) as
       { id: string; idempotency_payload_hash: string | null } | undefined;
     if (existing) {
-      if (existing.idempotency_payload_hash !== requestHash) {
+      if (existing.idempotency_payload_hash !== requestHash && existing.idempotency_payload_hash !== legacyRequestHash) {
         fail('idempotency_key_conflict', 'This Idempotency-Key was already used with a different expense payload.', 409);
       }
       return getExpense(db, existing.id);
@@ -364,7 +392,7 @@ export function createExpense(db: DB, input: any, actorId: string | null, idempo
       const existing = db.prepare('SELECT id, idempotency_payload_hash FROM accounting_expenses WHERE idempotency_key = ?').get(idempotencyKey) as
         { id: string; idempotency_payload_hash: string | null } | undefined;
       if (existing) {
-        if (existing.idempotency_payload_hash !== requestHash) {
+        if (existing.idempotency_payload_hash !== requestHash && existing.idempotency_payload_hash !== legacyRequestHash) {
           fail('idempotency_key_conflict', 'This Idempotency-Key was already used with a different expense payload.', 409);
         }
         return getExpense(db, existing.id);
