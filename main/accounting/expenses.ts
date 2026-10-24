@@ -45,7 +45,7 @@ function auditExpenseAction(db: DB, entityType: string, entityId: string, action
 }
 
 const EXPENSE_AUDIT_FIELDS = [
-  'id', 'category_id', 'expense_account_id', 'expense_date', 'amount_minor', 'currency_code',
+  'id', 'category_id', 'expense_account_id', 'expense_date', 'due_date', 'amount_minor', 'currency_code',
   'description', 'payee', 'reference_number', 'payment_status', 'payment_method_key',
   'payment_account_id', 'payment_date', 'status', 'posted_journal_entry_id',
   'reversal_journal_entry_id', 'reversal_reason',
@@ -222,9 +222,13 @@ function paymentInput(db: DB, input: any) {
   if (status !== 'paid' && status !== 'unpaid') fail('invalid_payment_status', 'Payment status must be paid or unpaid.');
   if (status === 'unpaid') return { paymentStatus: status, paymentMethodKey: null, paymentAccountId: null, paymentDate: null };
   const key = paymentKey(db, input?.payment_method_key, true);
+  const explicitlySelectedAccount = input?.payment_account_id !== undefined
+    && input?.payment_account_id !== null && input?.payment_account_id !== '';
   const mapping = db.prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(key) as { account_id: string } | undefined;
-  const paymentAccountId = mapping ? mappedAccount(db, key, mapping.account_id) : resolveDefaultPaymentAccount(db);
-  return { paymentStatus: status, paymentMethodKey: key, paymentAccountId: paymentAccountId, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
+  const paymentAccountId = explicitlySelectedAccount
+    ? mappedAccount(db, key, input.payment_account_id)
+    : mapping ? mappedAccount(db, key, mapping.account_id) : resolveDefaultPaymentAccount(db);
+  return { paymentStatus: status, paymentMethodKey: key, paymentAccountId, paymentDate: assertAccountingDate(input?.payment_date, 'payment_date') };
 }
 function configuredStoreCurrency(db: DB): string {
   const rows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency')").all() as { key: string; value: string | null }[];
@@ -257,6 +261,7 @@ function expenseRequestHash(value: unknown): string {
   const canonicalRequest = {
     category_id: normalizedHashText(input.category_id),
     expense_date: normalizedHashText(input.expense_date),
+    due_date: normalizedHashText(input.due_date),
     amount_minor: input.amount_minor ?? null,
     currency_code: typeof input.currency_code === 'string' ? input.currency_code.trim().toUpperCase() : (input.currency_code ?? null),
     description: normalizedHashText(input.description),
@@ -264,6 +269,7 @@ function expenseRequestHash(value: unknown): string {
     reference_number: normalizedHashText(input.reference_number),
     payment_status: paymentStatus,
     payment_method_key: paymentStatus === 'paid' ? normalizedHashText(input.payment_method_key) : null,
+    payment_account_id: paymentStatus === 'paid' ? normalizedHashText(input.payment_account_id) : null,
     payment_date: paymentStatus === 'paid' ? normalizedHashText(input.payment_date) : null,
   };
   const serialized = JSON.stringify(canonicalRequest);
@@ -287,12 +293,13 @@ function expenseInput(db: DB, input: any) {
   return {
     categoryId, expenseAccountId: category.expense_account_id, amount, currency, description: textValue(input?.description, 'description', 500),
     expenseDate: assertAccountingDate(input?.expense_date, 'expense_date'),
+    dueDate: input?.due_date == null || input?.due_date === '' ? null : assertAccountingDate(input.due_date, 'due_date'),
     ...paymentInput(db, input), payee: optionalText(input?.payee, 'payee', 160),
     referenceNumber: optionalText(input?.reference_number, 'reference_number', 120),
   };
 }
 function detail(db: DB, id: string): any {
-  return db.prepare('SELECT e.*, c.name AS category_name, e.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name, e.payment_account_id AS payment_account_id, pa.name AS payment_account_name FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id WHERE e.id=?').get(id);
+  return db.prepare("SELECT e.*, c.name AS category_name, e.expense_account_id, a.account_code AS expense_account_code, a.name AS expense_account_name, e.payment_account_id AS payment_account_id, pa.name AS payment_account_name, CASE WHEN e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime') THEN 1 ELSE 0 END AS is_overdue FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id LEFT JOIN accounting_accounts pa ON pa.id=e.payment_account_id WHERE e.id=?").get(id);
 }
 export function listExpenses(db: DB, filters: any = {}): any[] {
   const clauses: string[] = []; const values: any[] = [];
@@ -307,10 +314,15 @@ export function listExpenses(db: DB, filters: any = {}): any[] {
     if (typeof filters.payment_status !== 'string' || !['paid', 'unpaid'].includes(filters.payment_status)) fail('invalid_payment_status', 'Payment status filter must be paid or unpaid.');
     clauses.push('e.payment_status = ?'); values.push(filters.payment_status);
   }
+  if (filters.overdue !== undefined && filters.overdue !== '') {
+    const overdue = filters.overdue === true || filters.overdue === 'true' || filters.overdue === '1';
+    if (!overdue && filters.overdue !== false && filters.overdue !== 'false' && filters.overdue !== '0') fail('invalid_overdue_filter', 'Overdue filter must be a boolean.');
+    if (overdue) clauses.push("e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime')");
+  }
   const limit = filters.limit === undefined ? 100 : Number(filters.limit), offset = filters.offset === undefined ? 0 : Number(filters.offset);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) fail('invalid_limit', 'Limit must be between 1 and 500.');
   if (!Number.isSafeInteger(offset) || offset < 0) fail('invalid_offset', 'Offset must be a non-negative integer.');
-  return db.prepare('SELECT e.*, c.name AS category_name, a.account_code AS expense_account_code, a.name AS expense_account_name FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id ' + (clauses.length ? 'WHERE ' + clauses.join(' AND ') + ' ' : '') + 'ORDER BY e.expense_date DESC,e.created_at DESC,e.id DESC LIMIT ? OFFSET ?')
+  return db.prepare("SELECT e.*, c.name AS category_name, a.account_code AS expense_account_code, a.name AS expense_account_name, CASE WHEN e.status='draft' AND e.payment_status='unpaid' AND e.due_date IS NOT NULL AND e.due_date < date('now','localtime') THEN 1 ELSE 0 END AS is_overdue FROM accounting_expenses e JOIN accounting_expense_categories c ON c.id=e.category_id JOIN accounting_accounts a ON a.id=e.expense_account_id " + (clauses.length ? 'WHERE ' + clauses.join(' AND ') + ' ' : '') + 'ORDER BY e.expense_date DESC,e.created_at DESC,e.id DESC LIMIT ? OFFSET ?')
     .all(...values, limit, offset);
 }
 export function getExpense(db: DB, id: string): any {
@@ -338,10 +350,13 @@ export function createExpense(db: DB, input: any, actorId: string | null, idempo
   const n = expenseInput(db, input), id = randomUUID();
   try {
     db.transaction(() => {
-      db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_account_id,payment_date,created_by,updated_by,idempotency_key,idempotency_payload_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-        .run(id,n.categoryId,n.expenseAccountId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,actorId,idempotencyKey,requestHash);
+      db.prepare('INSERT INTO accounting_expenses (id,category_id,expense_account_id,expense_date,due_date,amount_minor,currency_code,description,payee,reference_number,payment_status,payment_method_key,payment_account_id,payment_date,created_by,updated_by,idempotency_key,idempotency_payload_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id,n.categoryId,n.expenseAccountId,n.expenseDate,n.dueDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,actorId,idempotencyKey,requestHash);
       const created = getExpense(db, id);
       auditExpenseAction(db, 'expense', id, 'created', actorId, null, expenseAuditSnapshot(created));
+      // A paid expense and its balanced journal are one atomic operation. A
+      // failed journal post rolls back the expense record as well.
+      if (n.paymentStatus === 'paid') postExpense(db, id, actorId);
     })();
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error ?? '');
@@ -364,10 +379,13 @@ export function updateDraftExpense(db: DB, id: string, input: any, actorId: stri
   if (current.status !== 'draft') fail('expense_not_editable', 'Posted or reversed expenses cannot be edited; use a correction entry.', 409);
   const n = expenseInput(db, { ...current, ...input });
   if (current.category_id === n.categoryId) n.expenseAccountId = current.expense_account_id;
-  if (current.payment_status === 'paid' && n.paymentStatus === 'paid' && n.paymentMethodKey === current.payment_method_key) n.paymentAccountId = current.payment_account_id;
+  const explicitlySelectedAccount = input?.payment_account_id !== undefined
+    && input?.payment_account_id !== null && input?.payment_account_id !== '';
+  if (!explicitlySelectedAccount && current.payment_status === 'paid' && n.paymentStatus === 'paid' && n.paymentMethodKey === current.payment_method_key) n.paymentAccountId = current.payment_account_id;
   db.transaction(() => {
-    db.prepare('UPDATE accounting_expenses SET category_id=?,expense_account_id=?,expense_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_account_id=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
-      .run(n.categoryId,n.expenseAccountId,n.expenseDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,id,'draft');
+    db.prepare('UPDATE accounting_expenses SET category_id=?,expense_account_id=?,expense_date=?,due_date=?,amount_minor=?,currency_code=?,description=?,payee=?,reference_number=?,payment_status=?,payment_method_key=?,payment_account_id=?,payment_date=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=?')
+      .run(n.categoryId,n.expenseAccountId,n.expenseDate,n.dueDate,n.amount,n.currency,n.description,n.payee,n.referenceNumber,n.paymentStatus,n.paymentMethodKey,n.paymentAccountId,n.paymentDate,actorId,id,'draft');
+    if (n.paymentStatus === 'paid') postExpense(db, id, actorId);
     auditExpenseAction(db, 'expense', id, 'updated', actorId, expenseAuditSnapshot(current), expenseAuditSnapshot(getExpense(db, id)));
   })();
   return getExpense(db, id);
@@ -416,6 +434,23 @@ export function postExpense(db: DB, id: string, actorId: string | null): any {
     const saved = getExpense(db, fresh.id);
     auditExpenseAction(db, 'expense', fresh.id, 'posted', actorId, expenseAuditSnapshot(fresh), expenseAuditSnapshot(saved));
     return { ...saved, duplicate: false };
+  })();
+}
+
+/** Cancels an unpaid draft with a durable audit record; posted expenses require reversal. */
+export function cancelDraftExpense(db: DB, id: string, reasonInput: unknown, actorId: string | null): any {
+  const expenseId = textValue(id, 'expense_id', 100);
+  const reason = textValue(reasonInput, 'cancel_reason', 500);
+  return db.transaction(() => {
+    const current = getExpense(db, expenseId);
+    if (current.status !== 'draft') fail('expense_not_cancellable', 'Only draft expenses can be cancelled. Posted expenses must be reversed.', 409);
+    if (current.payment_status !== 'unpaid') fail('paid_expense_not_cancellable', 'A paid expense cannot be cancelled; post it or use a reasoned reversal.', 409);
+    auditExpenseAction(db, 'expense', expenseId, 'cancelled', actorId, expenseAuditSnapshot(current), {
+      ...expenseAuditSnapshot(current), status: 'cancelled', cancellation_reason: reason,
+    });
+    const deleted = db.prepare("DELETE FROM accounting_expenses WHERE id=? AND status='draft' AND payment_status='unpaid'").run(expenseId);
+    if (deleted.changes !== 1) fail('expense_not_cancellable', 'Expense could not be cancelled because its state changed.', 409);
+    return { id: expenseId, status: 'cancelled', cancellation_reason: reason, duplicate: false };
   })();
 }
 
