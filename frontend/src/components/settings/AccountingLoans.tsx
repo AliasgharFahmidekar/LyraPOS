@@ -97,7 +97,7 @@ export function AccountingLoans() {
     const principalTotal=schedulePrincipalTotal.trim()?amountMinor(schedulePrincipalTotal):selected?Math.max(0,selected.remaining_principal_minor-selected.installments.filter((item)=>['scheduled','awaiting_confirmation','registered','failed'].includes(item.status)).reduce((sum,item)=>sum+item.principal_minor,0)):null;
     const interestAmount=amountMinor(scheduleInterestPer||'0',true),feesAmount=amountMinor(scheduleFeesPer||'0',true);
     if(!selected||!Number.isInteger(count)||count<1||count>120||!Number.isInteger(interval)||interval<1||interval>120||!firstDueDate||principalTotal===null||principalTotal<=0||interestAmount===null||feesAmount===null||(principalTotal<count&&interestAmount+feesAmount===0)){toast.error(t.required);return;}
-    if(firstDueDate<selected.loan_date||(interestAmount>0&&!interestAccount)||(feesAmount>0&&!feesAccount)){toast.error(t.required);return;}
+    if(firstDueDate<selected.accounting_start_date||(interestAmount>0&&!interestAccount)||(feesAmount>0&&!feesAccount)){toast.error(t.required);return;}
     const base=Math.floor(principalTotal/count),remainder=principalTotal%count;
     const drafts:InstallmentDraft[]=Array.from({length:count},(_,index)=>({key:token(),due_date:dueDateAtMonthOffset(firstDueDate,index*interval),principal:displayFromMinor(base+(index<remainder?1:0)),interest:displayFromMinor(interestAmount),fees:displayFromMinor(feesAmount)}));
     setInstallmentDrafts(drafts);setScheduleRetry(null);
@@ -108,7 +108,7 @@ export function AccountingLoans() {
   async function submitSchedule(e:FormEvent){
     e.preventDefault();const loan=loans.find((item)=>item.id===selectedLoan);if(!loan||!installmentDrafts.length){toast.error(t.required);return;}
     const installments=installmentDrafts.map((row)=>({due_date:row.due_date,principal_minor:amountMinor(row.principal,true),interest_minor:amountMinor(row.interest||'0',true),fees_minor:amountMinor(row.fees||'0',true)}));
-    if(installments.some((row)=>!row.due_date||row.principal_minor===null||row.interest_minor===null||row.fees_minor===null||(row.principal_minor||0)+(row.interest_minor||0)+(row.fees_minor||0)<=0)||installments.some((row)=>row.due_date<loan.loan_date)||new Set(installments.map((row)=>row.due_date)).size!==installments.length){toast.error(t.required);return;}
+    if(installments.some((row)=>!row.due_date||row.principal_minor===null||row.interest_minor===null||row.fees_minor===null||(row.principal_minor||0)+(row.interest_minor||0)+(row.fees_minor||0)<=0)||installments.some((row)=>row.due_date<loan.accounting_start_date)||new Set(installments.map((row)=>row.due_date)).size!==installments.length){toast.error(t.required);return;}
     if(installments.some((row)=>((row.interest_minor||0)>0&&!interestAccount)||((row.fees_minor||0)>0&&!feesAccount))){toast.error(t.required);return;}
     const scheduled=loan.installments.filter((item)=>['scheduled','awaiting_confirmation','registered','failed'].includes(item.status)).reduce((sum,item)=>sum+item.principal_minor,0);
     const principalTotal=installments.reduce((sum,item)=>sum+(item.principal_minor||0),0);if(principalTotal+scheduled>loan.remaining_principal_minor){toast.error(t.required);return;}
@@ -180,7 +180,7 @@ export function AccountingLoans() {
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         <label className="space-y-1 text-sm"><span>{t.selectLoan}</span><select required value={selectedLoan} onChange={e=>{setSelectedLoan(e.target.value);setSchedulePrincipalTotal('');setInstallmentDrafts([]);setScheduleRetry(null);}} className={field}><option value="">—</option>{loans.filter(l=>l.status==='active').map(l=><option key={l.id} value={l.id}>{l.lender} · {money(l.remaining_principal_minor)}</option>)}</select></label>
         <label className="space-y-1 text-sm"><span>{t.count}</span><input required min={1} max={120} type="number" value={scheduleCount} onChange={e=>setScheduleCount(e.target.value)} className={field}/></label>
-        <label className="space-y-1 text-sm"><span>{t.firstDue}</span><input required type="date" min={selectedLoanData?.loan_date} value={firstDueDate} onChange={e=>setFirstDueDate(e.target.value)} className={field}/></label>
+        <label className="space-y-1 text-sm"><span>{t.firstDue}</span><input required type="date" min={selectedLoanData?.accounting_start_date} value={firstDueDate} onChange={e=>setFirstDueDate(e.target.value)} className={field}/></label>
         <label className="space-y-1 text-sm"><span>{t.interval}</span><input required min={1} max={120} type="number" value={scheduleInterval} onChange={e=>setScheduleInterval(e.target.value)} className={field}/></label>
         <label className="space-y-1 text-sm"><span>{t.principalTotal} · {unitAdapter.label}</span><input inputMode="decimal" value={schedulePrincipalTotal} onChange={e=>setSchedulePrincipalTotal(e.target.value)} placeholder={selectedLoanData?displayFromMinor(selectedAvailablePrincipal):'0'} className={field}/></label>
         <label className="space-y-1 text-sm"><span>{t.interestPer} · {unitAdapter.label}</span><input inputMode="decimal" value={scheduleInterestPer} onChange={e=>setScheduleInterestPer(e.target.value)} className={field}/></label>
@@ -195,7 +195,7 @@ export function AccountingLoans() {
       <div className="acct-panel-heading !p-0"><div><h3 className="font-semibold">{t.installments}</h3><p className="mt-1 text-xs text-muted-foreground">{selectedLoanData?.lender} · {installmentDrafts.length.toLocaleString(locale)} {t.count}</p></div></div>
       <div className="acct-table-wrap"><table className="acct-table min-w-[760px]"><thead><tr><th>{t.due}</th><th>{t.principal}</th><th>{t.interest}</th><th>{t.fees}</th><th>{t.total}</th><th>{t.actions}</th></tr></thead><tbody>
         {installmentDrafts.map((row)=>{const p=amountMinor(row.principal,true)??0,i=amountMinor(row.interest||'0',true)??0,f=amountMinor(row.fees||'0',true)??0;return <tr key={row.key}>
-          <td><input aria-label={t.due} type="date" min={selectedLoanData?.loan_date} value={row.due_date} onChange={e=>updateDraft(row.key,'due_date',e.target.value)} className={field}/></td>
+          <td><input aria-label={t.due} type="date" min={selectedLoanData?.accounting_start_date} value={row.due_date} onChange={e=>updateDraft(row.key,'due_date',e.target.value)} className={field}/></td>
           <td><input aria-label={t.principal} inputMode="decimal" value={row.principal} onChange={e=>updateDraft(row.key,'principal',e.target.value)} className={field}/></td>
           <td><input aria-label={t.interest} inputMode="decimal" value={row.interest} onChange={e=>updateDraft(row.key,'interest',e.target.value)} className={field}/></td>
           <td><input aria-label={t.fees} inputMode="decimal" value={row.fees} onChange={e=>updateDraft(row.key,'fees',e.target.value)} className={field}/></td>
