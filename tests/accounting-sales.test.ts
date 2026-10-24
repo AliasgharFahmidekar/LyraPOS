@@ -341,6 +341,61 @@ try {
     const explicitReceipt = journalForSource(db, 'bill_payment', String(explicitBillId) + ':' + explicitPayment.payment_event_id, 'money_received');
     equal(linesForJournal(db, explicitReceipt.id).find((line: any) => line.system_key === 'cash_drawer')?.debit_minor, 20,
       'explicit method mapping wins even when the global default points to a bank account');
+    balanced(db, explicitReceipt.id);
+
+    // Newly-created custom methods remain unmapped and therefore use the current default.
+    const customMethod = db.prepare(
+      'INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES (?,1,999,?,?)',
+    ).run('Custom Bank Transfer', now(), now());
+    const customMethodId = Number(customMethod.lastInsertRowid);
+    const customKey = 'custom:' + customMethodId;
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_payment_method_mappings WHERE payment_method_key=?').get(customKey) as any).n,
+      0, 'a newly-created custom payment method is not silently hard-wired to clearing');
+    const { billId: customDefaultBillId } = makeBill(db, 'CUSTOM-DEFAULT-ACCOUNT');
+    const customDefaultPayment = {
+      payment_event_id: 'custom-default-payment-001', payment_method_id: customMethodId,
+      method: 'custom', amount: 33, timestamp: '2026-10-14T08:02:00.000Z',
+    };
+    db.transaction(() => sales.postCollectionPaymentLines(db, customDefaultBillId, [customDefaultPayment], 'test-owner-accounting'))();
+    const customDefaultReceipt = journalForSource(db, 'bill_payment', String(customDefaultBillId) + ':' + customDefaultPayment.payment_event_id, 'money_received');
+    ok(customDefaultReceipt, 'custom payment with no mapping posts through the configured default');
+    equal(linesForJournal(db, customDefaultReceipt.id).find((line: any) => line.system_key === 'bank_accounts')?.debit_minor, 33,
+      'new custom method uses the configured default bank account');
+    equal(linesForJournal(db, customDefaultReceipt.id).find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 33,
+      'custom payment fallback credits only the actual received amount');
+    balanced(db, customDefaultReceipt.id);
+
+    db.prepare('INSERT INTO accounting_payment_method_mappings (payment_method_key,account_id,updated_by) VALUES (?,?,?)')
+      .run(customKey, 'acct-cash-drawer', 'test-owner-accounting');
+    const { billId: customExplicitBillId } = makeBill(db, 'CUSTOM-EXPLICIT-ACCOUNT');
+    const customExplicitPayment = {
+      payment_event_id: 'custom-explicit-payment-001', payment_method_id: customMethodId,
+      method: 'custom', amount: 21, timestamp: '2026-10-14T08:03:00.000Z',
+    };
+    db.transaction(() => sales.postCollectionPaymentLines(db, customExplicitBillId, [customExplicitPayment], 'test-owner-accounting'))();
+    const customExplicitReceipt = journalForSource(db, 'bill_payment', String(customExplicitBillId) + ':' + customExplicitPayment.payment_event_id, 'money_received');
+    ok(customExplicitReceipt, 'explicit custom-method mapping posts the receipt');
+    equal(linesForJournal(db, customExplicitReceipt.id).find((line: any) => line.system_key === 'cash_drawer')?.debit_minor, 21,
+      'custom-method specific account takes priority over the global default');
+    equal(linesForJournal(db, customExplicitReceipt.id).find((line: any) => line.system_key === 'bank_accounts'), undefined,
+      'an explicit custom mapping does not also debit the default bank account');
+    balanced(db, customExplicitReceipt.id);
+
+    // Clearing a method-specific mapping must immediately restore fallback behavior.
+    db.prepare('DELETE FROM accounting_payment_method_mappings WHERE payment_method_key=?').run(customKey);
+    const { billId: customClearedBillId } = makeBill(db, 'CUSTOM-CLEARED-ACCOUNT');
+    const customClearedPayment = {
+      payment_event_id: 'custom-cleared-payment-001', payment_method_id: customMethodId,
+      method: 'custom', amount: 11, timestamp: '2026-10-14T08:04:00.000Z',
+    };
+    db.transaction(() => sales.postCollectionPaymentLines(db, customClearedBillId, [customClearedPayment], 'test-owner-accounting'))();
+    const customClearedReceipt = journalForSource(db, 'bill_payment', String(customClearedBillId) + ':' + customClearedPayment.payment_event_id, 'money_received');
+    ok(customClearedReceipt, 'cleared custom mapping still accepts actual money through fallback');
+    equal(linesForJournal(db, customClearedReceipt.id).find((line: any) => line.system_key === 'bank_accounts')?.debit_minor, 11,
+      'cleared custom mapping returns to the configured default account');
+    equal((db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill_payment' AND source_event='money_received' AND source_id LIKE ?").get(String(customClearedBillId) + ':%') as any).n,
+      1, 'custom fallback posts exactly one receipt journal');
+    balanced(db, customClearedReceipt.id);
     closeDatabase();
   }
 
