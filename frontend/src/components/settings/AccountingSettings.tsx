@@ -193,8 +193,8 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
     setAmount(String(expense.amount_minor / Math.pow(10, fractionDigits)));
     setDescription(expense.description); setExpenseDate(expense.expense_date); setDueDate(expense.due_date || '');
     setPaymentDate(expense.payment_date || today()); setPayee(expense.payee || ''); setReference(expense.reference_number || '');
-    setCategoryId(expense.category_id); setPaymentStatus(expense.payment_status === 'paid' ? 'paid' : 'unpaid');
-    setPaymentMethod(expense.payment_method_key || 'cash'); setExpensePaymentAccountId(expense.payment_account_id || 'acct-cash-drawer');
+    setCategoryId(expense.category_id); setPaymentStatus('unpaid');
+    setPaymentMethod('cash'); setExpensePaymentAccountId(expense.payment_account_id || 'acct-cash-drawer');
   }
   function stopEditingExpense() {
     setEditingExpenseId(null); setAmount(''); setDescription(''); setPayee(''); setReference(''); setDueDate('');
