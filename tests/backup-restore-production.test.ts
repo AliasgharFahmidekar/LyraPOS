@@ -492,10 +492,12 @@ async function run() {
       'INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES (?, 1, 999, datetime(\'now\'), datetime(\'now\'))',
     ).run('Restore Custom Accounting Method');
     assert.equal(
-      (getDatabase().prepare('SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { account_id: string }).account_id,
-      'acct-payment-clearing',
-      'restored custom payment-method trigger creates the safe clearing mapping',
+      (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { count: number }).count,
+      0,
+      'new custom methods remain unassigned and therefore use the configurable default account',
     );
+    getDatabase().prepare("INSERT INTO accounting_payment_method_mappings (payment_method_key, account_id, updated_by) VALUES (?, 'acct-payment-clearing', NULL)")
+      .run('custom:' + Number(postRestoreMethod.lastInsertRowid));
     getDatabase().prepare('DELETE FROM payment_methods WHERE id=?').run(Number(postRestoreMethod.lastInsertRowid));
     assert.equal(
       (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { count: number }).count,
