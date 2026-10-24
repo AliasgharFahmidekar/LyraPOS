@@ -32,7 +32,7 @@ function main(): void {
   try {
     initDatabase();
     const db = getDatabase();
-    equal(getCurrentSchemaVersion(), 116, 'fresh database includes loan schema v116');
+    equal(getCurrentSchemaVersion(), 117, 'fresh database includes loan schema v117');
     for (const table of ['accounting_loans','accounting_loan_installment_batches','accounting_loan_installments']) {
       ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'loan migration creates ' + table);
     }
@@ -222,16 +222,31 @@ function main(): void {
     }]}, 'test-owner', 'loan-installments-too-large'), 'principal_schedule_exceeds_balance', 'combined future principal cannot exceed remaining liability');
 
     const opening = loans.createLoan(db, {
-      mode:'opening', lender:'Existing lender', loan_date:'2026-10-01',
+      mode:'opening', lender:'Existing lender', loan_date:'2025-03-10', accounting_start_date:'2026-10-01',
       original_principal_minor:1000, remaining_principal_minor:700,
       liability_account_id:'acct-loans-payable', currency_code:'IRR',
     }, 'test-owner', 'loan-opening-001');
     equal(opening.remaining_principal_minor, 700, 'opening an existing loan uses remaining principal, not original principal');
     equal(opening.cash_account_id, null, 'opening balance has no cash account');
+    equal(opening.accounting_start_date, '2026-10-01', 'opening loan records accounting start separately from origination');
+    equal(opening.historical_principal_repaid_minor, 300, 'historical repayments equal original principal less opening balance');
+    const openingEntryDate = (db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(opening.initial_journal_entry_id) as any).entry_date;
+    equal(openingEntryDate, '2026-10-01', 'opening journal is posted on accounting start date');
     const openingLines = journalLines(db, opening.initial_journal_entry_id);
     equal(openingLines.find((line:any)=>line.account_id==='acct-opening-balance-equity')?.debit_minor, 700, 'existing loan opening uses opening-equity offset');
     equal(openingLines.find((line:any)=>line.account_id==='acct-loans-payable')?.credit_minor, 700, 'existing loan opening credits only remaining liability');
     ok(!openingLines.some((line:any)=>line.account_id==='acct-bank' || line.account_id==='acct-cash-drawer'), 'existing loan opening does not invent cash received');
+    const journalsBeforeOriginationBackfill = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
+    db.prepare('UPDATE accounting_loans SET origination_date=NULL WHERE id=?').run(opening.id); // Simulate a legacy opening loan.
+    const correctedOrigin = loans.updateLoanOriginationDate(db, opening.id, '2025-03-11', 'test-owner');
+    equal(correctedOrigin.origination_date, '2025-03-11', 'legacy loan accepts the actual origination date');
+    equal(correctedOrigin.accounting_start_date, '2026-10-01', 'origination entry leaves accounting start unchanged');
+    equal((db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(opening.initial_journal_entry_id) as any).entry_date, '2026-10-01', 'historical date correction does not backdate the opening journal');
+    equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, journalsBeforeOriginationBackfill, 'date correction creates no journal or cash flow');
+    equal((db.prepare("SELECT COUNT(*) AS n FROM accounting_audit_log WHERE entity_type='accounting_loan' AND entity_id=? AND action='origination_date_recorded'").get(opening.id) as any).n, 1, 'origination-date correction is audited');
+    throws(() => loans.updateLoanOriginationDate(db, opening.id, '2026-10-02', 'test-owner'), 'loan_origination_after_accounting_start', 'origination cannot follow accounting start');
+    throws(() => loans.createLoan(db, {mode:'opening', lender:'bad history', loan_date:'2025-01-01', accounting_start_date:'2026-10-01', original_principal_minor:1000, remaining_principal_minor:700, historical_principal_repaid_minor:200, liability_account_id:'acct-loans-payable', currency_code:'IRR'}, 'test-owner', 'loan-opening-bad-history'), 'invalid_historical_principal_repaid', 'historical repayments cannot contradict original and remaining principal');
+    throws(() => loans.createLoanInstallments(db, opening.id, {installments:[{due_date:'2026-09-30',principal_minor:1,interest_minor:0,fees_minor:0,auto_register:false}]}, 'test-owner', 'loan-opening-before-accounting-start'), 'installment_before_loan_date', 'installments cannot predate accounting start');
 
     const schedule = loans.createLoanInstallments(db, opening.id, {installments:[
       {due_date:'2026-12-01',principal_minor:600,interest_minor:0,fees_minor:0,auto_register:false},
