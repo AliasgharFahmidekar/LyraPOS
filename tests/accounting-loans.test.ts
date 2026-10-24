@@ -237,7 +237,27 @@ function main(): void {
     equal(openingLines.find((line:any)=>line.account_id==='acct-loans-payable')?.credit_minor, 700, 'existing loan opening credits only remaining liability');
     ok(!openingLines.some((line:any)=>line.account_id==='acct-bank' || line.account_id==='acct-cash-drawer'), 'existing loan opening does not invent cash received');
     const journalsBeforeOriginationBackfill = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
-    db.prepare('UPDATE accounting_loans SET origination_date=NULL WHERE id=?').run(opening.id); // Simulate a legacy opening loan.
+    // Simulate the pre-v117 row shape: the old schema has no recorded origination date.
+    db.exec('DROP TRIGGER IF EXISTS accounting_loans_identity_guard');
+    db.prepare('UPDATE accounting_loans SET origination_date=NULL WHERE id=?').run(opening.id);
+    db.exec(`CREATE TRIGGER accounting_loans_identity_guard BEFORE UPDATE ON accounting_loans
+      WHEN NEW.id<>OLD.id OR NEW.mode<>OLD.mode OR NEW.lender<>OLD.lender
+        OR COALESCE(NEW.description,'')<>COALESCE(OLD.description,'')
+        OR COALESCE(NEW.reference_number,'')<>COALESCE(OLD.reference_number,'')
+        OR NEW.loan_date<>OLD.loan_date OR NEW.currency_code<>OLD.currency_code
+        OR COALESCE(NEW.accounting_start_date,'')<>COALESCE(OLD.accounting_start_date,'')
+        OR NEW.historical_principal_repaid_minor<>OLD.historical_principal_repaid_minor
+        OR (OLD.mode='new' AND COALESCE(NEW.origination_date,'')<>COALESCE(OLD.origination_date,''))
+        OR (OLD.mode='opening' AND OLD.origination_date IS NOT NULL AND COALESCE(NEW.origination_date,'')<>COALESCE(OLD.origination_date,''))
+        OR (NEW.origination_date IS NOT NULL AND NEW.origination_date>NEW.accounting_start_date)
+        OR NEW.original_principal_minor<>OLD.original_principal_minor
+        OR NEW.initial_outstanding_minor<>OLD.initial_outstanding_minor
+        OR NEW.liability_account_id<>OLD.liability_account_id
+        OR COALESCE(NEW.cash_account_id,'')<>COALESCE(OLD.cash_account_id,'')
+        OR NEW.idempotency_key<>OLD.idempotency_key OR NEW.payload_hash<>OLD.payload_hash
+        OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')
+        OR (OLD.initial_journal_entry_id IS NOT NULL AND NEW.initial_journal_entry_id<>OLD.initial_journal_entry_id)
+      BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_IDENTITY_IMMUTABLE'); END;`);
     const correctedOrigin = loans.updateLoanOriginationDate(db, opening.id, '2025-03-11', 'test-owner');
     equal(correctedOrigin.origination_date, '2025-03-11', 'legacy loan accepts the actual origination date');
     equal(correctedOrigin.accounting_start_date, '2026-10-01', 'origination entry leaves accounting start unchanged');
