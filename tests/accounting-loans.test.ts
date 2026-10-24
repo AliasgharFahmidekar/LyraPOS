@@ -282,6 +282,8 @@ function main(): void {
     throws(() => loans.registerLoanInstallment(db, future.id, 'test-owner', '2026-11-01'), 'installment_not_due', 'manual due registration rejects early dates');
     const manuallyRegistered = loans.registerLoanInstallment(db,manual.id,'test-owner','2026-11-01');
     equal(manuallyRegistered.status,'registered','owner can register a due installment manually');
+    throws(() => loans.settleLoanInstallment(db, manual.id, {settlement_date:'2026-09-30',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-opening-payment-before-start'),
+      'settlement_before_loan_date', 'existing loan settlement cannot precede the accounting opening date');
     const cancelled = loans.cancelLoanInstallment(db, future.id, 'Schedule corrected', 'test-owner');
     equal(cancelled.status, 'cancelled', 'unregistered installment can be cancelled with a reason');
     throws(() => loans.cancelLoanInstallment(db, installment.id, 'too late', 'test-owner'), 'installment_not_cancellable', 'settled installment cannot be cancelled');
