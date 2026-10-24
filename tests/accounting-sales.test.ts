@@ -426,6 +426,87 @@ try {
     closeDatabase();
   }
 
+  // User-created cash/bank accounts must work as payment destinations just like the built-in liquid accounts.
+  {
+    const db = freshDb();
+    const chart = require('../main/accounting/chart-of-accounts');
+    const expenses = require('../main/accounting/expenses');
+    const newCash = chart.createManagedAccountingAccount(db, {
+      name: 'User-created till account',
+      account_kind: 'cash',
+    }, 'test-owner-accounting');
+    const newBank = chart.createManagedAccountingAccount(db, {
+      name: 'User-created bank account',
+      account_kind: 'bank',
+    }, 'test-owner-accounting');
+
+    ok(newCash.is_liquid, 'newly created cash account is classified as liquid');
+    ok(newBank.is_liquid, 'newly created bank account is classified as liquid');
+    ok(String(newCash.system_key).startsWith('custom_liquid:cash:'), 'new cash account gets the supported custom liquid key');
+    ok(String(newBank.system_key).startsWith('custom_liquid:bank:'), 'new bank account gets the supported custom liquid key');
+
+    expenses.setPaymentAccountMapping(db, 'cash', newBank.id, 'test-owner-accounting');
+    const { billId: bankBillId } = makeBill(db, 'USER-CREATED-BANK-MAPPING');
+    const bankPayment = {
+      payment_event_id: 'payment-user-created-bank-001',
+      method: 'cash',
+      amount: 43,
+      timestamp: '2026-10-14T08:05:00.000Z',
+    };
+    db.transaction(() => sales.postCollectionPaymentLines(db, bankBillId, [bankPayment], 'test-owner-accounting'))();
+    const bankReceipt = journalForSource(db, 'bill_payment', String(bankBillId) + ':' + bankPayment.payment_event_id, 'money_received');
+    ok(bankReceipt, 'sale mapped to a user-created bank account posts successfully');
+    const bankLines = linesForJournal(db, bankReceipt.id);
+    equal(bankLines.find((line: any) => line.account_id === newBank.id)?.debit_minor, 43,
+      'mapped user-created bank account receives the exact actual payment');
+    equal(bankLines.find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 43,
+      'revenue remains equal to actual money received with a custom bank destination');
+    equal(bankLines.some((line: any) => line.system_key === 'cash_drawer' || line.system_key === 'payment_clearing'), false,
+      'custom bank mapping does not also post to a built-in cash or clearing account');
+    equal((db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill_payment' AND source_id=? AND source_event='money_received' AND status='posted'").get(String(bankBillId) + ':' + bankPayment.payment_event_id) as any).n,
+      1, 'user-created bank mapping produces exactly one posted receipt journal');
+    balanced(db, bankReceipt.id);
+
+    const customMethod = db.prepare(
+      'INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES (?,1,999,?,?)',
+    ).run('User-created cash destination method', now(), now());
+    const customMethodId = Number(customMethod.lastInsertRowid);
+    expenses.setPaymentAccountMapping(db, 'custom:' + customMethodId, newCash.id, 'test-owner-accounting');
+    const { billId: cashBillId } = makeBill(db, 'USER-CREATED-CASH-MAPPING');
+    const cashPayment = {
+      payment_event_id: 'payment-user-created-cash-001',
+      payment_method_id: customMethodId,
+      method: 'custom',
+      amount: 29,
+      timestamp: '2026-10-14T08:06:00.000Z',
+    };
+    db.transaction(() => sales.postCollectionPaymentLines(db, cashBillId, [cashPayment], 'test-owner-accounting'))();
+    const cashReceipt = journalForSource(db, 'bill_payment', String(cashBillId) + ':' + cashPayment.payment_event_id, 'money_received');
+    ok(cashReceipt, 'custom payment mapped to a user-created cash account posts successfully');
+    const cashLines = linesForJournal(db, cashReceipt.id);
+    equal(cashLines.find((line: any) => line.account_id === newCash.id)?.debit_minor, 29,
+      'user-created cash account receives the exact custom-method payment');
+    equal(cashLines.find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 29,
+      'custom-method revenue is recorded once for the actual received amount');
+    equal(cashLines.some((line: any) => line.system_key === 'cash_drawer' || line.system_key === 'payment_clearing'), false,
+      'custom cash mapping does not duplicate the posting to a built-in account');
+    balanced(db, cashReceipt.id);
+
+    const refund = db.prepare(
+      'INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(cashBillId, 2500, 'custom:' + customMethodId, 'User-created cash account refund', 'test-owner-accounting', 'test-owner-accounting', '2026-10-14T08:07:00.000Z');
+    const refundResult = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
+    equal(refundResult.posted, true, 'refund to a user-created cash account posts successfully');
+    const refundJournal = journalForSource(db, 'refund', String(refund.lastInsertRowid), 'money_refunded');
+    const refundLines = linesForJournal(db, refundJournal.id);
+    equal(refundLines.find((line: any) => line.account_id === newCash.id)?.credit_minor, 25,
+      'user-created cash account is credited for the actual refunded amount');
+    equal(refundLines.find((line: any) => line.system_key === 'sales_returns')?.debit_minor, 25,
+      'refund still debits sales returns rather than operating expense');
+    balanced(db, refundJournal.id);
+    closeDatabase();
+  }
+
   // Invalid global defaults fail closed; they never recognize revenue into the wrong account.
   {
     const db = freshDb();
