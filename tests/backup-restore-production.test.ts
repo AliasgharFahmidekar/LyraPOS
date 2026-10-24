@@ -86,6 +86,40 @@ function copyAndStamp(sourcePath: string, destinationPath: string, schemaVersion
       DROP TABLE IF EXISTS accounting_accounts;
     `);
   }
+  if (schemaVersion < 116) {
+    backupDb.exec(`
+      DROP TRIGGER IF EXISTS accounting_loans_no_delete;
+      DROP TRIGGER IF EXISTS accounting_loans_status_guard;
+      DROP TRIGGER IF EXISTS accounting_loans_status_audit;
+      DROP TRIGGER IF EXISTS accounting_loans_identity_guard;
+      DROP TRIGGER IF EXISTS accounting_loans_opening_fields_insert_guard;
+      DROP TRIGGER IF EXISTS accounting_loan_batch_no_update;
+      DROP TRIGGER IF EXISTS accounting_loan_batch_no_delete;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_no_delete;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_registration_guard;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_identity_guard;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_state_guard;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_settled_immutable;
+      DROP TRIGGER IF EXISTS accounting_loans_audit_insert;
+      DROP TRIGGER IF EXISTS accounting_loans_audit_update;
+      DROP TRIGGER IF EXISTS accounting_loan_batch_audit_insert;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_audit_insert;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_audit_update;
+      DROP TABLE IF EXISTS accounting_loan_installments;
+      DROP TABLE IF EXISTS accounting_loan_installment_batches;
+      DROP TABLE IF EXISTS accounting_loans;
+    `);
+  } else if (schemaVersion < 117) {
+    // A real v116 backup has the loan tables, but not v117's metadata columns.
+    backupDb.exec(`
+      DROP TRIGGER IF EXISTS accounting_loans_identity_guard;
+      DROP TRIGGER IF EXISTS accounting_loans_opening_fields_insert_guard;
+      DROP TRIGGER IF EXISTS accounting_loans_audit_insert;
+      ALTER TABLE accounting_loans DROP COLUMN historical_principal_repaid_minor;
+      ALTER TABLE accounting_loans DROP COLUMN accounting_start_date;
+      ALTER TABLE accounting_loans DROP COLUMN origination_date;
+    `);
+  }
 
   backupDb.prepare("UPDATE _flo_meta SET value = ? WHERE key = 'schema_version'").run(String(schemaVersion));
   backupDb.pragma(`user_version = ${schemaVersion}`);
@@ -217,6 +251,16 @@ async function run() {
     // Make the backup appear to be an older schema while retaining real linked data.
     const olderBackup = path.join(testDir, 'older-schema.db');
     copyAndStamp(sameSchemaBackup, olderBackup, currentVersion - 1);
+    const legacyLoanBackupDb = new Database(olderBackup);
+    legacyLoanBackupDb.pragma('foreign_keys = OFF');
+    legacyLoanBackupDb.prepare(`
+      INSERT INTO accounting_loans
+        (id,mode,status,lender,loan_date,currency_code,original_principal_minor,initial_outstanding_minor,
+         liability_account_id,cash_account_id,initial_journal_entry_id,idempotency_key,payload_hash,created_by)
+      VALUES ('restore-legacy-v116-loan','opening','active','Legacy lender','2026-10-03','IRR',9000,6000,
+        'acct-loans-payable',NULL,NULL,'restore-legacy-v116-loan-key',?,'test-owner')
+    `).run('b'.repeat(64));
+    legacyLoanBackupDb.close();
 
     const inconsistentLedgerBackup = path.join(testDir, 'inconsistent-ledger.db');
     copyAndStamp(sameSchemaBackup, inconsistentLedgerBackup, currentVersion - 1);
@@ -370,6 +414,14 @@ async function run() {
       1,
       'data-only restore from a pre-v116 backup reseeds the dedicated Loans payable account',
     );
+    const restoredLegacyLoan = getDatabase().prepare(`
+      SELECT origination_date, accounting_start_date, historical_principal_repaid_minor, cash_account_id
+      FROM accounting_loans WHERE id='restore-legacy-v116-loan'
+    `).get() as any;
+    assert.equal(restoredLegacyLoan.origination_date, null, 'restore leaves an unknown historical origination date blank instead of guessing');
+    assert.equal(restoredLegacyLoan.accounting_start_date, '2026-10-03', 'restore rebuilds the v117 accounting start date from the v116 posting date');
+    assert.equal(restoredLegacyLoan.historical_principal_repaid_minor, 3000, 'restore rebuilds historical principal repayment from original and remaining principal');
+    assert.equal(restoredLegacyLoan.cash_account_id, null, 'legacy loan restore does not invent cash receipt');
     assert.throws(
       () => getDatabase().prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
       /system or posted accounting account definitions are immutable/i,
