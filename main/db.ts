@@ -2728,6 +2728,7 @@ const ACCOUNTING_LEDGER_RESTORE_TRIGGERS = [
   'accounting_loans_status_guard',
   'accounting_loans_status_audit',
   'accounting_loans_identity_guard',
+  'accounting_loans_opening_fields_insert_guard',
   'accounting_loan_batch_no_update',
   'accounting_loan_batch_no_delete',
   'accounting_loan_installment_no_delete',
@@ -3337,11 +3338,21 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
   CREATE TRIGGER IF NOT EXISTS accounting_loans_status_guard BEFORE UPDATE ON accounting_loans
     WHEN NOT (OLD.status=NEW.status OR (OLD.status='active' AND NEW.status='closed'))
     BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INVALID_STATUS_TRANSITION'); END;
+  CREATE TRIGGER IF NOT EXISTS accounting_loans_opening_fields_insert_guard BEFORE INSERT ON accounting_loans
+    WHEN NEW.accounting_start_date IS NULL OR NEW.origination_date IS NULL
+      OR (NEW.mode='new' AND (NEW.accounting_start_date<>NEW.loan_date OR NEW.origination_date<>NEW.loan_date OR NEW.historical_principal_repaid_minor<>0))
+      OR (NEW.mode='opening' AND (NEW.origination_date>NEW.accounting_start_date OR NEW.historical_principal_repaid_minor<>NEW.original_principal_minor-NEW.initial_outstanding_minor))
+    BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_OPENING_FIELDS_INVALID'); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loans_identity_guard BEFORE UPDATE ON accounting_loans
     WHEN NEW.id<>OLD.id OR NEW.mode<>OLD.mode OR NEW.lender<>OLD.lender
       OR COALESCE(NEW.description,'')<>COALESCE(OLD.description,'')
       OR COALESCE(NEW.reference_number,'')<>COALESCE(OLD.reference_number,'')
       OR NEW.loan_date<>OLD.loan_date OR NEW.currency_code<>OLD.currency_code
+      OR COALESCE(NEW.accounting_start_date,'')<>COALESCE(OLD.accounting_start_date,'')
+      OR NEW.historical_principal_repaid_minor<>OLD.historical_principal_repaid_minor
+      OR (OLD.mode='new' AND COALESCE(NEW.origination_date,'')<>COALESCE(OLD.origination_date,''))
+      OR (OLD.mode='opening' AND OLD.origination_date IS NOT NULL AND COALESCE(NEW.origination_date,'')<>COALESCE(OLD.origination_date,''))
+      OR (NEW.origination_date IS NOT NULL AND NEW.origination_date>NEW.accounting_start_date)
       OR NEW.original_principal_minor<>OLD.original_principal_minor
       OR NEW.initial_outstanding_minor<>OLD.initial_outstanding_minor
       OR NEW.liability_account_id<>OLD.liability_account_id
@@ -3395,8 +3406,9 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
   CREATE TRIGGER IF NOT EXISTS accounting_loans_audit_insert AFTER INSERT ON accounting_loans
     BEGIN INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json)
       VALUES('accounting_loan',NEW.id,'created',NEW.created_by,NULL,json_object('mode',NEW.mode,'lender',NEW.lender,
-        'loan_date',NEW.loan_date,'original_principal_minor',NEW.original_principal_minor,
-        'initial_outstanding_minor',NEW.initial_outstanding_minor,'currency_code',NEW.currency_code,
+        'loan_date',NEW.loan_date,'origination_date',NEW.origination_date,'accounting_start_date',NEW.accounting_start_date,
+        'original_principal_minor',NEW.original_principal_minor,'initial_outstanding_minor',NEW.initial_outstanding_minor,
+        'historical_principal_repaid_minor',NEW.historical_principal_repaid_minor,'currency_code',NEW.currency_code,
         'liability_account_id',NEW.liability_account_id,'cash_account_id',NEW.cash_account_id)); END;
   CREATE TRIGGER IF NOT EXISTS accounting_loans_audit_update AFTER UPDATE ON accounting_loans
     WHEN OLD.initial_journal_entry_id IS NULL AND NEW.initial_journal_entry_id IS NOT NULL
@@ -7282,8 +7294,34 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       ensureLoanPayableSystemAccount(db);
     },
   },
+  {
+    version: 117,
+    name: 'accounting_existing_loan_dates_and_historical_principal',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_loans ADD COLUMN origination_date TEXT
+          CHECK (origination_date IS NULL OR (length(origination_date)=10 AND origination_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'));
+        ALTER TABLE accounting_loans ADD COLUMN accounting_start_date TEXT
+          CHECK (accounting_start_date IS NULL OR (length(accounting_start_date)=10 AND accounting_start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'));
+        ALTER TABLE accounting_loans ADD COLUMN historical_principal_repaid_minor INTEGER NOT NULL DEFAULT 0
+          CHECK (typeof(historical_principal_repaid_minor)='integer' AND historical_principal_repaid_minor>=0 AND historical_principal_repaid_minor<=9007199254740991);
+
+        -- Preserve the existing posting date; never guess an old origination date.
+        UPDATE accounting_loans
+        SET origination_date=CASE WHEN mode='new' THEN loan_date ELSE NULL END,
+            accounting_start_date=loan_date,
+            historical_principal_repaid_minor=CASE WHEN mode='opening'
+              THEN original_principal_minor-initial_outstanding_minor ELSE 0 END;
+
+        DROP TRIGGER IF EXISTS accounting_loans_identity_guard;
+        DROP TRIGGER IF EXISTS accounting_loans_opening_fields_insert_guard;
+        DROP TRIGGER IF EXISTS accounting_loans_audit_insert;
+      `);
+      db.exec(ACCOUNTING_LOAN_TRIGGER_SQL);
+    },
+  },
 ] ; 
- 
+
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
   if (buildingIdealSchema) return;
   let targetPath = '';
