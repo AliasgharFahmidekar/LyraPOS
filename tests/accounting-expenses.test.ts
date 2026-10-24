@@ -106,12 +106,18 @@ try {
   ok(expenses.listPaymentAccountMappings(db).some((item: any) => item.payment_method_key === customKey && item.account_id === 'acct-bank'), 'mapping list returns configured custom payment methods');
 
   const unpaid = expenses.createExpense(db, {
-    category_id: category.id, expense_date: '2026-10-11', amount_minor: 250000, currency_code: 'IRR',
+    category_id: category.id, expense_date: '2026-10-11', due_date: '2000-01-01', amount_minor: 250000, currency_code: 'IRR',
     description: 'Monthly electricity', payment_status: 'unpaid',
   }, 'manager-1');
   equal(unpaid.status, 'draft', 'new expense starts as draft');
   equal(unpaid.payment_status, 'unpaid', 'unpaid expense needs no payment mapping');
   equal(unpaid.payment_method_key, null, 'unpaid expense has no payment method');
+  equal(unpaid.due_date, '2000-01-01', 'optional due date is persisted for unpaid expenses');
+  equal(unpaid.is_overdue, 1, 'unpaid draft with a past due date is reported overdue');
+  ok(expenses.listExpenses(db, { overdue: 'true' }).some((row: any) => row.id === unpaid.id), 'overdue filter includes an unpaid draft past its due date');
+  throws(() => expenses.createExpense(db, {
+    category_id: category.id, expense_date: '2026-10-11', due_date: '2026-02-30', amount_minor: 100, currency_code: 'IRR', description: 'Invalid due date',
+  }, 'manager-1'), /real calendar date/i, 'impossible due dates are rejected');
   throws(() => expenses.postExpense(db, unpaid.id, 'manager-1'), /only expenses already marked as paid/i, 'unpaid draft cannot be posted');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(unpaid.id) as any).count,
     0, 'unpaid expense creates no journal and cannot reduce cash');
@@ -119,6 +125,18 @@ try {
   throws(() => expenses.listExpenses(db, { status: 'unexpected' }), /status filter must be/i, 'invalid expense status filters are rejected');
   throws(() => expenses.listExpenses(db, { payment_status: 'unexpected' }), /payment status filter must be/i, 'invalid payment status filters are rejected');
   equal(expenses.getExpense(db, unpaid.id).id, unpaid.id, 'expense detail resolves the created record');
+  const cancelDraft = expenses.createExpense(db, {
+    category_id: category.id, expense_date: '2026-10-11', due_date: '2000-01-01', amount_minor: 1234,
+    currency_code: 'IRR', description: 'Draft to cancel', payment_status: 'unpaid',
+  }, 'manager-1');
+  const cancelled = expenses.cancelDraftExpense(db, cancelDraft.id, 'Entered by mistake', 'manager-1');
+  equal(cancelled.status, 'cancelled', 'unpaid draft can be cancelled');
+  throws(() => expenses.getExpense(db, cancelDraft.id), /Expense was not found/i, 'cancelled draft is removed from active expenses');
+  const cancellationAudit = db.prepare("SELECT action,after_json FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? ORDER BY id DESC LIMIT 1").get(cancelDraft.id) as any;
+  equal(cancellationAudit.action, 'cancelled', 'cancelling a draft records an audit action');
+  equal(JSON.parse(cancellationAudit.after_json).cancellation_reason, 'Entered by mistake', 'cancellation audit keeps the reason');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(cancelDraft.id) as any).count, 0, 'cancelling an unpaid draft creates no journal');
+  throws(() => expenses.cancelDraftExpense(db, customPaid.id, 'Try cancel paid', 'manager-1'), /only draft expenses can be cancelled|paid expense cannot be cancelled/i, 'a paid expense cannot be cancelled or deleted');
 
   throws(() => expenses.createExpense(db, {
     category_id: category.id, expense_date: '2026-02-30', amount_minor: 100, currency_code: 'IRR', description: 'Invalid date',
@@ -143,9 +161,10 @@ try {
     'paid expense without a method-specific mapping snapshots the configured default payment account');
   equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key = ?').get(unmappedMethodKey) as any).count, 0,
     'using the default account does not create a permanent method-specific mapping');
-  equal(paidWithoutMethodMapping.status, 'draft', 'creating an expense marked paid does not post a journal before explicit posting');
-  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(paidWithoutMethodMapping.id) as any).count, 0,
-    'expense creation does not create a second journal; the approved post operation remains the only posting path');
+  equal(paidWithoutMethodMapping.status, 'posted', 'a paid expense is posted automatically during creation');
+  equal(!!paidWithoutMethodMapping.posted_journal_entry_id, true, 'automatic payment posting links the journal to the expense');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid'").get(paidWithoutMethodMapping.id) as any).count, 1,
+    'a paid expense creates exactly one journal during creation');
 
   const paidRequest = {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 12000, currency_code: 'IRR',
@@ -157,6 +176,7 @@ try {
   equal(creationAudit.payee, 'Coffee Supplier', 'expense creation audit snapshot includes payee');
   equal(creationAudit.reference_number, 'INV-12000', 'expense creation audit snapshot includes reference number');
   equal(paid.payment_status, 'paid', 'paid expense keeps payment state');
+  equal(paid.status, 'posted', 'paid expense is saved already posted');
   equal(paid.payment_account_id, 'acct-cash-drawer', 'expense detail snapshots the mapped payment account');
   expenses.setPaymentAccountMapping(db, 'cash', 'acct-bank', 'manager-1');
   equal(expenses.getExpense(db, paid.id).payment_account_id, 'acct-cash-drawer', 'later mapping changes do not rewrite an existing expense payment account');
@@ -168,8 +188,8 @@ try {
     /already used with a different expense payload/i, 'reusing an idempotency key with changed content is rejected');
 
   const postedPaid = expenses.postExpense(db, paid.id, 'manager-1');
-  equal(postedPaid.status, 'posted', 'paid expense becomes posted after its journal commits');
-  equal(postedPaid.duplicate, false, 'first expense post is not reported as a retry');
+  equal(postedPaid.status, 'posted', 'paid expense is posted with its journal during creation');
+  equal(postedPaid.duplicate, true, 'calling post after automatic posting safely returns the existing entry');
   const paidJournal = db.prepare('SELECT id, status, entry_date, currency_code, source_type, source_id, source_event FROM accounting_journal_entries WHERE id=?')
     .get(postedPaid.posted_journal_entry_id) as any;
   equal(paidJournal.status, 'posted', 'expense journal is finalized in the same posting transaction');
@@ -236,14 +256,16 @@ try {
   const expenseAuditBeforeEdit = JSON.parse((db.prepare("SELECT before_json FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? ORDER BY id DESC LIMIT 1").get(unpaid.id) as any).before_json);
   equal(expenseAuditBeforeEdit.payee, null, 'expense edit audit before-snapshot preserves the previous payee');
   equal(expenseAuditBeforeEdit.reference_number, null, 'expense edit audit before-snapshot preserves the previous reference number');
-  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(unpaid.id) as any).count, 2, 'expense creation and edit are both audited');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(unpaid.id) as any).count, 3, 'expense creation, edit, and automatic posting are audited');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense_category' AND entity_id=?").get(category.id) as any).count, 2, 'expense category creation and remapping are audited');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id='cash'").get() as any).count, 2, 'payment account mapping changes are audited');
   const mappingAudit = db.prepare("SELECT before_json, after_json FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id='cash' ORDER BY id DESC LIMIT 1").get() as any;
   equal(JSON.parse(mappingAudit.before_json).account_id, 'acct-cash-drawer', 'mapping audit preserves the previous account');
   equal(JSON.parse(mappingAudit.after_json).account_id, 'acct-bank', 'mapping audit records the new account');
+  equal(edited.status, 'posted', 'changing an unpaid draft to paid immediately posts it');
   const postedEditedExpense = expenses.postExpense(db, unpaid.id, 'manager-1');
-  equal(postedEditedExpense.status, 'posted', 'a draft edited to paid can be posted');
+  equal(postedEditedExpense.status, 'posted', 'the changed expense already has a posted journal');
+  equal(postedEditedExpense.duplicate, true, 'manual retry after edit does not post a second journal');
   equal(postedEditedExpense.payment_account_id, 'acct-bank', 'edited expense posts to the snapshotted mapped account');
   equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid'").get(unpaid.id) as any).count,
     1, 'edited expense receives one posted journal');
@@ -287,6 +309,14 @@ try {
   const closedCorrectionPosted = expenses.postExpense(db, closedCorrectionExpense.id, 'manager-1');
   equal(closedCorrectionPosted.status, 'posted', 'control expense is posted before the period is closed');
   db.prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES ('expense-reversal-closed-period', '2030-01-01', '2030-01-01', 'closed', 'Phase 6 reversal regression', 'manager-1')").run();
+  throws(() => expenses.createExpense(db, {
+    category_id: category.id, expense_date: '2030-01-01', amount_minor: 2222, currency_code: 'IRR',
+    description: 'Atomic paid expense must roll back', payment_status: 'paid', payment_method_key: 'cash', payment_date: '2030-01-01',
+  }, 'manager-1'), /Accounting period is closed/i, 'paid expense creation fails if its journal cannot post in a closed period');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_expenses WHERE description='Atomic paid expense must roll back'").get() as any).count, 0,
+    'failed automatic posting rolls back the newly created expense row');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_event='expense_paid' AND entry_date='2030-01-01' AND description LIKE '%Atomic paid expense must roll back%'").get() as any).count, 0,
+    'failed automatic posting leaves no orphan journal');
   throws(() => expenses.reverseExpense(db, closedCorrectionExpense.id, 'Invalid same-period correction', '2030-01-01', 'manager-1'),
     /Accounting period is closed/i, 'reversal cannot be posted inside a closed accounting period');
   equal(expenses.getExpense(db, closedCorrectionExpense.id).status, 'posted', 'rejected closed-period reversal leaves the original expense state unchanged');
@@ -321,8 +351,12 @@ try {
     const fallbackPaid = expenses.createExpense(fallbackDb, basePayload, 'manager-1');
     equal(fallbackPaid.payment_account_id, 'acct-bank', 'paid expense with no method mapping uses configured default');
     expenses.setPaymentAccountMapping(fallbackDb, 'cash', 'acct-cash-drawer', 'manager-1');
-    const explicitPaid = expenses.createExpense(fallbackDb, { ...basePayload, description: 'Payment uses explicit account' }, 'manager-1');
-    equal(explicitPaid.payment_account_id, 'acct-cash-drawer', 'paid expense uses method-specific account before global default');
+    const explicitPaid = expenses.createExpense(fallbackDb, { ...basePayload, description: 'Payment uses explicitly selected account', payment_account_id: 'acct-cash-drawer' }, 'manager-1');
+    equal(explicitPaid.payment_account_id, 'acct-cash-drawer', 'expense uses the account selected directly by the user');
+    const explicitJournal = db.prepare("SELECT id FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid'").get(explicitPaid.id) as { id: string };
+    equal((fallbackDb.prepare('SELECT account_id FROM accounting_journal_lines WHERE journal_entry_id=? AND credit_minor=1000').get(explicitJournal.id) as any).account_id, 'acct-cash-drawer', 'journal credits the explicitly selected source account');
+    throws(() => expenses.createExpense(fallbackDb, { ...basePayload, description: 'Reject invalid selected account', payment_account_id: 'acct-inventory' }, 'manager-1'),
+      /cash, bank, or payment-clearing/i, 'direct account selection rejects non-liquid accounting accounts');
   }
 
   console.log('Accounting expense foundation: ' + checks + ' assertions passed.');
