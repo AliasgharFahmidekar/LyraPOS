@@ -2817,6 +2817,26 @@ const ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL = `
         END;
       `;
 
+const ACCOUNTING_EXPENSE_DUE_DATE_GUARD_TRIGGER_SQL = `
+  CREATE TRIGGER IF NOT EXISTS accounting_expense_due_date_insert_guard
+  BEFORE INSERT ON accounting_expenses
+  WHEN NEW.due_date IS NOT NULL AND (
+    date(NEW.due_date, '+0 days') IS NULL OR date(NEW.due_date, '+0 days') <> NEW.due_date
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'Accounting expense due date must be a real calendar date');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS accounting_expense_due_date_update_guard
+  BEFORE UPDATE OF due_date ON accounting_expenses
+  WHEN NEW.due_date IS NOT NULL AND (
+    date(NEW.due_date, '+0 days') IS NULL OR date(NEW.due_date, '+0 days') <> NEW.due_date
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'Accounting expense due date must be a real calendar date');
+  END;
+`;
+
 const ACCOUNTING_EXPENSE_CANCELLATION_TRIGGER_SQL = `
   CREATE TRIGGER IF NOT EXISTS accounting_expense_cancel_metadata_insert_guard
   BEFORE INSERT ON accounting_expenses
@@ -3505,6 +3525,9 @@ function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (getTables(db).includes('accounting_expenses')) {
     db.exec(ACCOUNTING_EXPENSE_GUARD_TRIGGER_SQL);
     db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
+    if (getColumns(db, 'accounting_expenses').includes('due_date')) {
+      db.exec(ACCOUNTING_EXPENSE_DUE_DATE_GUARD_TRIGGER_SQL);
+    }
     if (getColumns(db, 'accounting_expenses').includes('cancelled_at')) {
       db.exec(ACCOUNTING_EXPENSE_CANCELLATION_TRIGGER_SQL);
     }
@@ -7421,6 +7444,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       // Recreate the immutable-fields guard with due_date included. This is a
       // forward-only additive migration; historical migration SQL stays intact.
       db.exec(ACCOUNTING_EXPENSE_POSTING_GUARD_TRIGGER_SQL);
+      db.exec(ACCOUNTING_EXPENSE_DUE_DATE_GUARD_TRIGGER_SQL);
     },
   },
   {
