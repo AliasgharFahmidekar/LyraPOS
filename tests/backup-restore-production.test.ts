@@ -256,12 +256,13 @@ async function run() {
       'backup-only users remain disabled after restore',
     );
 
-    // Make the backup appear to be an older schema while retaining real linked data.
-    const olderBackup = path.join(testDir, 'older-schema.db');
-    copyAndStamp(sameSchemaBackup, olderBackup, currentVersion - 1);
-    const legacyLoanBackupDb = new Database(olderBackup);
-    legacyLoanBackupDb.pragma('foreign_keys = OFF');
-    legacyLoanBackupDb.prepare(`
+    // Create a loan row on the current schema first, then remove v117 metadata to
+    // produce a real v116-shaped backup. Restore must reconstruct only fields known to v116.
+    const legacyLoanSource = path.join(testDir, 'legacy-loan-current-schema.db');
+    copyAndStamp(sameSchemaBackup, legacyLoanSource, currentVersion);
+    const legacyLoanSourceDb = new Database(legacyLoanSource);
+    legacyLoanSourceDb.pragma('foreign_keys = OFF');
+    legacyLoanSourceDb.prepare(`
       INSERT INTO accounting_loans
         (id,mode,status,lender,loan_date,origination_date,accounting_start_date,historical_principal_repaid_minor,
          currency_code,original_principal_minor,initial_outstanding_minor,liability_account_id,cash_account_id,
@@ -269,10 +270,13 @@ async function run() {
       VALUES ('restore-legacy-v116-loan','opening','active','Legacy lender','2026-10-03','2026-08-01','2026-10-03',3000,
         'IRR',9000,6000,'acct-loans-payable',NULL,NULL,'restore-legacy-v116-loan-key',?,'test-owner')
     `).run('b'.repeat(64));
-    legacyLoanBackupDb.close();
+    legacyLoanSourceDb.close();
+
+    const olderBackup = path.join(testDir, 'older-schema.db');
+    copyAndStamp(legacyLoanSource, olderBackup, 116);
 
     const preV116Backup = path.join(testDir, 'pre-v116-loan-account.db');
-    copyAndStamp(sameSchemaBackup, preV116Backup, currentVersion - 2);
+    copyAndStamp(sameSchemaBackup, preV116Backup, 115);
 
     const inconsistentLedgerBackup = path.join(testDir, 'inconsistent-ledger.db');
     copyAndStamp(sameSchemaBackup, inconsistentLedgerBackup, currentVersion - 1);

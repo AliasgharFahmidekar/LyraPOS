@@ -81,7 +81,7 @@ async function main(): Promise<void> {
       equal((await request(app).put('/api/accounting/payment-account-mappings/cash').set(headers).send({ account_id: 'acct-cash-drawer' })).status, 403,
         role + ' cannot change a method-specific account mapping');
     }
-        equal((await request(app).get('/api/accounting/activities').set(cashier)).status, 403, 'cashier cannot read manual accounting activities');
+    equal((await request(app).get('/api/accounting/activities').set(cashier)).status, 403, 'cashier cannot read manual accounting activities');
     equal((await request(app).get('/api/accounting/reconciliation').set(cashier)).status, 403, 'cashier cannot read accounting reconciliation');
     equal((await request(app).post('/api/accounting/reconciliation/adjustments').set(cashier).send({})).status, 403, 'cashier cannot post reconciliation adjustments');
     equal((await request(app).post('/api/accounting/activities').set(cashier).send({})).status, 403, 'cashier cannot create manual accounting activities');
@@ -287,7 +287,7 @@ async function main(): Promise<void> {
       .set(manager).send({ account_id: 'acct-bank' });
     equal(invalidCustomMappingResponse.status, 404, 'a mapping cannot be assigned to a nonexistent custom payment method');
 
-        const invalidDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
+    const invalidDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
       .set(manager).send({ account_id: 'acct-inventory' });
     equal(invalidDefaultResponse.status, 400, 'default payment account cannot be mapped to inventory');
     const changedDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')

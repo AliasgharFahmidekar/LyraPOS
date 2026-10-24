@@ -343,6 +343,33 @@ try {
       'explicit method mapping wins even when the global default points to a bank account');
     balanced(db, explicitReceipt.id);
 
+    // Built-in card has its own mapping and must override the global default.
+    db.prepare("UPDATE accounting_payment_method_mappings SET account_id='acct-payment-clearing' WHERE payment_method_key='card'").run();
+    const { billId: cardMappedBillId } = makeBill(db, 'CARD-METHOD-ACCOUNT');
+    const cardMappedPayment = {
+      payment_event_id: 'payment-card-specific-account-001', method: 'card', amount: 18,
+      timestamp: '2026-10-14T08:01:30.000Z',
+    };
+    db.transaction(() => sales.postCollectionPaymentLines(db, cardMappedBillId, [cardMappedPayment], 'test-owner-accounting'))();
+    const cardMappedReceipt = journalForSource(
+      db, 'bill_payment', String(cardMappedBillId) + ':' + cardMappedPayment.payment_event_id, 'money_received',
+    );
+    ok(cardMappedReceipt, 'built-in card payment posts a receipt');
+    const cardMappedLines = linesForJournal(db, cardMappedReceipt.id);
+    equal(cardMappedLines.find((line: any) => line.system_key === 'payment_clearing')?.debit_minor, 18,
+      'card receipt debits its specifically mapped clearing account rather than the global bank default');
+    equal(cardMappedLines.find((line: any) => line.system_key === 'bank_accounts'), undefined,
+      'card receipt does not also debit the default bank account');
+    equal(cardMappedLines.find((line: any) => line.system_key === 'cash_drawer'), undefined,
+      'card receipt does not debit the cash drawer');
+    equal(cardMappedLines.find((line: any) => line.system_key === 'sales_revenue')?.credit_minor, 18,
+      'card receipt credits revenue only for actual money received');
+    equal((db.prepare(
+      "SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='bill_payment' AND source_id=? AND source_event='money_received' AND status='posted'",
+    ).get(String(cardMappedBillId) + ':' + cardMappedPayment.payment_event_id) as any).n, 1,
+    'specific card mapping results in one posted receipt journal');
+    balanced(db, cardMappedReceipt.id);
+
     // Newly-created custom methods remain unmapped and therefore use the current default.
     const customMethod = db.prepare(
       'INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES (?,1,999,?,?)',
