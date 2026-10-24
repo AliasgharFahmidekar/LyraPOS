@@ -135,10 +135,17 @@ try {
     0,
     'unmapped-method fixture has no accounting mapping before expense creation',
   );
-  throws(() => expenses.createExpense(db, {
-    category_id: category.id, expense_date: '2026-10-11', amount_minor: 100, currency_code: 'IRR', description: 'Paid without mapping',
+  const paidWithoutMethodMapping = expenses.createExpense(db, {
+    category_id: category.id, expense_date: '2026-10-11', amount_minor: 100, currency_code: 'IRR', description: 'Paid without method-specific mapping',
     payment_status: 'paid', payment_method_key: unmappedMethodKey, payment_date: '2026-10-11',
-  }, 'manager-1'), /map this payment method/i, 'paid expense requires a mapping for an active supported payment method that is not configured');
+  }, 'manager-1');
+  equal(paidWithoutMethodMapping.payment_account_id, expenses.getDefaultPaymentAccountMapping(db).account_id,
+    'paid expense without a method-specific mapping snapshots the configured default payment account');
+  equal((db.prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key = ?').get(unmappedMethodKey) as any).count, 0,
+    'using the default account does not create a permanent method-specific mapping');
+  equal(paidWithoutMethodMapping.status, 'draft', 'creating an expense marked paid does not post a journal before explicit posting');
+  equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(paidWithoutMethodMapping.id) as any).count, 0,
+    'expense creation does not create a second journal; the approved post operation remains the only posting path');
 
   const paidRequest = {
     category_id: category.id, expense_date: '2026-10-11', amount_minor: 12000, currency_code: 'IRR',
