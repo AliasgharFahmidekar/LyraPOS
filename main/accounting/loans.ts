@@ -165,6 +165,7 @@ export function listLoans(db: DB, filters: any = {}): any[] {
     const pending = db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
     return {...loan,remaining_principal_minor:remaining,principal_repaid_minor:Number(loan.initial_outstanding_minor)-remaining,
       historical_principal_repaid_minor:Number(loan.historical_principal_repaid_minor ?? 0),
+      historical_principal_known:loan.mode!=='opening' || Number(loan.original_principal_minor)>Number(loan.initial_outstanding_minor),
       status:remaining===0 && Number(pending.count)===0?'closed':loan.status,installments};
   });
 }
