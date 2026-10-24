@@ -72,6 +72,8 @@ async function main(): Promise<void> {
       equal((await request(app).post('/api/accounting/expenses').set(headers).send({})).status, 403, role + ' cannot create accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/post').set(headers).send({})).status, 403, role + ' cannot post accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/reverse').set(headers).send({ reason: 'x', reversal_date: '2026-10-11' })).status, 403, role + ' cannot reverse accounting expenses');
+      equal((await request(app).post('/api/accounting/expenses/not-an-id/cancel').set(headers).send({ reason: 'x' })).status, 403, role + ' cannot cancel accounting expenses');
+      equal((await request(app).get('/api/accounting/expenses/export.xlsx').set(headers)).status, 403, role + ' cannot export accounting expenses');
     }
     for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
       equal((await request(app).get('/api/accounting/payment-account-mappings').set(headers)).status, 403,
@@ -333,6 +335,8 @@ async function main(): Promise<void> {
     equal(first.status, 201, 'manager can create paid expense with an idempotency key');
     const firstId = first.body.expense?.id;
     ok(typeof firstId === 'string' && firstId.length > 0, 'create response contains the expense identifier');
+    equal(first.body.expense?.status, 'posted', 'a paid expense is returned already posted by its create transaction');
+    ok(typeof first.body.expense?.posted_journal_entry_id === 'string', 'create response includes the posted journal link');
 
     const retry = await request(app).post('/api/accounting/expenses')
       .set(manager).set('Idempotency-Key', 'accounting-api-expense-0001').send(payload);
@@ -352,13 +356,14 @@ async function main(): Promise<void> {
     equal(wrongCurrency.body.code, 'expense_currency_mismatch', 'currency mismatch has a stable error code');
 
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(firstId) as any).count,
-      1, 'idempotent retry does not duplicate the expense audit event');
+      2, 'creation and automatic posting are audited once each despite an idempotent retry');
 
     equal((await request(app).post('/api/accounting/expenses/' + firstId + '/post').set(cashier).send({})).status,
       403, 'cashier cannot post a manager-owned accounting expense');
     const postResponse = await request(app).post('/api/accounting/expenses/' + firstId + '/post').set(manager).send({});
-    equal(postResponse.status, 200, 'manager can post a paid expense');
+    equal(postResponse.status, 200, 'post endpoint safely handles a previously auto-posted expense');
     equal(postResponse.body.expense?.status, 'posted', 'post endpoint returns posted expense state');
+    equal(postResponse.body.expense?.duplicate, true, 'the compatibility post endpoint does not create a second journal');
     const postedJournalId = postResponse.body.expense?.posted_journal_entry_id;
     ok(typeof postedJournalId === 'string' && postedJournalId.length > 0, 'post response links the journal entry');
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid' AND status='posted'").get(firstId) as any).count,
@@ -369,16 +374,32 @@ async function main(): Promise<void> {
     equal(postRetry.body.expense?.posted_journal_entry_id, postedJournalId, 'retry returns the existing journal link');
 
     const unpaidResponse = await request(app).post('/api/accounting/expenses').set(manager).send({
-      ...payload, description: 'API unpaid expense', payment_status: 'unpaid', payment_method_key: undefined, payment_date: undefined,
+      ...payload, description: 'API unpaid expense', due_date: '2000-01-01', payment_status: 'unpaid', payment_method_key: undefined, payment_date: undefined,
     });
     equal(unpaidResponse.status, 201, 'manager can save an unpaid expense draft');
     const unpaidId = unpaidResponse.body.expense?.id;
     ok(typeof unpaidId === 'string' && unpaidId.length > 0, 'unpaid expense response contains an identifier');
+    equal(unpaidResponse.body.expense?.due_date, '2000-01-01', 'API persists the due date on an unpaid expense');
+    equal(unpaidResponse.body.expense?.is_overdue, 1, 'API marks an unpaid expense overdue when its due date has passed');
+    const overdueList = await request(app).get('/api/accounting/expenses?overdue=true').set(manager);
+    equal(overdueList.status, 200, 'manager can query overdue expenses');
+    ok(overdueList.body.expenses.some((e: any) => e.id === unpaidId), 'overdue query returns the unpaid past-due expense');
     const postUnpaid = await request(app).post('/api/accounting/expenses/' + unpaidId + '/post').set(manager).send({});
     equal(postUnpaid.status, 409, 'unpaid expense cannot be posted as a cash outflow');
     equal(postUnpaid.body.code, 'expense_unpaid', 'unpaid posting rejection has a stable error code');
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(unpaidId) as any).count,
       0, 'unpaid posting rejection leaves the ledger and cash account untouched');
+    const cancelUnpaid = await request(app).post('/api/accounting/expenses/' + unpaidId + '/cancel').set(manager).send({ reason: 'Draft entered in error' });
+    equal(cancelUnpaid.status, 200, 'manager can cancel an unpaid expense draft with a reason');
+    equal(cancelUnpaid.body.expense?.status, 'cancelled', 'cancel route reports the cancelled state');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? AND action='cancelled'").get(unpaidId) as any).count, 1,
+      'cancellation is preserved in the audit log even after the draft is removed');
+    equal((await request(app).get('/api/accounting/expenses/' + unpaidId).set(manager)).status, 404, 'cancelled draft no longer appears as an active expense');
+
+    const excelExport = await request(app).get('/api/accounting/expenses/export.xlsx?locale=fa').set(manager);
+    equal(excelExport.status, 200, 'manager can export the live expense list to Excel');
+    ok(String(excelExport.headers['content-type']).includes('spreadsheetml.sheet'), 'export responds with the Excel workbook MIME type');
+    ok(String(excelExport.headers['content-disposition']).includes('lyrapos-expenses.xlsx'), 'export sends a real XLSX download filename');
 
     const reversePayload = { reason: 'API correction', reversal_date: '2026-10-12' };
     const reverseResponse = await request(app).post('/api/accounting/expenses/' + firstId + '/reverse').set(manager).send(reversePayload);
