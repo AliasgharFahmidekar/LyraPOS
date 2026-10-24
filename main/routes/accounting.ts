@@ -17,7 +17,7 @@ import { getAccountingTrialBalance } from '../accounting/trial-balance';
 import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } from '../accounting/period-close';
 import { cancelFutureItem, createFutureItem, listFutureItems, registerFutureItem, settleFutureItem, FutureItemError } from '../accounting/future-items';
 import { cancelRecurringObligation, createRecurringObligation, listRecurringObligations, RecurringObligationError } from '../accounting/recurring-obligations';
-import { AccountingLoanError, cancelLoanInstallment, createLoan, createLoanInstallments, listLoans, registerLoanInstallment, settleLoanInstallment } from '../accounting/loans';
+import { AccountingLoanError, cancelLoanInstallment, createLoan, createLoanInstallments, listLoans, registerLoanInstallment, settleLoanInstallment, updateLoanOriginationDate } from '../accounting/loans';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -57,6 +57,10 @@ router.get('/loans', managerOnly, (req, res) => {
 });
 router.post('/loans', managerOnly, (req, res) => {
   try { res.status(201).json({ loan: createLoan(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) }); }
+  catch (error) { respondError(res, error); }
+});
+router.put('/loans/:id/origination-date', managerOnly, (req, res) => {
+  try { res.json({ loan: updateLoanOriginationDate(getDatabase(), String(req.params.id), req.body?.origination_date, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.post('/loans/:id/installments', managerOnly, (req, res) => {
