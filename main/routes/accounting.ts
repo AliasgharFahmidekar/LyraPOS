@@ -327,6 +327,10 @@ router.get('/expenses/export.xlsx', managerOnly, async (req, res) => {
       { header: 'Payment date', key: 'payment_date', width: 16 },
     ];
     const factor = getAccountingMinorUnitFactor(String(rows[0]?.currency_code || 'IRR'));
+    const decimalPlaces = factor === 1 ? 0 : Math.round(Math.log10(factor));
+    const amountFormat = decimalPlaces === 0
+      ? '#,##0;[Red]-#,##0'
+      : '#,##0.' + '0'.repeat(decimalPlaces) + ';[Red]-#,##0.' + '0'.repeat(decimalPlaces);
     for (const expense of rows) {
       sheet.addRow({
         expense_date: expense.expense_date || '',
@@ -335,7 +339,7 @@ router.get('/expenses/export.xlsx', managerOnly, async (req, res) => {
         category: expense.category_name || '',
         payee: expense.payee || '',
         reference: expense.reference_number || '',
-        amount: Number(expense.amount_minor || 0) / getAccountingMinorUnitFactor(String(expense.currency_code || 'IRR')),
+        amount: Number(expense.amount_minor || 0) / factor,
         currency: expense.currency_code || '',
         payment_status: isPersian
           ? (expense.payment_status === 'paid' ? 'پرداخت‌شده' : expense.is_overdue ? 'عقب‌افتاده' : 'پرداخت‌نشده')
@@ -350,7 +354,7 @@ router.get('/expenses/export.xlsx', managerOnly, async (req, res) => {
     sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
     sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
     sheet.autoFilter = { from: 'A1', to: 'L1' };
-    sheet.getColumn('amount').numFmt = '#,##0.00;[Red]-#,##0.00';
+    sheet.getColumn('amount').numFmt = amountFormat;
     sheet.eachRow((row, rowNumber) => {
       row.alignment = { vertical: 'middle', horizontal: isPersian ? 'right' : 'left', wrapText: rowNumber === 1 };
       if (rowNumber > 1) row.height = 20;
