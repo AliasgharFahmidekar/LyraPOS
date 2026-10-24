@@ -3013,22 +3013,6 @@ const ACCOUNTING_ACCOUNT_DEFINITION_GUARD_SQL = `
       `;
 
 const ACCOUNTING_SALES_TRIGGER_SQL = `
-  CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_default_mapping
-  AFTER INSERT ON payment_methods
-  WHEN NOT EXISTS (
-    SELECT 1 FROM accounting_payment_method_mappings
-    WHERE payment_method_key = 'custom:' || NEW.id
-  )
-  BEGIN
-    INSERT INTO accounting_payment_method_mappings (payment_method_key, account_id)
-    VALUES (
-      'custom:' || NEW.id,
-      COALESCE(
-        (SELECT value FROM settings WHERE key = 'accounting_default_payment_account_id'),
-        'acct-payment-clearing'
-      )
-    );
-  END;
 
   CREATE TRIGGER IF NOT EXISTS accounting_custom_payment_method_mapping_cleanup
   AFTER DELETE ON payment_methods
