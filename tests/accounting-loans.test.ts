@@ -268,6 +268,14 @@ function main(): void {
     throws(() => loans.updateLoanOriginationDate(db, opening.id, '2026-10-02', 'test-owner'), 'loan_origination_after_accounting_start', 'origination cannot follow accounting start');
     throws(() => loans.createLoan(db, {mode:'opening', lender:'bad history', loan_date:'2025-01-01', accounting_start_date:'2026-10-01', original_principal_minor:1000, remaining_principal_minor:700, historical_principal_repaid_minor:200, liability_account_id:'acct-loans-payable', currency_code:'IRR'}, 'test-owner', 'loan-opening-bad-history'), 'invalid_historical_principal_repaid', 'historical repayments cannot contradict original and remaining principal');
     throws(() => loans.createLoanInstallments(db, opening.id, {installments:[{due_date:'2026-09-30',principal_minor:1,interest_minor:0,fees_minor:0,auto_register:false}]}, 'test-owner', 'loan-opening-before-accounting-start'), 'installment_before_loan_date', 'installments cannot predate accounting start');
+    const knownHistory = loans.listLoans(db, {}).find((item:any)=>item.id===opening.id);
+    equal(knownHistory.historical_principal_known, true, 'historical principal is known when original principal exceeds the opening balance');
+    const unknownOpening = loans.createLoan(db, {
+      mode:'opening', lender:'Unknown original principal', loan_date:'2024-01-01', accounting_start_date:'2026-10-01',
+      remaining_principal_minor:2500, liability_account_id:'acct-loans-payable', currency_code:'IRR',
+    }, 'test-owner', 'loan-opening-unknown-original');
+    const unknownHistory = loans.listLoans(db, {}).find((item:any)=>item.id===unknownOpening.id);
+    equal(unknownHistory.historical_principal_known, false, 'omitting an old loan original principal does not claim historical repayments are zero');
 
     const schedule = loans.createLoanInstallments(db, opening.id, {installments:[
       {due_date:'2026-12-01',principal_minor:600,interest_minor:0,fees_minor:0,auto_register:false},
