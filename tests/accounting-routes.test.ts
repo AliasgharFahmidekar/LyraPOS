@@ -73,6 +73,9 @@ async function main(): Promise<void> {
       equal((await request(app).post('/api/accounting/expenses/not-an-id/post').set(headers).send({})).status, 403, role + ' cannot post accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/reverse').set(headers).send({ reason: 'x', reversal_date: '2026-10-11' })).status, 403, role + ' cannot reverse accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/cancel').set(headers).send({ reason: 'x' })).status, 403, role + ' cannot cancel accounting expenses');
+      equal((await request(app).post('/api/accounting/loans/not-an-id/cancel').set(headers).send({ reason: 'x' })).status, 403, role + ' cannot cancel accounting loans');
+      equal((await request(app).post('/api/accounting/loans/not-an-id/correct').set(headers).send({ reason: 'x', loan: {} })).status, 403, role + ' cannot correct accounting loans');
+      equal((await request(app).put('/api/accounting/loan-installments/not-an-id').set(headers).send({})).status, 403, role + ' cannot edit loan installments');
       equal((await request(app).get('/api/accounting/expenses/export.xlsx').set(headers)).status, 403, role + ' cannot export accounting expenses');
     }
     for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
