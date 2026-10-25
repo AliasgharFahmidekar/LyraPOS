@@ -81,6 +81,26 @@ function outstanding(db: DB, loan: any): number {
   const paid = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status='settled'").get(loan.id) as {total:number};
   return Number(loan.initial_outstanding_minor) - Number(paid.total);
 }
+function reversePostedLoanJournal(db: DB, entryId: string, input: {entryDate:string;description:string;sourceId:string;sourceEvent:string;idempotencyKey:string;actorId:string|null;expectedSourceEvent:string}): any {
+  const original=db.prepare('SELECT id,status,source_type,source_id,source_event,currency_code FROM accounting_journal_entries WHERE id=?').get(entryId) as any;
+  if(!original||original.status!=='posted'||original.source_type!=='accounting_loan'||original.source_id!==input.sourceId||original.source_event!==input.expectedSourceEvent) fail('loan_journal_not_reversible','The original loan journal is missing or does not match the expected source event.',409);
+  const lines=db.prepare('SELECT account_id,debit_minor,credit_minor,description FROM accounting_journal_lines WHERE journal_entry_id=? ORDER BY line_no').all(entryId) as any[];
+  if(!lines.length) fail('loan_journal_not_reversible','The original loan journal has no posted lines.',409);
+  return post(db,{entryDate:input.entryDate,description:input.description,currencyCode:original.currency_code,
+    lines:lines.map(line=>({accountId:line.account_id,debitMinor:Number(line.credit_minor),creditMinor:Number(line.debit_minor),description:'Reversal: '+String(line.description||input.description).slice(0,350)})),
+    actorId:input.actorId,sourceId:input.sourceId,sourceEvent:input.sourceEvent,idempotencyKey:input.idempotencyKey});
+}
+
+function accrueLoanInstallment(db: DB, item: any, loan: any, entryDate: string, actorId: string|null): any|null {
+  const accrued=Number(item.interest_minor)+Number(item.fees_minor);
+  if(!Number.isSafeInteger(accrued)||accrued<0) fail('invalid_installment_amount','Interest and fee total is invalid.');
+  if(accrued===0) return null;
+  const lines:any[]=[];
+  if(Number(item.interest_minor)>0){account(db,item.interest_account_id,['expense'],'interest_account_id');lines.push({accountId:item.interest_account_id,debitMinor:Number(item.interest_minor),creditMinor:0,description:'Loan interest accrued at installment recognition date'});}
+  if(Number(item.fees_minor)>0){account(db,item.fees_account_id,['expense'],'fees_account_id');lines.push({accountId:item.fees_account_id,debitMinor:Number(item.fees_minor),creditMinor:0,description:'Loan fees accrued at installment recognition date'});}
+  lines.push({accountId:loan.liability_account_id,debitMinor:0,creditMinor:accrued,description:'Interest/fees added to amount owed; no cash movement'});
+  return post(db,{entryDate,description:'Loan installment due accrual: '+loan.lender,currencyCode:loan.currency_code,lines,actorId,sourceId:item.id,sourceEvent:'installment_due_registration',idempotencyKey:'loan-installment:'+item.id+':due-registration'});
+}
 export function createLoan(db: DB, input: any, actorId: string | null, idempotencyInput: unknown): any {
   const mode = input?.mode;
   if (mode !== 'new' && mode !== 'opening') fail('invalid_loan_mode', 'Loan mode must be new or opening.');
@@ -151,10 +171,12 @@ export function listLoans(db: DB, filters: any = {}): any[] {
   const status = filters?.status == null || filters.status === '' ? null : String(filters.status);
   if (status && !['active','closed'].includes(status)) fail('invalid_status','Unknown loan status.');
   const rows = db.prepare(`SELECT l.*, a.account_code AS liability_account_code, a.name AS liability_account_name,
-    cash.account_code AS cash_account_code, cash.name AS cash_account_name, j.entry_number AS initial_entry_number
+    cash.account_code AS cash_account_code, cash.name AS cash_account_name, j.entry_number AS initial_entry_number,
+    cancellation.entry_number AS cancellation_entry_number
     FROM accounting_loans l JOIN accounting_accounts a ON a.id=l.liability_account_id
     LEFT JOIN accounting_accounts cash ON cash.id=l.cash_account_id
     LEFT JOIN accounting_journal_entries j ON j.id=l.initial_journal_entry_id
+    LEFT JOIN accounting_journal_entries cancellation ON cancellation.id=l.cancellation_journal_entry_id
     WHERE (? IS NULL OR l.status=?) ORDER BY COALESCE(l.accounting_start_date,l.loan_date),l.created_at,l.id`).all(status,status) as any[];
   return rows.map(loan => {
     const remaining = outstanding(db,loan);
@@ -236,40 +258,52 @@ export function createLoanInstallments(db: DB, loanIdInput: unknown, input: any,
     return {batch:{id:batchId,loan_id:loan.id,idempotency_key:idempotencyKey},installments:created,duplicate:false};
   })();
 }
+export function updateLoanInstallment(db: DB, installmentIdInput: unknown, input: any, actorId: string|null): any {
+  const id=text(installmentIdInput,'installment_id',100);
+  const dueDate=date(input?.due_date,'due_date'), principal=input?.principal_minor, interest=input?.interest_minor??0, fees=input?.fees_minor??0;
+  for(const [field,value] of [['principal_minor',principal],['interest_minor',interest],['fees_minor',fees]] as [string,any][]) if(!Number.isSafeInteger(value)||value<0) fail('invalid_'+field,field+' must be a non-negative integer.');
+  if(!Number.isSafeInteger(principal+interest+fees)||principal+interest+fees<=0) fail('invalid_installment_amount','Installment total must be positive.');
+  if(typeof input?.auto_register!=='boolean') fail('invalid_auto_register','auto_register must be true or false.');
+  return db.transaction(()=>{
+    const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
+    if(!item) fail('installment_not_found','Loan installment was not found.',404);
+    if(!['scheduled','awaiting_confirmation','failed'].includes(item.status)) fail('installment_not_editable','Only installments without a posted accrual/payment can be edited. Cancel a registered installment and create a replacement.',409);
+    const loan=loanRow(db,item.loan_id);
+    if(loan.cancelled_at||loan.status!=='active') fail('loan_not_active','Cannot edit an installment for a closed or cancelled loan.',409);
+    if(dueDate<(loan.accounting_start_date??loan.loan_date)) fail('installment_before_loan_date','Due date cannot precede the accounting start date.');
+    const duplicate=db.prepare("SELECT id FROM accounting_loan_installments WHERE loan_id=? AND due_date=? AND id<>? AND status<>'cancelled' LIMIT 1").get(loan.id,dueDate,id);
+    if(duplicate) fail('duplicate_installment_due_date','Another active installment already has this due date.',409);
+    const interestAccount=interest>0?account(db,input?.interest_account_id,['expense'],'interest_account_id'):null;
+    const feesAccount=fees>0?account(db,input?.fees_account_id,['expense'],'fees_account_id'):null;
+    const scheduled=db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND id<>? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id,id) as {total:number};
+    if(principal+Number(scheduled.total)>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Combined scheduled principal exceeds remaining principal.',409);
+    const before={due_date:item.due_date,principal_minor:item.principal_minor,interest_minor:item.interest_minor,fees_minor:item.fees_minor,interest_account_id:item.interest_account_id,fees_account_id:item.fees_account_id,auto_register:item.auto_register,status:item.status};
+    db.prepare("UPDATE accounting_loan_installments SET due_date=?,principal_minor=?,interest_minor=?,fees_minor=?,interest_account_id=?,fees_account_id=?,auto_register=?,status='scheduled',registered_at=NULL,registered_by=NULL,due_journal_entry_id=NULL,last_error_code=NULL,last_error_message=NULL WHERE id=?")
+      .run(dueDate,principal,interest,fees,interestAccount?.id??null,feesAccount?.id??null,input.auto_register?1:0,id);
+    const after={due_date:dueDate,principal_minor:principal,interest_minor:interest,fees_minor:fees,interest_account_id:interestAccount?.id??null,fees_account_id:feesAccount?.id??null,auto_register:input.auto_register?1:0,status:'scheduled'};
+    db.prepare("INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json) VALUES('accounting_loan_installment',?,'edited',?,?,?)")
+      .run(id,actor(actorId),JSON.stringify(before),JSON.stringify(after));
+    return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false};
+  })();
+}
 export function registerLoanInstallment(db: DB, installmentIdInput: unknown, actorId: string | null, asOfInput?: unknown): any {
   const id=text(installmentIdInput,'installment_id',100);
   const asOf=asOfInput===undefined?accountingDate(db,new Date().toISOString()):date(asOfInput,'as_of_date');
   return db.transaction(()=>{
     const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
-    if(!item) fail('installment_not_found','Loan instalment was not found.',404);
+    if(!item) fail('installment_not_found','Loan installment was not found.',404);
     if(['registered','settled'].includes(item.status)) return {...item,duplicate:true};
-    if(item.status==='cancelled') fail('installment_cancelled','Cancelled instalment cannot be registered.',409);
-    if(item.due_date>asOf) fail('installment_not_due','Instalment cannot be registered before its due date.',409);
+    if(item.status==='cancelled') fail('installment_cancelled','Cancelled installment cannot be registered.',409);
+    if(item.due_date>asOf) fail('installment_not_due','Installment cannot be registered before its due date.',409);
     const loan=loanRow(db,item.loan_id);
-    if (item.due_date < (loan.accounting_start_date ?? loan.loan_date)) fail('installment_before_loan_date','An installment due date cannot precede the accounting start date.',409);
-    const closedPeriod = db.prepare("SELECT 1 FROM accounting_period_closures WHERE status='closed' AND ? BETWEEN period_start AND period_end LIMIT 1").get(item.due_date);
-    if (closedPeriod) fail('period_closed','Accounting period is closed; reopen it with a reason before registering the installment due event.',409);
-    const dueLines:any[]=[];
-    if(item.interest_minor>0) {
-      account(db,item.interest_account_id,['expense'],'interest_account_id');
-      dueLines.push({accountId:item.interest_account_id,debitMinor:item.interest_minor,creditMinor:0,description:'Loan interest accrued at installment due date'});
-    }
-    if(item.fees_minor>0) {
-      account(db,item.fees_account_id,['expense'],'fees_account_id');
-      dueLines.push({accountId:item.fees_account_id,debitMinor:item.fees_minor,creditMinor:0,description:'Loan fees accrued at installment due date'});
-    }
-    let dueJournal:any=null;
-    const accrued=Number(item.interest_minor)+Number(item.fees_minor);
-    if(!Number.isSafeInteger(accrued)) fail('invalid_installment_amount','Interest and fee total is invalid.');
-    if(accrued>0) {
-      dueLines.push({accountId:loan.liability_account_id,debitMinor:0,creditMinor:accrued,description:'Interest/fees added to amount owed; no cash movement'});
-      dueJournal=post(db,{entryDate:item.due_date,description:'Loan installment due accrual: '+loan.lender,currencyCode:loan.currency_code,
-        lines:dueLines,actorId,sourceId:id,sourceEvent:'installment_due_registration',idempotencyKey:'loan-installment:'+id+':due-registration'});
-    }
+    if(loan.cancelled_at||loan.status!=='active') fail('loan_not_active','Cannot register an installment for a closed or cancelled loan.',409);
+    if(item.due_date<(loan.accounting_start_date??loan.loan_date)) fail('installment_before_loan_date','Due date cannot precede the accounting start date.',409);
+    if(db.prepare("SELECT 1 FROM accounting_period_closures WHERE status='closed' AND ? BETWEEN period_start AND period_end LIMIT 1").get(item.due_date)) fail('period_closed','Accounting period is closed; reopen it with a reason before registering the installment.',409);
+    const dueJournal=accrueLoanInstallment(db,item,loan,item.due_date,actorId);
     db.prepare("UPDATE accounting_loan_installments SET status='registered',registered_at=CURRENT_TIMESTAMP,registered_by=?,due_journal_entry_id=?,last_error_code=NULL,last_error_message=NULL WHERE id=?")
       .run(actor(actorId),dueJournal?.id??null,id);
-    const updated = db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as Record<string, unknown> | undefined;
-    if (!updated) fail('installment_not_found','Loan instalment disappeared during registration.',500);
+    const updated=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as Record<string,unknown>|undefined;
+    if(!updated) fail('installment_not_found','Loan installment disappeared during registration.',500);
     return {...updated,duplicate:false,due_entry_number:dueJournal?.entryNumber??null};
   })();
 }
@@ -302,62 +336,104 @@ export function processDueLoanInstallments(db: DB, asOfInput?: unknown): {checke
   return {checked:due.length,registered,awaitingConfirmation,failed};
 }
 export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input: any, actorId: string | null, idempotencyInput: unknown): any {
-  const id=text(installmentIdInput,'installment_id',100);
-  const settlementDate=date(input?.settlement_date,'settlement_date');
+  const id=text(installmentIdInput,'installment_id',100), settlementDate=date(input?.settlement_date,'settlement_date');
   const businessDate=accountingDate(db,new Date().toISOString());
   if(settlementDate>businessDate) fail('settlement_in_future','Actual loan payment date cannot be in the future.');
-  const settlementAccountId=text(input?.settlement_account_id,'settlement_account_id',100);
-  const idempotencyKey=key(idempotencyInput);
+  const settlementAccountId=text(input?.settlement_account_id,'settlement_account_id',100), idempotencyKey=key(idempotencyInput);
   return db.transaction(()=>{
     const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
-    if(!item) fail('installment_not_found','Loan instalment was not found.',404);
-    if(item.status==='cancelled') fail('installment_cancelled','Cancelled instalment cannot be settled.',409);
-    const settlementPayloadHash=hash({installmentId:id,settlementDate,settlementAccountId,principalMinor:item.principal_minor,interestMinor:item.interest_minor,feesMinor:item.fees_minor});
-    if(item.status==='settled') {
-      if(item.settlement_idempotency_key===idempotencyKey) {
-        if(item.settlement_payload_hash!==settlementPayloadHash) fail('idempotency_conflict','Settlement idempotency key was reused with different payment details.',409);
-        return {...item,duplicate:true};
-      }
-      fail('installment_already_settled','Instalment is already settled.',409);
+    if(!item) fail('installment_not_found','Loan installment was not found.',404);
+    if(item.status==='cancelled') fail('installment_cancelled','Cancelled installment cannot be settled.',409);
+    const payloadHash=hash({installmentId:id,settlementDate,settlementAccountId,principalMinor:item.principal_minor,interestMinor:item.interest_minor,feesMinor:item.fees_minor});
+    if(item.status==='settled'){
+      if(item.settlement_idempotency_key===idempotencyKey){if(item.settlement_payload_hash!==payloadHash) fail('idempotency_conflict','Settlement key reused with different details.',409);return {...item,duplicate:true};}
+      fail('installment_already_settled','Installment is already settled.',409);
     }
-    if(item.status!=='registered') fail('installment_not_registered','Register the due installment before confirming its actual payment.',409);
-    const cash=liquid(db,settlementAccountId);
-    const loan=loanRow(db,item.loan_id);
-    if(settlementDate<(loan.accounting_start_date ?? loan.loan_date)) fail('settlement_before_loan_date','Settlement date cannot precede the accounting opening date.');
-    if(settlementDate<item.due_date) fail('settlement_before_due_date','Settlement date cannot precede the installment due date.');
-    if(item.principal_minor>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Principal payment exceeds current outstanding principal.',409);
+    if(!['registered','scheduled','awaiting_confirmation','failed'].includes(item.status)) fail('installment_not_settleable','Installment is not payable.',409);
+    const cash=liquid(db,settlementAccountId), loan=loanRow(db,item.loan_id);
+    if(loan.cancelled_at||loan.status!=='active') fail('loan_not_active','Cannot settle an installment for a closed or cancelled loan.',409);
+    if(settlementDate<(loan.accounting_start_date??loan.loan_date)) fail('settlement_before_loan_date','Settlement date cannot precede the accounting opening date.');
+    if(item.principal_minor>outstanding(db,loan)) fail('principal_schedule_exceeds_balance','Payment principal exceeds outstanding principal.',409);
     const total=Number(item.principal_minor)+Number(item.interest_minor)+Number(item.fees_minor);
-    if(!Number.isSafeInteger(total)||total<=0) fail('invalid_installment_amount','Instalment total is invalid.');
-    const liabilityReduction=Number(item.principal_minor)+Number(item.interest_minor)+Number(item.fees_minor);
-    if(!Number.isSafeInteger(liabilityReduction)||liabilityReduction<=0) fail('invalid_installment_amount','Liability reduction is invalid.');
-    const lines:any[]=[
-      {accountId:loan.liability_account_id,debitMinor:liabilityReduction,creditMinor:0,description:'Loan amount owed reduced by principal, accrued interest and fees'},
-      {accountId:cash.id,debitMinor:0,creditMinor:total,description:'Actual loan instalment payment'},
-    ];
-    const journal=post(db,{entryDate:settlementDate,description:'Loan instalment payment: '+loan.lender,currencyCode:loan.currency_code,lines,actorId,sourceId:id,sourceEvent:'installment_settlement',idempotencyKey:'loan-installment:'+id+':settlement'});
-    db.prepare("UPDATE accounting_loan_installments SET status='settled',settlement_date=?,settlement_account_id=?,settlement_journal_entry_id=?,settled_at=CURRENT_TIMESTAMP,settled_by=?,settlement_idempotency_key=?,settlement_payload_hash=? WHERE id=?")
-      .run(settlementDate,cash.id,journal.id,actor(actorId),idempotencyKey,settlementPayloadHash,id);
+    if(!Number.isSafeInteger(total)||total<=0) fail('invalid_installment_amount','Installment total is invalid.');
+    let dueJournalId:string|null=item.due_journal_entry_id??null;
+    if(item.status!=='registered'){
+      const accrualDate=settlementDate<item.due_date?settlementDate:item.due_date;
+      const dueJournal=accrueLoanInstallment(db,item,loan,accrualDate,actorId);
+      dueJournalId=dueJournal?.id??null;
+    }
+    const journal=post(db,{entryDate:settlementDate,description:'Loan installment payment: '+loan.lender,currencyCode:loan.currency_code,
+      lines:[{accountId:loan.liability_account_id,debitMinor:total,creditMinor:0,description:'Loan amount owed reduced by principal, accrued interest and fees'},
+        {accountId:cash.id,debitMinor:0,creditMinor:total,description:'Actual loan installment payment'}],
+      actorId,sourceId:id,sourceEvent:'installment_settlement',idempotencyKey:'loan-installment:'+id+':settlement'});
+    db.prepare("UPDATE accounting_loan_installments SET status='settled',registered_at=COALESCE(registered_at,CURRENT_TIMESTAMP),registered_by=COALESCE(registered_by,?),due_journal_entry_id=?,settlement_date=?,settlement_account_id=?,settlement_journal_entry_id=?,settled_at=CURRENT_TIMESTAMP,settled_by=?,settlement_idempotency_key=?,settlement_payload_hash=?,last_error_code=NULL,last_error_message=NULL WHERE id=?")
+      .run(actor(actorId),dueJournalId,settlementDate,cash.id,journal.id,actor(actorId),idempotencyKey,payloadHash,id);
     const updated=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
-    const remaining = outstanding(db,loan);
-    const pending = db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
-    if (remaining === 0 && Number(pending.count) === 0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
-    return {...updated,duplicate:false,entry_number:journal.entryNumber,remaining_principal_minor:remaining};
+    const remaining=outstanding(db,loan);
+    const pending=db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
+    if(remaining===0&&Number(pending.count)===0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
+    return {...updated,duplicate:false,entry_number:journal.entryNumber,due_entry_number:dueJournalId?((db.prepare('SELECT entry_number FROM accounting_journal_entries WHERE id=?').get(dueJournalId) as any)?.entry_number??null):null,remaining_principal_minor:remaining};
   })();
 }
-export function cancelLoanInstallment(db: DB, installmentIdInput: unknown, reasonInput: unknown, actorId: string | null): any {
+function cancelLoanInstallmentInTransaction(db: DB, id: string, reason: string, actorId: string|null): any {
+  const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
+  if(!item) fail('installment_not_found','Loan installment was not found.',404);
+  if(item.status==='cancelled'){if(item.cancellation_reason===reason)return {...item,duplicate:true};fail('installment_already_cancelled','Installment was already cancelled with a different reason.',409);}
+  if(!['scheduled','awaiting_confirmation','failed','registered'].includes(item.status)) fail('installment_not_cancellable','Paid installments cannot be cancelled.',409);
+  const loan=loanRow(db,item.loan_id);
+  let reversal:any=null;
+  if(item.due_journal_entry_id){
+    const reversalDate=accountingDate(db,new Date().toISOString());
+    reversal=reversePostedLoanJournal(db,item.due_journal_entry_id,{entryDate:reversalDate,description:'Loan installment accrual cancellation: '+loan.lender,
+      sourceId:id,sourceEvent:'installment_due_reversal',expectedSourceEvent:'installment_due_registration',idempotencyKey:'loan-installment:'+id+':due-cancellation',actorId});
+  }
+  db.prepare("UPDATE accounting_loan_installments SET status='cancelled',cancellation_reason=?,cancelled_by=?,cancelled_at=CURRENT_TIMESTAMP,cancelled_due_journal_entry_id=?,cancellation_reversal_journal_entry_id=?,due_journal_entry_id=NULL,last_error_code=NULL,last_error_message=NULL WHERE id=?")
+    .run(reason,actor(actorId),item.due_journal_entry_id??null,reversal?.id??null,id);
+  const pending=db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
+  if(outstanding(db,loan)===0&&Number(pending.count)===0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
+  return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false,cancellation_reversal_journal_entry_id:reversal?.id??null};
+}
+export function cancelLoanInstallment(db: DB, installmentIdInput: unknown, reasonInput: unknown, actorId: string|null): any {
   const id=text(installmentIdInput,'installment_id',100), reason=text(reasonInput,'reason',500);
+  return db.transaction(()=>cancelLoanInstallmentInTransaction(db,id,reason,actorId))();
+}
+function cancelLoanInTransaction(db: DB, loanId: string, reason: string, actorId: string|null): any {
+  const loan=loanRow(db,loanId);
+  if(loan.cancelled_at){if(loan.cancellation_reason===reason)return {...loan,duplicate:true,remaining_principal_minor:outstanding(db,loan)};fail('loan_already_cancelled','Loan was already cancelled with a different reason.',409);}
+  if(loan.status!=='active') fail('loan_not_cancellable','Only active loans can be cancelled.',409);
+  const settled=db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status='settled'").get(loan.id) as {count:number};
+  if(Number(settled.count)>0) fail('loan_has_settled_installments','A loan with an actual settled installment cannot be cancelled wholesale.',409);
+  const items=db.prepare("SELECT id FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed') ORDER BY due_date,id").all(loan.id) as Array<{id:string}>;
+  for(const item of items) cancelLoanInstallmentInTransaction(db,item.id,reason,actorId);
+  if(!loan.initial_journal_entry_id) fail('loan_initial_journal_missing','Loan does not have its original posted journal.',409);
+  const reversalDate=accountingDate(db,new Date().toISOString());
+  const reversal=reversePostedLoanJournal(db,loan.initial_journal_entry_id,{entryDate:reversalDate,description:'Loan cancellation reversal: '+loan.lender,sourceId:loan.id,
+    sourceEvent:'loan_cancellation_reversal',expectedSourceEvent:loan.mode==='new'?'loan_received':'loan_opening_balance',idempotencyKey:'loan:'+loan.id+':cancellation',actorId});
+  db.prepare("UPDATE accounting_loans SET status='closed',cancelled_at=CURRENT_TIMESTAMP,cancellation_reason=?,cancelled_by=?,cancellation_journal_entry_id=? WHERE id=? AND status='active' AND cancelled_at IS NULL")
+    .run(reason,actor(actorId),reversal.id,loan.id);
+  db.prepare("INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json) VALUES('accounting_loan',?,'cancelled',?,?,?)")
+    .run(loan.id,actor(actorId),JSON.stringify({status:loan.status,cancelled_at:null}),JSON.stringify({status:'closed',reason,cancellation_journal_entry_id:reversal.id}));
+  return {...loanRow(db,loan.id),duplicate:false,cancellation_journal_entry_id:reversal.id,remaining_principal_minor:outstanding(db,loan)};
+}
+export function cancelLoan(db: DB, loanIdInput: unknown, reasonInput: unknown, actorId: string|null): any {
+  const id=text(loanIdInput,'loan_id',100), reason=text(reasonInput,'reason',500);
+  return db.transaction(()=>cancelLoanInTransaction(db,id,reason,actorId))();
+}
+export function correctLoan(db: DB, loanIdInput: unknown, input: any, actorId: string|null, idempotencyInput: unknown): any {
+  const id=text(loanIdInput,'loan_id',100), reason=text(input?.reason,'reason',500), idempotencyKey=key(idempotencyInput);
+  if(!input?.loan||typeof input.loan!=='object') fail('invalid_corrected_loan','Provide corrected loan details.');
+  const correctionHash=hash({loanId:id,loan:input.loan,reason});
   return db.transaction(()=>{
-    const item=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any;
-    if(!item) fail('installment_not_found','Loan instalment was not found.',404);
-    if(item.status==='cancelled' && item.cancellation_reason===reason) return {...item,duplicate:true};
-    if(item.status!=='scheduled' && item.status!=='awaiting_confirmation' && item.status!=='failed') fail('installment_not_cancellable','Only unregistered/unpaid instalments can be cancelled.',409);
-    db.prepare("UPDATE accounting_loan_installments SET status='cancelled',cancellation_reason=?,cancelled_by=?,cancelled_at=CURRENT_TIMESTAMP,last_error_code=NULL,last_error_message=NULL WHERE id=?")
-      .run(reason,actor(actorId),id);
-    const loan=loanRow(db,item.loan_id);
-    const pending=db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
-    if(outstanding(db,loan)===0 && Number(pending.count)===0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
-    const updated = db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as Record<string, unknown> | undefined;
-    if (!updated) fail('installment_not_found','Loan instalment disappeared during cancellation.',500);
-    return {...updated,duplicate:false};
+    const existing=db.prepare('SELECT * FROM accounting_loans WHERE corrected_from_loan_id=?').get(id) as any;
+    if(existing){if(existing.correction_payload_hash!==correctionHash) fail('loan_correction_conflict','A different corrected loan is already linked to this entry.',409);return {...existing,duplicate:true,remaining_principal_minor:outstanding(db,existing)};}
+    const original=loanRow(db,id);
+    if(original.cancelled_at) fail('loan_already_cancelled','This loan has already been cancelled.',409);
+    cancelLoanInTransaction(db,id,reason,actorId);
+    const replacement=createLoan(db,input.loan,actorId,idempotencyKey);
+    db.prepare('UPDATE accounting_loans SET corrected_from_loan_id=?,correction_payload_hash=? WHERE id=? AND corrected_from_loan_id IS NULL').run(id,correctionHash,replacement.id);
+    db.prepare("INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json) VALUES('accounting_loan',?,'corrected_from',?,?,?)")
+      .run(replacement.id,actor(actorId),JSON.stringify({corrected_from_loan_id:null}),JSON.stringify({corrected_from_loan_id:id,correction_reason:reason}));
+    const fixed=loanRow(db,replacement.id);
+    return {...fixed,duplicate:false,corrected_from_loan_id:id,remaining_principal_minor:outstanding(db,fixed)};
   })();
 }
