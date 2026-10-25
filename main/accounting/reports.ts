@@ -268,7 +268,7 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
   const loanInterestFeesPaidMinor = settledLoanCosts(db, range);
   const postedExpensesMinor = safeTotal(ledgerExpensesExcludingLoanAccrualMinor + loanInterestFeesPaidMinor, 'paid expenses including settled loan costs');
   const taxPaymentsExpenseMinor = sumLedgerLines(
-    db, 'line.debit_minor - line.credit_minor', "account.system_key='tax_expenses' AND NOT (COALESCE(entry.source_type,'')='accounting_loan' AND COALESCE(entry.source_event,'')='installment_due_registration')", range,
+    db, 'line.debit_minor - line.credit_minor', "account.system_key='tax_expenses' AND NOT (COALESCE(entry.source_type,'')='accounting_loan' AND COALESCE(entry.source_event,'') IN ('installment_due_registration','installment_due_reversal'))", range,
   );
 
   // POS sales revenue is based on actual monetary receipts posted by the POS.
