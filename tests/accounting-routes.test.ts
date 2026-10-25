@@ -726,7 +726,9 @@ async function main(): Promise<void> {
     equal(periodReport.body.summary.tax_payments_expense_minor, 700, 'tax paid is separately visible as an expense');
     equal(periodReport.body.summary.result_before_cogs_minor, 18300, 'pre-COGS result subtracts tax paid as an expense without netting it from sales revenue');
     equal(periodReport.body.summary.result_before_cogs_minor, periodReport.body.summary.pos_sales_revenue_minor - periodReport.body.summary.monetary_refunds_minor + periodReport.body.summary.other_income_minor - periodReport.body.summary.posted_expenses_minor, 'asset transfers do not change report income or expense totals');
-    equal(periodReport.body.profit_limitations.net_profit_available, false, 'report never claims net profit while COGS is unavailable');
+    equal(periodReport.body.summary.net_profit_loss_minor, 18300, 'report exposes the configured net result using actual receipts, refunds, other income and paid expenses');
+    equal(periodReport.body.profit_limitations.net_profit_available, true, 'management net result is available under the configured cash-received and paid-expense policy');
+    ok(String(periodReport.body.profit_limitations.message).includes('Inventory cost/COGS is intentionally excluded'), 'report explicitly discloses that inventory cost is not included and the result is not statutory accrual profit');
     equal(periodReport.body.reporting_policy.sales_revenue_basis, 'actual_monetary_receipts', 'report defines sales revenue by actual monetary receipts');
     equal(periodReport.body.reporting_policy.tax_treatment, 'tax_payments_are_expenses_when_paid', 'report follows the policy that taxes are expenses when paid');
     ok(Array.isArray(periodReport.body.liquid_accounts), 'management report returns cash, bank and clearing account balances');
