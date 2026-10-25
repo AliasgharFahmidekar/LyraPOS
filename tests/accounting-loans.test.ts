@@ -33,7 +33,7 @@ function main(): void {
   try {
     initDatabase();
     const db = getDatabase();
-    equal(getCurrentSchemaVersion(), 120, 'fresh database includes the latest schema v120');
+    equal(getCurrentSchemaVersion(), 121, 'fresh database includes the latest schema v121');
     for (const table of ['accounting_loans','accounting_loan_installment_batches','accounting_loan_installments']) {
       ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'loan migration creates ' + table);
     }
@@ -132,6 +132,8 @@ function main(): void {
     const beforeSettlementReport = getAccountingManagementReport(db,{from:'2026-10-01',to:'2026-10-31'});
     equal(beforeSettlementReport.summary.posted_expenses_minor,0,'unpaid loan accrual is excluded from cash-basis paid expenses');
     equal(beforeSettlementReport.summary.loan_interest_fees_paid_minor,0,'unpaid interest and fees are not reported as paid');
+    equal(beforeSettlementReport.summary.net_profit_loss_minor,beforeSettlementReport.summary.result_before_cogs_minor,'configured net result is exposed consistently with the legacy result field');
+    equal(beforeSettlementReport.summary.net_profit_loss_minor,beforeSettlementReport.summary.sales_revenue_less_refunds_minor+beforeSettlementReport.summary.other_income_minor-beforeSettlementReport.summary.posted_expenses_minor,'net result follows actual receipts plus other posted income less paid expenses');
     const journalsBeforeLoanForecast = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
     const forecastBeforeLoanSettlement = getAccountingForecast(db, {from:'2026-10-10',to:'2026-10-10'});
     equal(forecastBeforeLoanSettlement.summary.expected_outflows_minor,460,'registered installment predicts the full principal plus interest and fees cash outflow');
@@ -144,7 +146,16 @@ function main(): void {
     equal((db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n, journalsBeforeLoanForecast,
       'reading the loan forecast creates no journal entries');
 
-    throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-09',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-before-due'), 'settlement_before_due_date', 'actual loan payment cannot precede its due date');
+    throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-09-30',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-before-origination'), 'settlement_before_loan_date', 'actual payment cannot precede the accounting start date');
+    const earlyLoan=loans.createLoan(db,{...loanInput,principal_minor:300,reference_number:'LN-EARLY-SETTLEMENT'},'test-owner','loan-early-create');
+    const earlyBatch=loans.createLoanInstallments(db,earlyLoan.id,{installments:[{due_date:'2099-12-01',principal_minor:100,interest_minor:10,fees_minor:5,interest_account_id:'acct-operating-expenses',fees_account_id:'acct-payment-fees',auto_register:false}]},'test-owner','loan-early-installments');
+    const earlyInstallment=earlyBatch.installments[0];
+    const earlySettled=loans.settleLoanInstallment(db,earlyInstallment.id,{settlement_date:'2026-10-22',settlement_account_id:'acct-bank'},'test-owner','loan-early-settle');
+    equal(earlySettled.status,'settled','scheduled installment can be settled before its contractual due date');
+    ok(!!earlySettled.due_journal_entry_id,'early settlement recognizes interest and fees before clearing the liability');
+    equal((db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(earlySettled.due_journal_entry_id) as any).entry_date,'2026-10-22','early interest/fee recognition uses the real early payment date');
+    equal(journalLines(db,earlySettled.settlement_journal_entry_id).find((line:any)=>line.account_id==='acct-bank')?.credit_minor,115,'early settlement credits the exact selected bank account');
+    equal(journalLines(db,earlySettled.settlement_journal_entry_id).find((line:any)=>line.account_id==='acct-loans-payable')?.debit_minor,115,'early settlement clears principal plus interest and fees from the liability');
     const journalsBeforeInactiveSettlement = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
     db.prepare("UPDATE accounting_accounts SET is_active=0 WHERE id='acct-bank'").run();
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-settlement-inactive-account'),
@@ -169,6 +180,7 @@ function main(): void {
     const afterSettlementReport = getAccountingManagementReport(db,{from:'2026-10-01',to:'2026-10-31'});
     equal(afterSettlementReport.summary.posted_expenses_minor,60,'paid loan interest and fees enter expense totals on settlement date');
     equal(afterSettlementReport.summary.loan_interest_fees_paid_minor,60,'report identifies paid loan costs as a subset of expenses');
+    equal(afterSettlementReport.summary.net_profit_loss_minor,afterSettlementReport.summary.sales_revenue_less_refunds_minor+afterSettlementReport.summary.other_income_minor-afterSettlementReport.summary.posted_expenses_minor,'net result remains aligned to the report policy after a loan payment');
     equal(afterSettlementReport.summary.tax_payments_expense_minor,0,'loan interest is not misclassified as tax paid');
     const settledLoanForecast = getAccountingForecast(db, {from:'2026-10-10',to:'2026-10-22'});
     equal(settledLoanForecast.summary.actual_outflows_minor,460,'actual loan settlement appears once in the forecast window as a real cash outflow');
@@ -195,6 +207,14 @@ function main(): void {
     const retriedDue=loans.registerLoanInstallment(db,failedInstallment.id,'test-owner','2026-10-22');
     equal(retriedDue.status,'registered','owner can retry a failed due accrual after fixing its account');
     ok(!!retriedDue.due_journal_entry_id,'successful retry links the due accrual journal');
+    const cancelledRegistered=loans.cancelLoanInstallment(db,failedInstallment.id,'Wrong interest amount','test-owner');
+    equal(cancelledRegistered.status,'cancelled','registered unpaid installment can be cancelled safely');
+    ok(!!cancelledRegistered.cancelled_due_journal_entry_id,'cancellation retains the original due accrual reference');
+    ok(!!cancelledRegistered.cancellation_reversal_journal_entry_id,'cancellation posts a reversing journal for accrued interest/fees');
+    const originalAccrualLines=journalLines(db,failedInstallment.due_journal_entry_id);
+    const reversedAccrualLines=journalLines(db,cancelledRegistered.cancellation_reversal_journal_entry_id);
+    equal(reversedAccrualLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0),originalAccrualLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0),'cancellation reversal debit equals original accrual credits');
+    equal(reversedAccrualLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0),originalAccrualLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0),'cancellation reversal credit equals original accrual debits');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'loan-settle-001'), 'idempotency_conflict', 'changed settlement payload under the same key conflicts');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'different-key'), 'installment_already_settled', 'settled installment cannot be paid twice');
     throws(() => db.prepare('UPDATE accounting_loan_installments SET settlement_payload_hash=? WHERE id=?').run('a'.repeat(64),installment.id), 'ACCOUNTING_LOAN_INSTALLMENT_', 'settled loan settlement payload is immutable');
@@ -282,6 +302,11 @@ function main(): void {
       {due_date:'2026-10-15',principal_minor:100,interest_minor:0,fees_minor:0,auto_register:false},
     ]}, 'test-owner', 'loan-installments-002');
     const future = schedule.installments.find((item:any)=>item.due_date==='2026-12-01');
+    const editedFuture=loans.updateLoanInstallment(db,future.id,{due_date:'2026-12-02',principal_minor:550,interest_minor:0,fees_minor:0,auto_register:false},'test-owner');
+    equal(editedFuture.due_date,'2026-12-02','unposted installment due date can be edited');
+    equal(editedFuture.principal_minor,550,'unposted installment principal can be edited');
+    equal(editedFuture.status,'scheduled','installment edit returns it to a clean scheduled state');
+    equal((db.prepare("SELECT COUNT(*) AS n FROM accounting_audit_log WHERE entity_type='accounting_loan_installment' AND entity_id=? AND action='edited'").get(future.id) as any).n,1,'installment edit records its before/after audit event');
     const manual = schedule.installments.find((item:any)=>item.due_date==='2026-10-15');
     const manualDue = loans.processDueLoanInstallments(db, '2026-11-01');
     equal(manualDue.checked, 1, 'due processor catches up overdue manual-mode loan installment');
@@ -296,6 +321,20 @@ function main(): void {
     equal(cancelled.status, 'cancelled', 'unregistered installment can be cancelled with a reason');
     throws(() => loans.cancelLoanInstallment(db, installment.id, 'too late', 'test-owner'), 'installment_not_cancellable', 'settled installment cannot be cancelled');
 
+    throws(()=>loans.cancelLoan(db,created.id,'Loan entered wrong','test-owner'),'loan_has_settled_installments','a loan with actual settled installments cannot be cancelled wholesale');
+    const correctableLoan=loans.createLoan(db,{...loanInput,principal_minor:800,reference_number:'LN-CORRECTABLE'},'test-owner','loan-correctable-create');
+    const correctedPayload={...loanInput,principal_minor:900,reference_number:'LN-CORRECTED'};
+    const correctedLoan=loans.correctLoan(db,correctableLoan.id,{reason:'Incorrect principal entered',loan:correctedPayload},'test-owner','loan-corrected-idempotency');
+    equal((db.prepare('SELECT cancelled_at FROM accounting_loans WHERE id=?').get(correctableLoan.id) as any).cancelled_at!==null,true,'loan correction keeps the original identity and marks it cancelled');
+    ok(!!(db.prepare('SELECT cancellation_journal_entry_id FROM accounting_loans WHERE id=?').get(correctableLoan.id) as any).cancellation_journal_entry_id,'loan correction links the reversal journal instead of deleting the initial entry');
+    equal(correctedLoan.corrected_from_loan_id,correctableLoan.id,'replacement loan links back to the incorrect loan');
+    equal(correctedLoan.original_principal_minor,900,'replacement loan preserves corrected principal');
+    equal(loans.correctLoan(db,correctableLoan.id,{reason:'Incorrect principal entered',loan:correctedPayload},'test-owner','loan-correction-retry-other-key').duplicate,true,'same correction is idempotent even if the retry key differs');
+    const standaloneCancel=loans.createLoan(db,{...loanInput,principal_minor:250,reference_number:'LN-CANCEL-ONLY'},'test-owner','loan-cancel-only-create');
+    const cancelledLoan=loans.cancelLoan(db,standaloneCancel.id,'Entered by mistake','test-owner');
+    equal(cancelledLoan.cancelled_at!==null,true,'loan can be cancelled with a reason');
+    ok(!!cancelledLoan.cancellation_journal_entry_id,'loan cancellation records a reversal journal');
+    throws(()=>loans.cancelLoan(db,standaloneCancel.id,'Changed cancellation reason','test-owner'),'loan_already_cancelled','loan cancellation reason cannot be silently rewritten');
     const closedPeriodLoan = loans.createLoan(db, {
       mode:'new', lender:'Closed-period test lender', loan_date:'2018-12-01', principal_minor:1000,
       liability_account_id:'acct-loans-payable', cash_account_id:'acct-bank', currency_code:'IRR',
@@ -351,7 +390,7 @@ function migrationUpgradeChecks(): void {
     MIGRATIONS.push(...originalMigrations);
     initDatabase();
     const upgradedDb = getDatabase();
-    equal(getCurrentSchemaVersion(), 120, 'legacy-loan fixture upgrades to schema v120');
+    equal(getCurrentSchemaVersion(), 121, 'legacy-loan fixture upgrades to schema v121');
     const upgradedLoan = upgradedDb.prepare(`
       SELECT origination_date,accounting_start_date,historical_principal_repaid_minor,cash_account_id
       FROM accounting_loans WHERE id='legacy-v116-loan'
