@@ -192,7 +192,7 @@ function dailyTrend(
           AND COALESCE(account.system_key,'') <> 'cost_of_goods_sold'
           AND NOT (
             COALESCE(entry.source_type,'')='accounting_loan'
-            AND COALESCE(entry.source_event,'')='installment_due_registration'
+            AND COALESCE(entry.source_event,'') IN ('installment_due_registration','installment_due_reversal')
           )
         THEN line.debit_minor-line.credit_minor ELSE 0 END), 0) AS expense_minor
     FROM accounting_journal_entries AS entry
@@ -212,6 +212,28 @@ function dailyTrend(
       expense_minor: safeTotal(row.expense_minor, 'daily trend expense'),
     });
   }
+
+  // Loan interest/fees are included in the management expense summary only
+  // when the installment was actually paid. Due accrual and its reversal must
+  // not inflate the cash-basis trend; add the cost once on settlement_date.
+  const settledLoanPeriodExpr = granularity === 'month' ? "substr(settlement_date,1,7)" : 'settlement_date';
+  const settledLoanWhere = ["status='settled'"];
+  const settledLoanValues: string[] = [];
+  if (range.from) { settledLoanWhere.push('settlement_date >= ?'); settledLoanValues.push(range.from); }
+  if (range.to) { settledLoanWhere.push('settlement_date <= ?'); settledLoanValues.push(range.to); }
+  const settledLoanRows = db.prepare(
+    `SELECT ${settledLoanPeriodExpr} AS period, COALESCE(SUM(interest_minor + fees_minor),0) AS expense_minor
+     FROM accounting_loan_installments WHERE ${settledLoanWhere.join(' AND ')}
+     GROUP BY ${settledLoanPeriodExpr} ORDER BY ${settledLoanPeriodExpr}`,
+  ).all(...settledLoanValues) as Array<{ period: string; expense_minor: number }>;
+  for (const row of settledLoanRows) {
+    const existing = points.get(row.period) ?? { period: row.period, income_minor: 0, expense_minor: 0 };
+    points.set(row.period, {
+      ...existing,
+      expense_minor: safeTotal(existing.expense_minor + safeTotal(row.expense_minor, 'daily trend settled loan costs'), 'daily trend expenses including settled loan costs'),
+    });
+  }
+
   return {
     granularity,
     points: [...points.values()].sort((a, b) => a.period.localeCompare(b.period)),
