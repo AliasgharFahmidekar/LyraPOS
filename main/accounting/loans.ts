@@ -286,7 +286,7 @@ export function updateLoanInstallment(db: DB, installmentIdInput: unknown, input
     const after={due_date:dueDate,principal_minor:principal,interest_minor:interest,fees_minor:fees,interest_account_id:interestAccount?.id??null,fees_account_id:feesAccount?.id??null,auto_register:input.auto_register?1:0,status:'scheduled'};
     db.prepare("INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json) VALUES('accounting_loan_installment',?,'edited',?,?,?)")
       .run(id,actor(actorId),JSON.stringify(before),JSON.stringify(after));
-    return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false};
+    return {...(db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any),duplicate:false};
   })();
 }
 export function registerLoanInstallment(db: DB, installmentIdInput: unknown, actorId: string | null, asOfInput?: unknown): any {
@@ -394,7 +394,7 @@ function cancelLoanInstallmentInTransaction(db: DB, id: string, reason: string, 
     .run(reason,actor(actorId),item.due_journal_entry_id??null,reversal?.id??null,id);
   const pending=db.prepare("SELECT COUNT(*) AS count FROM accounting_loan_installments WHERE loan_id=? AND status IN ('scheduled','awaiting_confirmation','registered','failed')").get(loan.id) as {count:number};
   if(outstanding(db,loan)===0&&Number(pending.count)===0) db.prepare("UPDATE accounting_loans SET status='closed' WHERE id=? AND status='active'").run(loan.id);
-  return {...db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id),duplicate:false,cancellation_reversal_journal_entry_id:reversal?.id??null};
+  return {...(db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(id) as any),duplicate:false,cancellation_reversal_journal_entry_id:reversal?.id??null};
 }
 export function cancelLoanInstallment(db: DB, installmentIdInput: unknown, reasonInput: unknown, actorId: string|null): any {
   const id=text(installmentIdInput,'installment_id',100), reason=text(reasonInput,'reason',500);
