@@ -147,15 +147,6 @@ function main(): void {
       'reading the loan forecast creates no journal entries');
 
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-09-30',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-before-origination'), 'settlement_before_loan_date', 'actual payment cannot precede the accounting start date');
-    const earlyLoan=loans.createLoan(db,{...loanInput,principal_minor:300,reference_number:'LN-EARLY-SETTLEMENT'},'test-owner','loan-early-create');
-    const earlyBatch=loans.createLoanInstallments(db,earlyLoan.id,{installments:[{due_date:'2099-12-01',principal_minor:100,interest_minor:10,fees_minor:5,interest_account_id:'acct-operating-expenses',fees_account_id:'acct-payment-fees',auto_register:false}]},'test-owner','loan-early-installments');
-    const earlyInstallment=earlyBatch.installments[0];
-    const earlySettled=loans.settleLoanInstallment(db,earlyInstallment.id,{settlement_date:'2026-10-22',settlement_account_id:'acct-bank'},'test-owner','loan-early-settle');
-    equal(earlySettled.status,'settled','scheduled installment can be settled before its contractual due date');
-    ok(!!earlySettled.due_journal_entry_id,'early settlement recognizes interest and fees before clearing the liability');
-    equal((db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(earlySettled.due_journal_entry_id) as any).entry_date,'2026-10-22','early interest/fee recognition uses the real early payment date');
-    equal(journalLines(db,earlySettled.settlement_journal_entry_id).find((line:any)=>line.account_id==='acct-bank')?.credit_minor,115,'early settlement credits the exact selected bank account');
-    equal(journalLines(db,earlySettled.settlement_journal_entry_id).find((line:any)=>line.account_id==='acct-loans-payable')?.debit_minor,115,'early settlement clears principal plus interest and fees from the liability');
     const journalsBeforeInactiveSettlement = (db.prepare('SELECT COUNT(*) AS n FROM accounting_journal_entries').get() as any).n;
     db.prepare("UPDATE accounting_accounts SET is_active=0 WHERE id='acct-bank'").run();
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-settlement-inactive-account'),
@@ -189,6 +180,16 @@ function main(): void {
     equal(settledLoanForecast.events.some((event:any)=>event.source==='loan' && event.id===installment.id),false,
       'settled loan installment is excluded from future projection after its actual settlement');
     equal(settledLoanForecast.projected_ending_liquid_balance_minor,540,'settled loan installment is not double-counted against the projected ending balance');
+
+    const earlyLoan=loans.createLoan(db,{...loanInput,principal_minor:300,reference_number:'LN-EARLY-SETTLEMENT'},'test-owner','loan-early-create');
+    const earlyBatch=loans.createLoanInstallments(db,earlyLoan.id,{installments:[{due_date:'2099-12-01',principal_minor:100,interest_minor:10,fees_minor:5,interest_account_id:'acct-operating-expenses',fees_account_id:'acct-payment-fees',auto_register:false}]},'test-owner','loan-early-installments');
+    const earlyInstallment=earlyBatch.installments[0];
+    const earlySettled=loans.settleLoanInstallment(db,earlyInstallment.id,{settlement_date:'2026-10-22',settlement_account_id:'acct-bank'},'test-owner','loan-early-settle');
+    equal(earlySettled.status,'settled','scheduled installment can be settled before its contractual due date');
+    ok(!!earlySettled.due_journal_entry_id,'early settlement recognizes interest and fees before clearing the liability');
+    equal((db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(earlySettled.due_journal_entry_id) as any).entry_date,'2026-10-22','early interest/fee recognition uses the real early payment date');
+    equal(journalLines(db,earlySettled.settlement_journal_entry_id).find((line:any)=>line.account_id==='acct-bank')?.credit_minor,115,'early settlement credits the exact selected bank account');
+    equal(journalLines(db,earlySettled.settlement_journal_entry_id).find((line:any)=>line.account_id==='acct-loans-payable')?.debit_minor,115,'early settlement clears principal plus interest and fees from the liability');
     equal(loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-bank'}, 'test-owner', 'loan-settle-001').duplicate, true, 'identical settlement retry is idempotent');
 
     const retryBatch=loans.createLoanInstallments(db,created.id,{installments:[{
