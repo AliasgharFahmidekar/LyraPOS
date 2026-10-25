@@ -104,7 +104,7 @@ function accrueLoanInstallment(db: DB, item: any, loan: any, entryDate: string, 
   lines.push({accountId:loan.liability_account_id,debitMinor:0,creditMinor:accrued,description:'Interest/fees added to amount owed; no cash movement'});
   return post(db,{entryDate,description:'Loan installment due accrual: '+loan.lender,currencyCode:loan.currency_code,lines,actorId,sourceId:item.id,sourceEvent:'installment_due_registration',idempotencyKey:'loan-installment:'+item.id+':due-registration'});
 }
-export function createLoan(db: DB, input: any, actorId: string | null, idempotencyInput: unknown): any {
+export function createLoan(db: DB, input: any, actorId: string | null, idempotencyInput: unknown, journalEntryDateOverride?: string): any {
   const mode = input?.mode;
   if (mode !== 'new' && mode !== 'opening') fail('invalid_loan_mode', 'Loan mode must be new or opening.');
   const lender = text(input?.lender, 'lender', 200);
@@ -116,6 +116,9 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
   if (loanDate > currentBusinessDate) fail('loan_date_in_future', 'Loan origination date cannot be in the future.', 400);
   if (accountingStartDate > currentBusinessDate) fail('accounting_start_date_in_future', 'Accounting opening date cannot be in the future.', 400);
   if (accountingStartDate < loanDate) fail('opening_date_before_origination', 'The accounting opening date cannot precede the actual loan origination date.', 400);
+  const journalEntryDate = journalEntryDateOverride == null ? accountingStartDate : date(journalEntryDateOverride, 'journal_entry_date');
+  if (journalEntryDate > currentBusinessDate) fail('journal_entry_date_in_future', 'Loan journal date cannot be in the future.', 400);
+  if (journalEntryDate < accountingStartDate) fail('journal_entry_date_before_accounting_start', 'Loan journal date cannot precede its accounting start date.', 400);
   const currencyCode = currency(db);
   if (input?.currency_code !== undefined && String(input.currency_code).trim().toUpperCase() !== currencyCode) fail('currency_mismatch', 'Loan must use the configured store currency.', 409);
   const liability = account(db, input?.liability_account_id, ['liability'], 'liability_account_id');
@@ -145,7 +148,7 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
     fail('opening_loan_cash_forbidden', 'An existing loan opening balance must not create a new cash/bank movement.');
   }
   const idempotencyKey = key(idempotencyInput);
-  const payload = {mode,lender,description,reference,loanDate,accountingStartDate,currencyCode,original,initialOutstanding,historicalPrincipalRepaid,liabilityAccountId:liability.id,cashAccountId:cash?.id ?? null};
+  const payload = {mode,lender,description,reference,loanDate,accountingStartDate,journalEntryDate,currencyCode,original,initialOutstanding,historicalPrincipalRepaid,liabilityAccountId:liability.id,cashAccountId:cash?.id ?? null};
   const payloadHash = hash(payload);
   return db.transaction(() => {
     const old = db.prepare('SELECT * FROM accounting_loans WHERE idempotency_key=?').get(idempotencyKey) as any;
@@ -165,7 +168,10 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
     const lines = mode === 'new'
       ? [{accountId:offset,debitMinor:initialOutstanding,creditMinor:0,description:'Loan proceeds received'},{accountId:liability.id,debitMinor:0,creditMinor:initialOutstanding,description:'Loan principal liability'}]
       : [{accountId:offset,debitMinor:initialOutstanding,creditMinor:0,description:'Opening balance offset; no new cash received'},{accountId:liability.id,debitMinor:0,creditMinor:initialOutstanding,description:'Existing outstanding loan principal'}];
-    const journal = post(db,{entryDate:accountingStartDate,description:(mode==='new'?'Loan received: ':'Opening loan balance: ')+lender,currencyCode,lines,actorId,sourceId:id,sourceEvent:mode==='new'?'loan_received':'loan_opening_balance',idempotencyKey:'loan:'+id+':'+mode});
+    const journalDescription = journalEntryDateOverride
+      ? (mode==='new'?'Loan correction replacement: ':'Loan opening-balance correction: ')+lender
+      : (mode==='new'?'Loan received: ':'Opening loan balance: ')+lender;
+    const journal = post(db,{entryDate:journalEntryDate,description:journalDescription,currencyCode,lines,actorId,sourceId:id,sourceEvent:mode==='new'?'loan_received':'loan_opening_balance',idempotencyKey:'loan:'+id+':'+mode});
     db.prepare('UPDATE accounting_loans SET initial_journal_entry_id=? WHERE id=?').run(journal.id,id);
     return {...loanRow(db,id),duplicate:false,remaining_principal_minor:initialOutstanding,entry_number:journal.entryNumber};
   })();
@@ -361,8 +367,10 @@ export function settleLoanInstallment(db: DB, installmentIdInput: unknown, input
     if(!Number.isSafeInteger(total)||total<=0) fail('invalid_installment_amount','Installment total is invalid.');
     let dueJournalId:string|null=item.due_journal_entry_id??null;
     if(item.status!=='registered'){
-      const accrualDate=settlementDate<item.due_date?settlementDate:item.due_date;
-      const dueJournal=accrueLoanInstallment(db,item,loan,accrualDate,actorId);
+      // When the due event has not yet been posted, a real settlement records
+      // the missing interest/fee accrual on its actual settlement date. This
+      // avoids silently backdating into a closed period.
+      const dueJournal=accrueLoanInstallment(db,item,loan,settlementDate,actorId);
       dueJournalId=dueJournal?.id??null;
     }
     const journal=post(db,{entryDate:settlementDate,description:'Loan installment payment: '+loan.lender,currencyCode:loan.currency_code,
@@ -432,8 +440,12 @@ export function correctLoan(db: DB, loanIdInput: unknown, input: any, actorId: s
     if(existing){if(existing.correction_payload_hash!==correctionHash) fail('loan_correction_conflict','A different corrected loan is already linked to this entry.',409);return {...existing,duplicate:true,remaining_principal_minor:outstanding(db,existing)};}
     const original=loanRow(db,id);
     if(original.cancelled_at) fail('loan_already_cancelled','This loan has already been cancelled.',409);
+    const correctionDate=accountingDate(db,new Date().toISOString());
     cancelLoanInTransaction(db,id,reason,actorId);
-    const replacement=createLoan(db,input.loan,actorId,idempotencyKey);
+    // Keep the corrected loan's actual origination/opening date as historical
+    // data, but post the replacement in the current open period. Never backdate
+    // a correction into a period that may already be closed.
+    const replacement=createLoan(db,input.loan,actorId,idempotencyKey,correctionDate);
     db.prepare('UPDATE accounting_loans SET corrected_from_loan_id=?,correction_payload_hash=? WHERE id=? AND corrected_from_loan_id IS NULL').run(id,correctionHash,replacement.id);
     db.prepare("INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json) VALUES('accounting_loan',?,'corrected_from',?,?,?)")
       .run(replacement.id,actor(actorId),JSON.stringify({corrected_from_loan_id:null}),JSON.stringify({corrected_from_loan_id:id,correction_reason:reason}));
