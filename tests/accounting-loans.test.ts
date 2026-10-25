@@ -172,6 +172,8 @@ function main(): void {
     equal(afterSettlementReport.summary.posted_expenses_minor,60,'paid loan interest and fees enter expense totals on settlement date');
     equal(afterSettlementReport.summary.loan_interest_fees_paid_minor,60,'report identifies paid loan costs as a subset of expenses');
     equal(afterSettlementReport.summary.net_profit_loss_minor,afterSettlementReport.summary.sales_revenue_less_refunds_minor+afterSettlementReport.summary.other_income_minor-afterSettlementReport.summary.posted_expenses_minor,'net result remains aligned to the report policy after a loan payment');
+    const settlementTrendDay=afterSettlementReport.daily_trend.points.find((point:any)=>point.period==='2026-10-22');
+    equal(settlementTrendDay?.expense_minor,60,'daily trend includes settled loan interest and fees exactly once on actual payment date');
     equal(afterSettlementReport.summary.tax_payments_expense_minor,0,'loan interest is not misclassified as tax paid');
     const settledLoanForecast = getAccountingForecast(db, {from:'2026-10-10',to:'2026-10-22'});
     equal(settledLoanForecast.summary.actual_outflows_minor,460,'actual loan settlement appears once in the forecast window as a real cash outflow');
@@ -216,6 +218,11 @@ function main(): void {
     const reversedAccrualLines=journalLines(db,cancelledRegistered.cancellation_reversal_journal_entry_id);
     equal(reversedAccrualLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0),originalAccrualLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0),'cancellation reversal debit equals original accrual credits');
     equal(reversedAccrualLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0),originalAccrualLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0),'cancellation reversal credit equals original accrual debits');
+    const afterDueCancellationReport=getAccountingManagementReport(db,{from:'2026-10-01',to:'2026-10-31'});
+    equal(afterDueCancellationReport.summary.posted_expenses_minor,75,'cancelled unpaid interest accrual is excluded from paid expense totals');
+    equal(afterDueCancellationReport.daily_trend.points.find((point:any)=>point.period==='2026-10-22')?.expense_minor,75,'daily trend includes the two actually settled installment costs exactly once');
+    const accrualReversalDate=(db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(cancelledRegistered.cancellation_reversal_journal_entry_id) as any).entry_date;
+    equal(afterDueCancellationReport.daily_trend.points.find((point:any)=>point.period===accrualReversalDate)?.expense_minor,0,'cancellation reversal does not create a false daily expense movement');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'loan-settle-001'), 'idempotency_conflict', 'changed settlement payload under the same key conflicts');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'different-key'), 'installment_already_settled', 'settled installment cannot be paid twice');
     throws(() => db.prepare('UPDATE accounting_loan_installments SET settlement_payload_hash=? WHERE id=?').run('a'.repeat(64),installment.id), 'ACCOUNTING_LOAN_INSTALLMENT_', 'settled loan settlement payload is immutable');
@@ -367,6 +374,17 @@ function main(): void {
       'closed-period registration rejection leaves the installment unchanged');
     equal((db.prepare('SELECT due_journal_entry_id FROM accounting_loan_installments WHERE id=?').get(closedPeriodBatch.installments[0].id) as any).due_journal_entry_id,null,
       'closed-period principal-only rejection creates no due journal');
+    const correctedClosedPeriodLoan=loans.correctLoan(db,closedPeriodLoan.id,{
+      reason:'Correct principal after the due-date period was closed',
+      loan:{mode:'new',lender:'Closed-period test lender corrected',loan_date:'2018-12-01',principal_minor:900,
+        original_principal_minor:900,remaining_principal_minor:900,liability_account_id:'acct-loans-payable',
+        cash_account_id:'acct-bank',currency_code:'IRR',reference_number:'LN-CLOSED-PERIOD-CORRECTED'},
+    },'test-owner','loan-closed-period-correction');
+    equal(correctedClosedPeriodLoan.original_principal_minor,900,'corrected loan uses the corrected original principal');
+    const correctionEntryDate=(db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(correctedClosedPeriodLoan.initial_journal_entry_id) as any).entry_date;
+    ok(correctionEntryDate>'2019-01-01','replacement loan correction journal is posted in the current period, not backdated into a closed period');
+    equal((db.prepare('SELECT status FROM accounting_loan_installments WHERE id=?').get(closedPeriodBatch.installments[0].id) as any).status,'cancelled',
+      'correcting the loan cancels its unpaid scheduled installments with audit history');
 
     const auditCount = db.prepare("SELECT COUNT(*) AS n FROM accounting_audit_log WHERE entity_type IN ('accounting_loan','accounting_loan_installment','accounting_loan_installment_batch')").get().n;
     ok(auditCount >= 7, 'loan creation, schedule, due-state and settlement actions are audited');
