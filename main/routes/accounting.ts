@@ -18,7 +18,7 @@ import { getAccountingTrialBalance } from '../accounting/trial-balance';
 import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } from '../accounting/period-close';
 import { cancelFutureItem, createFutureItem, listFutureItems, registerFutureItem, settleFutureItem, FutureItemError } from '../accounting/future-items';
 import { cancelRecurringObligation, createRecurringObligation, listRecurringObligations, RecurringObligationError } from '../accounting/recurring-obligations';
-import { AccountingLoanError, cancelLoanInstallment, createLoan, createLoanInstallments, listLoans, registerLoanInstallment, settleLoanInstallment, updateLoanOriginationDate } from '../accounting/loans';
+import { AccountingLoanError, cancelLoanInstallment, createLoan, createLoanInstallments, listLoans, registerLoanInstallment, settleLoanInstallment, updateLoanOriginationDate, updateLoanInstallment, cancelLoan, correctLoan } from '../accounting/loans';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -64,8 +64,20 @@ router.put('/loans/:id/origination-date', managerOnly, (req, res) => {
   try { res.json({ loan: updateLoanOriginationDate(getDatabase(), String(req.params.id), req.body?.origination_date, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
+router.post('/loans/:id/cancel', managerOnly, (req, res) => {
+  try { res.json({ loan: cancelLoan(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/loans/:id/correct', managerOnly, (req, res) => {
+  try { res.json({ loan: correctLoan(getDatabase(), String(req.params.id), req.body, actorId(req), req.get('Idempotency-Key')) }); }
+  catch (error) { respondError(res, error); }
+});
 router.post('/loans/:id/installments', managerOnly, (req, res) => {
   try { res.status(201).json(createLoanInstallments(getDatabase(), String(req.params.id), req.body, actorId(req), req.get('Idempotency-Key'))); }
+  catch (error) { respondError(res, error); }
+});
+router.put('/loan-installments/:id', managerOnly, (req, res) => {
+  try { res.json({ installment: updateLoanInstallment(getDatabase(), String(req.params.id), req.body, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.post('/loan-installments/:id/register', managerOnly, (req, res) => {
