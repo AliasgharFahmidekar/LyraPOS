@@ -148,7 +148,13 @@ export function createLoan(db: DB, input: any, actorId: string | null, idempoten
     fail('opening_loan_cash_forbidden', 'An existing loan opening balance must not create a new cash/bank movement.');
   }
   const idempotencyKey = key(idempotencyInput);
-  const payload = {mode,lender,description,reference,loanDate,accountingStartDate,journalEntryDate,currencyCode,original,initialOutstanding,historicalPrincipalRepaid,liabilityAccountId:liability.id,cashAccountId:cash?.id ?? null};
+  // Preserve the pre-v122 idempotency hash for ordinary loan creation; only
+  // corrective replacements include an explicit journal-date override.
+  const payload = {
+    mode,lender,description,reference,loanDate,accountingStartDate,currencyCode,original,
+    initialOutstanding,historicalPrincipalRepaid,liabilityAccountId:liability.id,cashAccountId:cash?.id ?? null,
+    ...(journalEntryDateOverride == null ? {} : {journalEntryDate}),
+  };
   const payloadHash = hash(payload);
   return db.transaction(() => {
     const old = db.prepare('SELECT * FROM accounting_loans WHERE idempotency_key=?').get(idempotencyKey) as any;
