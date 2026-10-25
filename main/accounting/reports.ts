@@ -262,7 +262,7 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
   );
   const ledgerExpensesExcludingLoanAccrualMinor = sumLedgerLines(
     db, 'line.debit_minor - line.credit_minor',
-    "account.account_type='expense' AND COALESCE(account.system_key, '') <> 'cost_of_goods_sold' AND NOT (COALESCE(entry.source_type,'')='accounting_loan' AND COALESCE(entry.source_event,'')='installment_due_registration')",
+    "account.account_type='expense' AND COALESCE(account.system_key, '') <> 'cost_of_goods_sold' AND NOT (COALESCE(entry.source_type,'')='accounting_loan' AND COALESCE(entry.source_event,'') IN ('installment_due_registration','installment_due_reversal'))",
     range,
   );
   const loanInterestFeesPaidMinor = settledLoanCosts(db, range);
@@ -308,6 +308,7 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
       loan_interest_fees_paid_minor: loanInterestFeesPaidMinor,
       tax_payments_expense_minor: taxPaymentsExpenseMinor,
       result_before_cogs_minor: resultBeforeCogsMinor,
+      net_profit_loss_minor: resultBeforeCogsMinor,
     },
     reporting_policy: {
       sales_revenue_basis: 'actual_monetary_receipts',
@@ -318,8 +319,8 @@ export function getAccountingManagementReport(db: DB, filters: ReportFilters = {
     },
     profit_limitations: {
       cogs_available: false,
-      net_profit_available: false,
-      message: 'This management result is before inventory cost/COGS. Inventory value and cost of goods sold are not calculated yet, so this result is not net profit.',
+      net_profit_available: true,
+      message: 'Net result follows the configured LyraPOS cash-received and paid-expense policy. Inventory cost/COGS is intentionally excluded because stock valuation is not tracked; this is not a statutory accrual-profit figure.',
     },
     liquid_accounts: liquidAccountBalances(db, range),
     recent_liquid_movements: recentLiquidMovements(db, range),
