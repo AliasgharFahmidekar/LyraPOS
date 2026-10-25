@@ -211,7 +211,7 @@ function main(): void {
     equal(cancelledRegistered.status,'cancelled','registered unpaid installment can be cancelled safely');
     ok(!!cancelledRegistered.cancelled_due_journal_entry_id,'cancellation retains the original due accrual reference');
     ok(!!cancelledRegistered.cancellation_reversal_journal_entry_id,'cancellation posts a reversing journal for accrued interest/fees');
-    const originalAccrualLines=journalLines(db,failedInstallment.due_journal_entry_id);
+    const originalAccrualLines=journalLines(db,retriedDue.due_journal_entry_id);
     const reversedAccrualLines=journalLines(db,cancelledRegistered.cancellation_reversal_journal_entry_id);
     equal(reversedAccrualLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0),originalAccrualLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0),'cancellation reversal debit equals original accrual credits');
     equal(reversedAccrualLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0),originalAccrualLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0),'cancellation reversal credit equals original accrual debits');
