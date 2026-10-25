@@ -336,6 +336,20 @@ function main(): void {
     equal(cancelledLoan.cancelled_at!==null,true,'loan can be cancelled with a reason');
     ok(!!cancelledLoan.cancellation_journal_entry_id,'loan cancellation records a reversal journal');
     throws(()=>loans.cancelLoan(db,standaloneCancel.id,'Changed cancellation reason','test-owner'),'loan_already_cancelled','loan cancellation reason cannot be silently rewritten');
+    equal(cancelledLoan.remaining_principal_minor,0,'cancelled loan no longer appears to have an outstanding balance');
+    const cancelWithDueLoan=loans.createLoan(db,{...loanInput,principal_minor:350,reference_number:'LN-CANCEL-WITH-DUE'},'test-owner','loan-cancel-with-due-create');
+    const cancelWithDueBatch=loans.createLoanInstallments(db,cancelWithDueLoan.id,{installments:[{
+      due_date:'2026-10-12',principal_minor:100,interest_minor:10,fees_minor:5,
+      interest_account_id:'acct-operating-expenses',fees_account_id:'acct-payment-fees',auto_register:false,
+    }]},'test-owner','loan-cancel-with-due-schedule');
+    const registeredForCancellation=loans.registerLoanInstallment(db,cancelWithDueBatch.installments[0].id,'test-owner','2026-10-22');
+    const cancelledLoanWithDue=loans.cancelLoan(db,cancelWithDueLoan.id,'Loan amount entered incorrectly','test-owner');
+    equal(cancelledLoanWithDue.cancelled_at!==null,true,'whole loan cancellation marks loan as cancelled');
+    equal(cancelledLoanWithDue.remaining_principal_minor,0,'cancelled loan with registered installments has no outstanding balance');
+    const cancelledDueRow=db.prepare('SELECT * FROM accounting_loan_installments WHERE id=?').get(registeredForCancellation.id) as any;
+    equal(cancelledDueRow.status,'cancelled','whole loan cancellation cancels its unpaid installment');
+    ok(!!cancelledDueRow.cancelled_due_journal_entry_id,'whole loan cancellation retains the original due accrual journal reference');
+    ok(!!cancelledDueRow.cancellation_reversal_journal_entry_id,'whole loan cancellation reverses registered but unpaid interest/fee accrual');
     const closedPeriodLoan = loans.createLoan(db, {
       mode:'new', lender:'Closed-period test lender', loan_date:'2018-12-01', principal_minor:1000,
       liability_account_id:'acct-loans-payable', cash_account_id:'acct-bank', currency_code:'IRR',
