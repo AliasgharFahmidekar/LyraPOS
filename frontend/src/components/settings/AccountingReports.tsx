@@ -47,6 +47,7 @@ type ManagementReport = {
     loan_interest_fees_paid_minor: number;
     tax_payments_expense_minor: number;
     result_before_cogs_minor: number;
+    net_profit_loss_minor: number;
   };
   reporting_policy: {
     sales_revenue_basis: 'actual_monetary_receipts';
@@ -92,9 +93,9 @@ export function AccountingReports() {
     loanCosts: 'از هزینه‌ها: سود و کارمزد وام پرداخت‌شده',
     loanAccrualNote: 'سود و کارمزد قسط در سررسید به بدهی وام اضافه می‌شود؛ اما در جمع هزینه‌های پرداخت‌شده فقط پس از تأیید پرداخت واقعی محاسبه می‌شود.',
     taxPayments: 'مالیات پرداخت‌شده (هزینه)',
-    result: 'نتیجه پیش از بهای تمام‌شده',
-    notNetProfit: 'این عدد سود خالص نیست.',
-    cogsWarning: 'بهای تمام‌شده و ارزش مالی موجودی کالا هنوز محاسبه نمی‌شود؛ بنابراین سود خالص نمایش داده نمی‌شود.',
+    result: 'سود/زیان خالص طبق هزینه‌های ثبت‌شده',
+    notNetProfit: 'بهای تمام‌شده موجودی کالا لحاظ نمی‌شود.',
+    cogsWarning: 'فرمول: دریافت واقعی فروش پس از برگشت + سایر درآمدهای ثبت‌شده − هزینه‌های واقعاً پرداخت‌شده و ثبت‌شده. طبق سیاست فعلی، بهای تمام‌شده و ارزش موجودی کالا محاسبه نمی‌شود؛ بنابراین این نتیجه، سود خالص مبتنی بر بهای موجودی یا سود قانونی تعهدی نیست.',
     taxPolicy: 'درآمد فروش بر اساس پول واقعی دریافت‌شده محاسبه می‌شود. مالیات زمانی که واقعاً پرداخت شود، به‌عنوان هزینه ثبت می‌شود و دوباره از درآمد فروش کم نمی‌شود.',
     excluded: 'آورده و برداشت مالک، مانده افتتاحیه و انتقال بین حساب‌ها در درآمد یا هزینه محاسبه نشده‌اند.',
     liquidAccounts: 'مانده حساب‌های نقدی، بانکی و واسط',
@@ -133,9 +134,9 @@ export function AccountingReports() {
     loanCosts: 'Included in expenses: loan interest and fees paid',
     loanAccrualNote: 'Loan interest and fees are accrued to the loan liability on the due date, but enter paid-expense totals only after actual payment is confirmed.',
     taxPayments: 'Taxes paid (expense)',
-    result: 'Result before cost of goods sold',
-    notNetProfit: 'This is not net profit.',
-    cogsWarning: 'Inventory valuation and cost of goods sold (COGS) are not calculated yet, so net profit is unavailable.',
+    result: 'Net profit/loss under recorded-expense policy',
+    notNetProfit: 'Inventory cost is excluded.',
+    cogsWarning: 'Formula: actual sales receipts after refunds + posted other income − actually paid/posted expenses. Stock valuation and cost of goods sold are not tracked, so this is not COGS-based or statutory accrual profit.',
     taxPolicy: 'Sales revenue is based on actual money received. Tax is recorded as an expense when it is actually paid and is not deducted from sales revenue a second time.',
     excluded: 'Owner contributions/drawings, opening balances, and inter-account transfers are excluded from income and expense.',
     liquidAccounts: 'Cash, bank and clearing balances',
@@ -229,7 +230,7 @@ export function AccountingReports() {
           [t.expenses, report.summary.posted_expenses_minor],
           [t.loanCosts, report.summary.loan_interest_fees_paid_minor],
           [t.taxPayments, report.summary.tax_payments_expense_minor],
-          [t.result, report.summary.result_before_cogs_minor],
+          [t.result, report.summary.net_profit_loss_minor],
         ].map(([label, value]) => <div key={String(label)} className={cardClass}>
           <p className="text-sm text-muted-foreground">{label}</p>
           <p className="text-xl font-semibold tabular-nums">{money(Number(value))}</p>
@@ -237,7 +238,7 @@ export function AccountingReports() {
         </div>)}
       </div>
 
-      <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
+      <div className="rounded-xl border border-border bg-card p-4 text-sm">
         <p className="font-semibold">{t.notNetProfit}</p>
         <p className="mt-1">{t.cogsWarning}</p>
         <p className="mt-1">{t.taxPolicy}</p>
