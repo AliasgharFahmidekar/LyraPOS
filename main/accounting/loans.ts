@@ -78,6 +78,9 @@ function loanRow(db: DB, idInput: unknown): any {
   return row;
 }
 function outstanding(db: DB, loan: any): number {
+  // A cancelled loan has had its original liability journal reversed. Preserve its
+  // original principal as historical data, but do not present it as an outstanding debt.
+  if (loan.cancelled_at) return 0;
   const paid = db.prepare("SELECT COALESCE(SUM(principal_minor),0) AS total FROM accounting_loan_installments WHERE loan_id=? AND status='settled'").get(loan.id) as {total:number};
   return Number(loan.initial_outstanding_minor) - Number(paid.total);
 }
@@ -413,7 +416,8 @@ function cancelLoanInTransaction(db: DB, loanId: string, reason: string, actorId
     .run(reason,actor(actorId),reversal.id,loan.id);
   db.prepare("INSERT INTO accounting_audit_log(entity_type,entity_id,action,actor_user_id,before_json,after_json) VALUES('accounting_loan',?,'cancelled',?,?,?)")
     .run(loan.id,actor(actorId),JSON.stringify({status:loan.status,cancelled_at:null}),JSON.stringify({status:'closed',reason,cancellation_journal_entry_id:reversal.id}));
-  return {...loanRow(db,loan.id),duplicate:false,cancellation_journal_entry_id:reversal.id,remaining_principal_minor:outstanding(db,loan)};
+  const cancelledLoan=loanRow(db,loan.id);
+  return {...cancelledLoan,duplicate:false,cancellation_journal_entry_id:reversal.id,remaining_principal_minor:outstanding(db,cancelledLoan)};
 }
 export function cancelLoan(db: DB, loanIdInput: unknown, reasonInput: unknown, actorId: string|null): any {
   const id=text(loanIdInput,'loan_id',100), reason=text(reasonInput,'reason',500);
