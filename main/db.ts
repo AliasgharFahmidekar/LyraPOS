@@ -3500,6 +3500,43 @@ const ACCOUNTING_LOAN_TRIGGER_SQL = `
           'cancellation_reason',NEW.cancellation_reason,'last_error_code',NEW.last_error_code,'last_error_message',NEW.last_error_message)); END;
 `;
 
+const ACCOUNTING_LOAN_CORRECTION_TRIGGER_SQL = [
+  "DROP TRIGGER IF EXISTS accounting_loan_installment_identity_guard;",
+  "CREATE TRIGGER accounting_loan_installment_identity_guard BEFORE UPDATE ON accounting_loan_installments",
+  "WHEN NEW.id<>OLD.id OR NEW.batch_id<>OLD.batch_id OR NEW.loan_id<>OLD.loan_id OR COALESCE(NEW.created_by,'')<>COALESCE(OLD.created_by,'')",
+  "  OR ((NEW.due_date<>OLD.due_date OR NEW.principal_minor<>OLD.principal_minor OR NEW.interest_minor<>OLD.interest_minor OR NEW.fees_minor<>OLD.fees_minor OR COALESCE(NEW.interest_account_id,'')<>COALESCE(OLD.interest_account_id,'') OR COALESCE(NEW.fees_account_id,'')<>COALESCE(OLD.fees_account_id,'') OR NEW.auto_register<>OLD.auto_register) AND NOT (OLD.status IN ('scheduled','awaiting_confirmation','failed') AND NEW.status='scheduled' AND NEW.registered_at IS NULL AND NEW.registered_by IS NULL AND NEW.due_journal_entry_id IS NULL AND NEW.settlement_date IS NULL AND NEW.settlement_account_id IS NULL AND NEW.settlement_journal_entry_id IS NULL AND NEW.settlement_idempotency_key IS NULL AND NEW.settlement_payload_hash IS NULL AND NEW.settled_at IS NULL AND NEW.settled_by IS NULL AND NEW.cancellation_reason IS NULL AND NEW.cancelled_by IS NULL AND NEW.cancelled_at IS NULL AND NEW.last_error_code IS NULL AND NEW.last_error_message IS NULL))",
+  "  OR (COALESCE(NEW.settlement_date,'')<>COALESCE(OLD.settlement_date,'') AND NEW.status<>'settled')",
+  "BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_IDENTITY_IMMUTABLE'); END;",
+  "DROP TRIGGER IF EXISTS accounting_loan_installment_state_guard;",
+  "CREATE TRIGGER accounting_loan_installment_state_guard BEFORE UPDATE ON accounting_loan_installments",
+  "WHEN NOT (",
+  " (OLD.status='scheduled' AND NEW.status IN ('scheduled','awaiting_confirmation','registered','cancelled','failed','settled')) OR",
+  " (OLD.status='awaiting_confirmation' AND NEW.status IN ('scheduled','registered','cancelled','failed','settled')) OR",
+  " (OLD.status='failed' AND NEW.status IN ('scheduled','registered','cancelled','settled')) OR",
+  " (OLD.status='registered' AND NEW.status='settled') OR",
+  " (OLD.status='registered' AND NEW.status='cancelled' AND (OLD.due_journal_entry_id IS NULL OR (NEW.due_journal_entry_id IS NULL AND NEW.cancelled_due_journal_entry_id=OLD.due_journal_entry_id AND NEW.cancellation_reversal_journal_entry_id IS NOT NULL AND EXISTS (SELECT 1 FROM accounting_journal_entries reversal WHERE reversal.id=NEW.cancellation_reversal_journal_entry_id AND reversal.status='posted' AND reversal.source_type='accounting_loan' AND reversal.source_id=NEW.id AND reversal.source_event='installment_due_reversal')))) OR",
+  " (OLD.status IN ('scheduled','awaiting_confirmation','failed') AND NEW.status='settled' AND NEW.settlement_journal_entry_id IS NOT NULL AND EXISTS (SELECT 1 FROM accounting_journal_entries settlement WHERE settlement.id=NEW.settlement_journal_entry_id AND settlement.status='posted' AND settlement.source_type='accounting_loan' AND settlement.source_id=NEW.id AND settlement.source_event='installment_settlement') AND (NEW.interest_minor+NEW.fees_minor=0 OR (NEW.due_journal_entry_id IS NOT NULL AND EXISTS (SELECT 1 FROM accounting_journal_entries due WHERE due.id=NEW.due_journal_entry_id AND due.status='posted' AND due.source_type='accounting_loan' AND due.source_id=NEW.id AND due.source_event='installment_due_registration')))) OR",
+  " (OLD.status=NEW.status AND OLD.status IN ('scheduled','awaiting_confirmation','registered','settled','cancelled','failed') AND COALESCE(NEW.registered_at,'')=COALESCE(OLD.registered_at,'') AND COALESCE(NEW.registered_by,'')=COALESCE(OLD.registered_by,'') AND COALESCE(NEW.settlement_date,'')=COALESCE(OLD.settlement_date,'') AND COALESCE(NEW.due_journal_entry_id,'')=COALESCE(OLD.due_journal_entry_id,'') AND COALESCE(NEW.settlement_account_id,'')=COALESCE(OLD.settlement_account_id,'') AND COALESCE(NEW.settlement_journal_entry_id,'')=COALESCE(OLD.settlement_journal_entry_id,'') AND COALESCE(NEW.settlement_idempotency_key,'')=COALESCE(OLD.settlement_idempotency_key,'') AND COALESCE(NEW.settlement_payload_hash,'')=COALESCE(OLD.settlement_payload_hash,'') AND COALESCE(NEW.settled_at,'')=COALESCE(OLD.settled_at,'') AND COALESCE(NEW.settled_by,'')=COALESCE(OLD.settled_by,'') AND COALESCE(NEW.cancellation_reason,'')=COALESCE(OLD.cancellation_reason,'') AND COALESCE(NEW.cancelled_by,'')=COALESCE(OLD.cancelled_by,'') AND COALESCE(NEW.cancelled_at,'')=COALESCE(OLD.cancelled_at,''))",
+ ) BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_INSTALLMENT_INVALID_TRANSITION'); END;",
+  "DROP TRIGGER IF EXISTS accounting_loan_correction_link_guard;",
+  "CREATE TRIGGER accounting_loan_correction_link_guard BEFORE UPDATE ON accounting_loans",
+  "WHEN (COALESCE(NEW.corrected_from_loan_id,'')<>COALESCE(OLD.corrected_from_loan_id,'') OR COALESCE(NEW.correction_payload_hash,'')<>COALESCE(OLD.correction_payload_hash,'')) AND NOT (OLD.corrected_from_loan_id IS NULL AND OLD.correction_payload_hash IS NULL AND NEW.corrected_from_loan_id IS NOT NULL AND NEW.correction_payload_hash IS NOT NULL AND EXISTS (SELECT 1 FROM accounting_loans original WHERE original.id=NEW.corrected_from_loan_id AND original.cancelled_at IS NOT NULL))",
+  "BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_CORRECTION_LINK_IMMUTABLE'); END;",
+  "DROP TRIGGER IF EXISTS accounting_loan_cancellation_immutable_guard;",
+  "CREATE TRIGGER accounting_loan_cancellation_immutable_guard BEFORE UPDATE ON accounting_loans",
+  "WHEN OLD.cancelled_at IS NOT NULL AND (COALESCE(NEW.cancelled_at,'')<>COALESCE(OLD.cancelled_at,'') OR COALESCE(NEW.cancellation_reason,'')<>COALESCE(OLD.cancellation_reason,'') OR COALESCE(NEW.cancelled_by,'')<>COALESCE(OLD.cancelled_by,'') OR COALESCE(NEW.cancellation_journal_entry_id,'')<>COALESCE(OLD.cancellation_journal_entry_id,'') OR NEW.status<>OLD.status)",
+  "BEGIN SELECT RAISE(ABORT,'ACCOUNTING_LOAN_CANCELLATION_IMMUTABLE'); END;"
+].join('\n');
+
+function recreateAccountingLoanCorrectionTriggers(db: Database.Database): void {
+  const loanTables = getTables(db);
+  if (!loanTables.includes('accounting_loans') || !loanTables.includes('accounting_loan_installments')) return;
+  const loanColumns = new Set(getColumns(db, 'accounting_loans'));
+  const installmentColumns = new Set(getColumns(db, 'accounting_loan_installments'));
+  if (!['cancelled_at','cancellation_reason','cancelled_by','cancellation_journal_entry_id','corrected_from_loan_id','correction_payload_hash'].every((name) => loanColumns.has(name))) return;
+  if (!['cancellation_reversal_journal_entry_id','cancelled_due_journal_entry_id'].every((name) => installmentColumns.has(name))) return;
+  db.exec(ACCOUNTING_LOAN_CORRECTION_TRIGGER_SQL);
+}
 function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   if (!getTables(db).includes('accounting_accounts')) return;
   db.exec(ACCOUNTING_LEDGER_TRIGGER_SQL);
@@ -3537,6 +3574,7 @@ function recreateAccountingLedgerRestoreTriggers(db: Database.Database): void {
   }
   if (getTables(db).includes('accounting_loans') && getTables(db).includes('accounting_loan_installments')) {
     db.exec(ACCOUNTING_LOAN_TRIGGER_SQL);
+    recreateAccountingLoanCorrectionTriggers(db);
   }
   recreateAccountingAccountDefinitionGuard(db);
 }
@@ -7458,6 +7496,24 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE INDEX accounting_expenses_cancelled_idx ON accounting_expenses(cancelled_at, status, due_date);
       `);
       db.exec(ACCOUNTING_EXPENSE_CANCELLATION_TRIGGER_SQL);
+    },
+  },
+  {
+    version: 121,
+    name: 'accounting_loan_correction_and_early_settlement',
+    up: () => {
+      db.exec(`
+        ALTER TABLE accounting_loans ADD COLUMN cancelled_at TEXT;
+        ALTER TABLE accounting_loans ADD COLUMN cancellation_reason TEXT;
+        ALTER TABLE accounting_loans ADD COLUMN cancelled_by TEXT;
+        ALTER TABLE accounting_loans ADD COLUMN cancellation_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT;
+        ALTER TABLE accounting_loans ADD COLUMN corrected_from_loan_id TEXT REFERENCES accounting_loans(id) ON DELETE RESTRICT;
+        ALTER TABLE accounting_loans ADD COLUMN correction_payload_hash TEXT CHECK (correction_payload_hash IS NULL OR length(correction_payload_hash)=64);
+        CREATE UNIQUE INDEX accounting_loans_corrected_from_unique ON accounting_loans(corrected_from_loan_id) WHERE corrected_from_loan_id IS NOT NULL;
+        ALTER TABLE accounting_loan_installments ADD COLUMN cancellation_reversal_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT;
+        ALTER TABLE accounting_loan_installments ADD COLUMN cancelled_due_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT;
+      `);
+      recreateAccountingLoanCorrectionTriggers(db);
     },
   },
 ] ; 
