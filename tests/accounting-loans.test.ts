@@ -12,7 +12,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 
 const dbModule = require('../main/db');
-const { initDatabase, getDatabase, getCurrentSchemaVersion, closeDatabase, MIGRATIONS } = dbModule;
+const { initDatabase, getDatabase, getCurrentSchemaVersion, getLatestSchemaVersion, closeDatabase, MIGRATIONS } = dbModule;
 const originalMigrations = [...MIGRATIONS];
 const loans = require('../main/accounting/loans');
 const { getAccountingManagementReport } = require('../main/accounting/reports');
@@ -33,7 +33,7 @@ function main(): void {
   try {
     initDatabase();
     const db = getDatabase();
-    equal(getCurrentSchemaVersion(), 122, 'fresh database includes the latest schema v122');
+    equal(getCurrentSchemaVersion(), getLatestSchemaVersion(), 'fresh database includes the latest registered schema version');
     for (const table of ['accounting_loans','accounting_loan_installment_batches','accounting_loan_installments']) {
       ok(!!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), 'loan migration creates ' + table);
     }
@@ -423,7 +423,7 @@ function migrationUpgradeChecks(): void {
     MIGRATIONS.push(...originalMigrations);
     initDatabase();
     const upgradedDb = getDatabase();
-    equal(getCurrentSchemaVersion(), 122, 'legacy-loan fixture upgrades to schema v122');
+    equal(getCurrentSchemaVersion(), getLatestSchemaVersion(), 'legacy-loan fixture upgrades to the latest registered schema version');
     const upgradedLoan = upgradedDb.prepare(`
       SELECT origination_date,accounting_start_date,historical_principal_repaid_minor,cash_account_id
       FROM accounting_loans WHERE id='legacy-v116-loan'
