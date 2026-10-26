@@ -11,6 +11,7 @@ import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { formatAccountingMoney } from '@/lib/countries';
 import { accountingSystemAccountName, accountingSystemDescription, accountingErrorMessage, formatAccountingDate } from '@/lib/accounting-i18n';
+import { JalaliDateInput } from '@/components/ui/JalaliDateInput';
 
 type AccountKind = 'cash' | 'bank' | 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 type Account = {
@@ -284,8 +285,8 @@ export function AccountingAccounts() {
           <div className="acct-modal-heading"><div><p className="acct-eyebrow">{historyAccount.account_code} · {kindName(historyAccount)}</p><h2 id="acct-history-title">{text.historyTitle}: {accountingSystemAccountName(historyAccount.system_key, historyAccount.name, locale)}</h2><p>{accountingSystemDescription(historyAccount.description, locale) || '—'}</p></div><button type="button" className="acct-icon-button" onClick={() => { setHistoryAccount(null); setHistory(null); }} aria-label={text.close}><X size={18} /></button></div>
           <div className="acct-history-balance"><span>{text.currentBalance}</span><strong>{money(history?.account.balance_minor ?? historyAccount.balance_minor)}</strong></div>
           <div className="acct-toolbar acct-history-filters">
-            <label className="acct-field"><span>{text.from}</span><input type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} /></label>
-            <label className="acct-field"><span>{text.to}</span><input type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} /></label>
+            <label className="acct-field"><span>{text.from}</span><JalaliDateInput value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} /></label>
+            <label className="acct-field"><span>{text.to}</span><JalaliDateInput value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} /></label>
             <button type="button" className="acct-button acct-button-secondary" onClick={() => { setFrom(''); setTo(''); }}><X size={15} /> {text.all}</button>
             <button type="button" className="acct-button acct-button-primary" onClick={() => void openHistory(historyAccount)}>{fa ? 'اعمال بازه' : 'Apply range'}</button>
           </div>
