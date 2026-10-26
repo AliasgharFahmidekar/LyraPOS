@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
 import { formatAccountingMoney } from '@/lib/countries';
 import { accountingSystemAccountName, accountingSystemAccountNameByCode, accountingSystemDescription, accountingAuditActionLabel, accountingDiagnosticText, formatAccountingDate } from '@/lib/accounting-i18n';
+import { JalaliDateInput } from '@/components/ui/JalaliDateInput';
 
 type ReportLine = {
   journal_entry_id: string;
@@ -211,8 +212,8 @@ export function AccountingReports() {
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div><h2 className="text-xl font-semibold">{t.title}</h2><p className="mt-1 text-sm text-muted-foreground">{t.period}</p></div>
       <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void load(); }}>
-        <label className="space-y-1 text-sm"><span className="block">{t.from}</span><input className={inputClass} type="date" value={from} max={to || undefined} onChange={(event) => { setFrom(event.target.value); setPage(1); }} /></label>
-        <label className="space-y-1 text-sm"><span className="block">{t.to}</span><input className={inputClass} type="date" value={to} min={from || undefined} onChange={(event) => { setTo(event.target.value); setPage(1); }} /></label>
+        <label className="space-y-1 text-sm"><span className="block">{t.from}</span><JalaliDateInput className={inputClass} value={from} max={to || undefined} onChange={(event) => { setFrom(event.target.value); setPage(1); }} /></label>
+        <label className="space-y-1 text-sm"><span className="block">{t.to}</span><JalaliDateInput className={inputClass} value={to} min={from || undefined} onChange={(event) => { setTo(event.target.value); setPage(1); }} /></label>
         <button disabled={loading} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{loading ? t.loading : t.refresh}</button>
       </form>
     </div>
