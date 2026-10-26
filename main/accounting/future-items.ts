@@ -357,7 +357,7 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
   const idempotencyKey = requiredText(idempotencyKeyInput, 'idempotency_key', 200);
   const settledBy = actor(actorIdInput);
   return db.transaction(() => {
-    const item = itemById(db, id);
+    let item = itemById(db, id);
     const settlementPayloadHash = createHash('sha256').update(JSON.stringify({
       futureItemId: id, settlementDate, settlementAccountId, amountMinor: item.amount_minor, currencyCode: item.currency_code,
     })).digest('hex');
@@ -370,8 +370,46 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
       }
       fail('future_item_already_settled', 'This item has already been settled.', 409);
     }
-    if (item.status !== 'registered') fail('future_item_not_registered', 'Register the due event before recording its actual settlement.', 409);
-    if (settlementDate < item.due_date) fail('invalid_settlement_date', "Settlement date cannot be before the item's due date.");
+    if (item.status === 'cancelled') fail('future_item_cancelled', 'A cancelled item cannot be settled.', 409);
+    const earlySettlement = settlementDate < item.due_date;
+    if (earlySettlement && !['scheduled', 'awaiting_confirmation', 'failed'].includes(item.status)) {
+      fail('future_item_invalid_state', 'This item cannot be settled early from its current state.', 409);
+    }
+    if (!earlySettlement && item.status !== 'registered') {
+      fail('future_item_not_registered', 'Register the due event before recording settlement on or after the due date.', 409);
+    }
+    if (earlySettlement) {
+      // A genuine early payment/receipt is cash-basis activity on the actual date.
+      // Do not fabricate a due-date receivable/payable or a due-registration journal.
+      const classification = assertFutureClassification(db, item.classification_account_id, item.direction);
+      const amount = Number(item.amount_minor);
+      const lines = item.direction === 'incoming'
+        ? [
+          { accountId: settlementAccountId, debitMinor: amount, creditMinor: 0, description: 'Actual early future receipt/cheque settlement' },
+          { accountId: classification.id, debitMinor: 0, creditMinor: amount, description: item.description },
+        ]
+        : [
+          { accountId: classification.id, debitMinor: amount, creditMinor: 0, description: item.description },
+          { accountId: settlementAccountId, debitMinor: 0, creditMinor: amount, description: 'Actual early future payment/cheque settlement' },
+        ];
+      const draft = createDraftJournalEntry(db, {
+        entryDate: settlementDate,
+        description: 'Early settlement: ' + item.description,
+        currencyCode: item.currency_code,
+        lines,
+        createdBy: settledBy,
+        sourceType: 'accounting_future_item',
+        sourceId: id,
+        sourceEvent: 'settlement',
+        idempotencyKey,
+      });
+      const posted = postJournalEntry(db, draft.id, settledBy);
+      if (posted.status !== 'posted') fail('future_item_settlement_failed', 'The settlement journal did not reach posted status.', 409);
+      db.prepare(
+        "UPDATE accounting_future_items SET status='settled', settlement_journal_entry_id=?, settlement_idempotency_key=?, settlement_payload_hash=?, settlement_account_id=?, settled_at=CURRENT_TIMESTAMP, settled_by=?, status_actor_id=?, last_error_code=NULL, last_error_message=NULL WHERE id=?",
+      ).run(posted.id, idempotencyKey, settlementPayloadHash, settlementAccountId, settledBy, settledBy, id);
+      return { ...itemById(db, id), duplicate: posted.duplicate, settlement_entry_number: posted.entryNumber, early_settlement: true };
+    }
     const controlAccount = item.direction === 'incoming'
       ? systemAccount(db, 'accounts_receivable', 'asset')
       : systemAccount(db, 'accounts_payable', 'liability');
