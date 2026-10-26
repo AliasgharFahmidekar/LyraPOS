@@ -291,7 +291,7 @@ export function AccountingLoans() {
           </td>
         </tr>})}</tbody></table></div>}
       </article>)}
-      <p className="text-xs text-muted-foreground">{t.earlyPayment}</p><div className="grid grid-cols-1 gap-3 md:grid-cols-2"><label className="space-y-1 text-sm"><span>{t.settlementDate}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} min={settlementMinDate} value={settlementDate} onChange={setSettlementDate} className={field}/></label><label className="space-y-1 text-sm"><span>{t.settlementAccount}</span><select value={settlementAccount} onChange={setSettlementAccount} className={field}>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label></div>
+      <p className="text-xs text-muted-foreground">{t.earlyPayment}</p><div className="grid grid-cols-1 gap-3 md:grid-cols-2"><label className="space-y-1 text-sm"><span>{t.settlementDate}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} min={settlementMinDate} value={settlementDate} onChange={setSettlementDate} className={field}/></label><label className="space-y-1 text-sm"><span>{t.settlementAccount}</span><select value={settlementAccount} onChange={(e) => setSettlementAccount(e.target.value)} className={field}>{liquidAccounts.map(a=><option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label></div>
     </div>
   </section>;
 }
