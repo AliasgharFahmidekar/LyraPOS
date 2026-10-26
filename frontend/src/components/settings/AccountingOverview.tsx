@@ -10,6 +10,7 @@ import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
 import { formatAccountingMoney, getCurrencyUnitAdapter } from '@/lib/countries';
 import { accountingSystemAccountName, accountingSystemDescription, accountingStatusLabel, formatAccountingDate } from '@/lib/accounting-i18n';
+import { JalaliDateInput } from '@/components/ui/JalaliDateInput';
 
 type ReportLine = {
   journal_entry_id: string; entry_number: string; entry_date: string; description: string;
@@ -260,8 +261,8 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
           setPeriod('custom');
           setCustomRangeOpen(false);
         }}>
-          <label><span>{fa ? 'از تاریخ' : 'From'}</span><input type="date" value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} required /></label>
-          <label><span>{fa ? 'تا تاریخ' : 'To'}</span><input type="date" value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} required /></label>
+          <label><span>{fa ? 'از تاریخ' : 'From'}</span><JalaliDateInput value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} required /></label>
+          <label><span>{fa ? 'تا تاریخ' : 'To'}</span><JalaliDateInput value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} required /></label>
           <button className="acct-button acct-button-primary" type="submit">{text.apply}</button>
         </form>}
         <button type="button" className="acct-icon-button" aria-label={fa ? 'به‌روزرسانی اطلاعات' : 'Refresh'} title={fa ? 'به‌روزرسانی اطلاعات' : 'Refresh'} onClick={() => void load()} disabled={loading}>
