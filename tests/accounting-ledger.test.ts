@@ -15,7 +15,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 
 const dbModule = require('../main/db');
-const { initDatabase, getDatabase, getCurrentSchemaVersion, MIGRATIONS, closeDatabase } = dbModule;
+const { initDatabase, getDatabase, getCurrentSchemaVersion, getLatestSchemaVersion, MIGRATIONS, closeDatabase } = dbModule;
 const { createDraftJournalEntry, postJournalEntry } = require('../main/accounting/ledger');
 const originalMigrations = MIGRATIONS.slice();
 
@@ -137,7 +137,7 @@ function freshInstallChecks(): void {
   initDatabase();
   const db = getDatabase();
 
-  equal(getCurrentSchemaVersion(), 122, 'fresh install reaches latest schema version 122');
+  equal(getCurrentSchemaVersion(), getLatestSchemaVersion(), 'fresh install reaches the latest registered schema version');
   for (const table of [
     'accounting_accounts', 'accounting_sequences', 'accounting_journal_entries',
     'accounting_journal_lines', 'accounting_audit_log', 'accounting_opening_balances', 'accounting_reconciliation_adjustments', 'accounting_period_closures', 'accounting_future_items',
@@ -482,7 +482,7 @@ function upgradeFromPreviousSchemaChecks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 122, 'existing database upgrades from v99 through schema version 122');
+  equal(getCurrentSchemaVersion(), getLatestSchemaVersion(), 'existing database upgrades from v99 to the latest registered schema version');
   equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'accounting_test_preserve_me'").get() as any).value,
     'existing-value',
@@ -517,7 +517,7 @@ function upgradeFromVersion100Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 122, 'v100 database upgrades through schema version 122');
+  equal(getCurrentSchemaVersion(), getLatestSchemaVersion(), 'v100 database upgrades to the latest registered schema version');
   throws(
     () => db.prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
     /system or posted accounting account definitions are immutable/i,
@@ -560,7 +560,7 @@ function upgradeFromVersion102Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 122, 'v102 database upgrades to schema version 122');
+  equal(getCurrentSchemaVersion(), getLatestSchemaVersion(), 'v102 database upgrades to the latest registered schema version');
   assertAccountingSeedAccounts(db, 'schema v102 to v122 upgrade');
   const preserved = db.prepare("SELECT id,amount_minor,currency_code,idempotency_key,reversal_journal_entry_id,reversal_reason FROM accounting_expenses WHERE id='expense-v102-preserve'").get() as any;
   equal(preserved.id, 'expense-v102-preserve', 'upgrade preserves existing expense records');
@@ -600,7 +600,7 @@ function upgradeFromVersion101Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 122, 'v101 database upgrades through schema version 122');
+  equal(getCurrentSchemaVersion(), getLatestSchemaVersion(), 'v101 database upgrades to the latest registered schema version');
   assertAccountingSeedAccounts(db, 'schema v101 to v122 upgrade');
   check(tableExists(db, 'accounting_expense_categories'), 'expense migration creates expense categories');
   check(tableExists(db, 'accounting_payment_method_mappings'), 'expense migration creates payment account mappings');
@@ -633,7 +633,7 @@ function upgradeFromVersion112Checks(): void {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
   db = getDatabase();
-  equal(getCurrentSchemaVersion(), 122, 'v112 database upgrades through schema version 122');
+  equal(getCurrentSchemaVersion(), getLatestSchemaVersion(), 'v112 database upgrades to the latest registered schema version');
   const account = db.prepare("SELECT system_key, account_code, account_type, is_active, is_postable FROM accounting_accounts WHERE id='acct-future-receipt-clearing'").get() as any;
   check(!!account, 'v113 upgrade creates the future-receipt clearing account');
   equal(account.system_key, 'future_receipt_clearing', 'v113 upgrade creates the stable future-receipt system key');
