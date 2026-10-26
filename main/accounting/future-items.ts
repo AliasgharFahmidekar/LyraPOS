@@ -436,7 +436,7 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
     db.prepare(
       "UPDATE accounting_future_items SET status='settled', settlement_journal_entry_id=?, settlement_idempotency_key=?, settlement_payload_hash=?, settlement_account_id=?, settled_at=CURRENT_TIMESTAMP, settled_by=?, status_actor_id=? WHERE id=?",
     ).run(posted.id, idempotencyKey, settlementPayloadHash, settlementAccountId, settledBy, settledBy, id);
-    return { ...itemById(db, id), duplicate: posted.duplicate, settlement_entry_number: posted.entryNumber };
+    return { ...itemById(db, id), duplicate: posted.duplicate, settlement_entry_number: posted.entryNumber, ...(earlySettlement ? { early_settlement: true } : {}) };
   })();
 }
 
