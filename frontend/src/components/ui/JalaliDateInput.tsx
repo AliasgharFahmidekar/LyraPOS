@@ -12,6 +12,7 @@ type JalaliDateInputProps = {
   max?: string;
   'aria-label'?: string;
   id?: string;
+  jalali?: boolean;
 };
 
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
@@ -78,8 +79,11 @@ function parseJalali(value: string): string | null {
 }
 
 export function JalaliDateInput({
-  value, onChange, className, required, disabled, min, max, 'aria-label': ariaLabel, id,
+  value, onChange, className, required, disabled, min, max, 'aria-label': ariaLabel, id, jalali = true,
 }: JalaliDateInputProps) {
+  if (!jalali) {
+    return <input id={id} type="date" value={value} onChange={(event) => onChange(event.target.value)} className={className} required={required} disabled={disabled} min={min} max={max} aria-label={ariaLabel} />;
+  }
   const [draft, setDraft] = useState(() => formatJalali(value));
   const [invalid, setInvalid] = useState(false);
 
