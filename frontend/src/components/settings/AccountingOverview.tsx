@@ -261,8 +261,8 @@ export function AccountingOverview({ onOpen }: { onOpen: (view: string) => void 
           setPeriod('custom');
           setCustomRangeOpen(false);
         }}>
-          <label><span>{fa ? 'از تاریخ' : 'From'}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={customFrom} max={customTo} onChange={(event) => setCustomFrom(event.target.value)} required /></label>
-          <label><span>{fa ? 'تا تاریخ' : 'To'}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={customTo} min={customFrom} onChange={(event) => setCustomTo(event.target.value)} required /></label>
+          <label><span>{fa ? 'از تاریخ' : 'From'}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={customFrom} max={customTo} onChange={setCustomFrom} required /></label>
+          <label><span>{fa ? 'تا تاریخ' : 'To'}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={customTo} min={customFrom} onChange={setCustomTo} required /></label>
           <button className="acct-button acct-button-primary" type="submit">{text.apply}</button>
         </form>}
         <button type="button" className="acct-icon-button" aria-label={fa ? 'به‌روزرسانی اطلاعات' : 'Refresh'} title={fa ? 'به‌روزرسانی اطلاعات' : 'Refresh'} onClick={() => void load()} disabled={loading}>
