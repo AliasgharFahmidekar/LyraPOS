@@ -25,7 +25,10 @@
 .accounting-theme .acct-button-secondary:hover:not(:disabled) { background:#f8fafc; border-color:#c6d1de; }
 .accounting-theme .acct-icon-button { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; flex-shrink:0; border:1px solid #e1e7ef; border-radius:8px; color:#5b6678; background:#fff; cursor:pointer; }
 .accounting-theme .acct-icon-button:hover:not(:disabled) { color:var(--acct-primary); border-color:#bfd3fb; background:#f8fbff; }
-.accounting-theme .acct-text-button,.accounting-theme .acct-link-button { border:0; padding:2px 0; background:transparent; color:var(--acct-primary); font-size:12px; font-weight:650; cursor:pointer; }
+.accounting-theme .acct-text-button,.accounting-theme .acct-link-button { display:inline-flex; align-items:center; justify-content:center; min-height:32px; border:1px solid transparent; border-radius:6px; padding:4px 8px; background:transparent; color:var(--acct-primary); font-size:12px; font-weight:650; cursor:pointer; touch-action:manipulation; }
+.accounting-theme .acct-text-button:hover,.accounting-theme .acct-link-button:hover { background:var(--acct-surface-muted, rgba(100,116,139,.10)); }
+.accounting-theme .acct-text-button:focus-visible,.accounting-theme .acct-link-button:focus-visible { outline:2px solid var(--acct-primary); outline-offset:2px; }
+.accounting-theme .acct-text-button:disabled,.accounting-theme .acct-link-button:disabled { cursor:not-allowed; opacity:.5; }
 .accounting-theme .acct-link-button { white-space:nowrap; }
 .accounting-theme .acct-period-bar { display:flex; align-items:center; gap:5px; flex-wrap:wrap; padding:8px; border:1px solid var(--acct-line); border-radius:11px; background:var(--acct-surface); }
 .accounting-theme .acct-period-button { padding:7px 11px; border:1px solid transparent; border-radius:7px; color:#697588; background:transparent; font-size:12px; cursor:pointer; }
