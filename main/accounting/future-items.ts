@@ -224,7 +224,7 @@ export function listFutureItems(db: DB, filters: any = {}): { items: any[]; limi
   return { items, limit };
 }
 
-function postDueJournal(db: DB, item: any, postedBy: string): { id: string; entryNumber: string } {
+function postDueJournal(db: DB, item: any, postedBy: string, entryDate: string = item.due_date): { id: string; entryNumber: string } {
   const classification = assertFutureClassification(db, item.classification_account_id, item.direction);
   const controlAccount = item.direction === 'incoming'
     ? systemAccount(db, 'accounts_receivable', 'asset')
@@ -248,7 +248,7 @@ function postDueJournal(db: DB, item: any, postedBy: string): { id: string; entr
       { accountId: controlAccount, debitMinor: 0, creditMinor: amount, description: 'Future payment/cheque payable' },
     ];
   const draft = createDraftJournalEntry(db, {
-    entryDate: item.due_date,
+    entryDate,
     description: (item.direction === 'incoming' ? 'Future receipt: ' : 'Future payment: ') + item.description,
     currencyCode: item.currency_code,
     lines,
@@ -379,36 +379,17 @@ export function settleFutureItem(db: DB, idInput: unknown, input: any, actorIdIn
       fail('future_item_not_registered', 'Register the due event before recording settlement on or after the due date.', 409);
     }
     if (earlySettlement) {
-      // A genuine early payment/receipt is cash-basis activity on the actual date.
-      // Do not fabricate a due-date receivable/payable or a due-registration journal.
-      const classification = assertFutureClassification(db, item.classification_account_id, item.direction);
-      const amount = Number(item.amount_minor);
-      const lines = item.direction === 'incoming'
-        ? [
-          { accountId: settlementAccountId, debitMinor: amount, creditMinor: 0, description: 'Actual early future receipt/cheque settlement' },
-          { accountId: classification.id, debitMinor: 0, creditMinor: amount, description: item.description },
-        ]
-        : [
-          { accountId: classification.id, debitMinor: amount, creditMinor: 0, description: item.description },
-          { accountId: settlementAccountId, debitMinor: 0, creditMinor: amount, description: 'Actual early future payment/cheque settlement' },
-        ];
-      const draft = createDraftJournalEntry(db, {
-        entryDate: settlementDate,
-        description: 'Early settlement: ' + item.description,
-        currencyCode: item.currency_code,
-        lines,
-        createdBy: settledBy,
-        sourceType: 'accounting_future_item',
-        sourceId: id,
-        sourceEvent: 'settlement',
-        idempotencyKey,
-      });
-      const posted = postJournalEntry(db, draft.id, settledBy);
-      if (posted.status !== 'posted') fail('future_item_settlement_failed', 'The settlement journal did not reach posted status.', 409);
+      // Preserve the schema invariant: a settled item must have a registered due journal.
+      // For early settlement, record that clearing/receivable step on the actual settlement
+      // date (not the future due date), then settle it below in the same transaction.
+      const dueJournal = postDueJournal(db, item, settledBy, settlementDate);
       db.prepare(
-        "UPDATE accounting_future_items SET status='settled', settlement_journal_entry_id=?, settlement_idempotency_key=?, settlement_payload_hash=?, settlement_account_id=?, settled_at=CURRENT_TIMESTAMP, settled_by=?, status_actor_id=?, last_error_code=NULL, last_error_message=NULL WHERE id=?",
-      ).run(posted.id, idempotencyKey, settlementPayloadHash, settlementAccountId, settledBy, settledBy, id);
-      return { ...itemById(db, id), duplicate: posted.duplicate, settlement_entry_number: posted.entryNumber, early_settlement: true };
+        "UPDATE accounting_future_items SET status='registered', due_journal_entry_id=?, registered_at=CURRENT_TIMESTAMP, registered_by=?, status_actor_id=? WHERE id=?",
+      ).run(dueJournal.id, settledBy, settledBy, id);
+      item = itemById(db, id);
+    }
+    if (!earlySettlement && item.status !== 'registered') {
+      fail('future_item_not_registered', 'Register the due event before recording settlement on or after the due date.', 409);
     }
     const controlAccount = item.direction === 'incoming'
       ? systemAccount(db, 'accounts_receivable', 'asset')
