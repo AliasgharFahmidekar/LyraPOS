@@ -3950,6 +3950,11 @@ export function getCurrentSchemaVersion(): number {
   return (db ?? getDatabase()).pragma('user_version', { simple: true }) as number;
 }
 
+/** Latest supported schema is derived from the migration registry, never duplicated in tests. */
+export function getLatestSchemaVersion(): number {
+  return MIGRATIONS.length > 0 ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
+}
+
 /** Builds in-memory database using migration pipeline as ideal schema reference. */
 export function buildIdealSchemaDb(): Database.Database {
   const idealDb = new Database(':memory:');
