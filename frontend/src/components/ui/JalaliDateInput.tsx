@@ -18,6 +18,10 @@ type JalaliDateInputProps = {
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
 const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
 
+function toPersianDigits(value: string): string {
+  return value.replace(/[0-9]/g, (digit) => PERSIAN_DIGITS[Number(digit)]);
+}
+
 function toLatinDigits(value: string): string {
   return value.replace(/[۰-۹٠-٩]/g, (digit) => {
     const persian = PERSIAN_DIGITS.indexOf(digit);
@@ -34,7 +38,7 @@ function formatJalali(iso: string): string {
     year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'UTC',
   }).formatToParts(date);
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || '';
-  return `${get('year')}/${get('month')}/${get('day')}`;
+  return toPersianDigits(`${get('year')}/${get('month')}/${get('day')}`);
 }
 
 // Convert a Jalali date to Gregorian without relying on an online service or locale data.
@@ -67,7 +71,7 @@ function jalaliToGregorian(jy: number, jm: number, jd: number): string | null {
   if (gm > 12) return null;
   const iso = `${String(gy).padStart(4, '0')}-${String(gm).padStart(2, '0')}-${String(gd).padStart(2, '0')}`;
   // Round-trip validation catches invalid month lengths and leap-day mistakes.
-  if (formatJalali(iso) !== `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}`) return null;
+  if (toLatinDigits(formatJalali(iso)) !== `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}`) return null;
   return iso;
 }
 
