@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 type JalaliDateInputProps = {
   value: string;
@@ -84,27 +84,23 @@ export function JalaliDateInput({
   if (!jalali) {
     return <input id={id} type="date" value={value} onChange={(event) => onChange(event.target.value)} className={className} required={required} disabled={disabled} min={min} max={max} aria-label={ariaLabel} />;
   }
-  const [draft, setDraft] = useState(() => formatJalali(value));
-  const [invalid, setInvalid] = useState(false);
-
-  useEffect(() => {
-    setDraft(formatJalali(value));
-    setInvalid(false);
-  }, [value]);
+  const [draftState, setDraftState] = useState(() => ({ sourceValue: value, draft: formatJalali(value), invalid: false }));
+  const draft = draftState.sourceValue === value ? draftState.draft : formatJalali(value);
+  const invalid = draftState.sourceValue === value && draftState.invalid;
+  const setDraft = (nextDraft: string) => setDraftState({ sourceValue: value, draft: nextDraft, invalid: false });
 
   const commit = () => {
     if (!draft.trim()) {
-      setInvalid(false);
+      setDraftState({ sourceValue: value, draft: '', invalid: false });
       if (!required) onChange('');
       return;
     }
     const parsed = parseJalali(draft);
     if (!parsed || (min && parsed < min) || (max && parsed > max)) {
-      setInvalid(true);
+      setDraftState({ sourceValue: value, draft, invalid: true });
       return;
     }
-    setInvalid(false);
-    setDraft(formatJalali(parsed));
+    setDraftState({ sourceValue: parsed, draft: formatJalali(parsed), invalid: false });
     if (parsed !== value) onChange(parsed);
   };
 
@@ -125,7 +121,7 @@ export function JalaliDateInput({
       className={className}
       onChange={(event) => {
         setDraft(event.target.value);
-        setInvalid(false);
+        setDraft(event.target.value);
         if (!event.target.value.trim() && !required) onChange('');
       }}
       onBlur={commit}
