@@ -3331,9 +3331,9 @@ const ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL = `
         OR NEW.created_at IS NOT OLD.created_at
         THEN RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_PAYLOAD_IMMUTABLE') END;
       SELECT CASE WHEN NOT (
-        (OLD.status = 'scheduled' AND NEW.status IN ('awaiting_confirmation', 'registered', 'cancelled', 'failed'))
-        OR (OLD.status = 'awaiting_confirmation' AND NEW.status IN ('registered', 'cancelled', 'failed'))
-        OR (OLD.status = 'failed' AND NEW.status IN ('registered', 'cancelled', 'failed'))
+        (OLD.status = 'scheduled' AND NEW.status IN ('awaiting_confirmation', 'registered', 'settled', 'cancelled', 'failed'))
+        OR (OLD.status = 'awaiting_confirmation' AND NEW.status IN ('registered', 'settled', 'cancelled', 'failed'))
+        OR (OLD.status = 'failed' AND NEW.status IN ('registered', 'settled', 'cancelled', 'failed'))
         OR (OLD.status = 'registered' AND NEW.status = 'settled')
       ) THEN RAISE(ABORT, 'ACCOUNTING_FUTURE_ITEM_INVALID_TRANSITION') END;
     END;
@@ -7516,6 +7516,16 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         ALTER TABLE accounting_loan_installments ADD COLUMN cancelled_due_journal_entry_id TEXT REFERENCES accounting_journal_entries(id) ON DELETE RESTRICT;
       `);
       recreateAccountingLoanCorrectionTriggers(db);
+    },
+  },
+  {
+    version: 122,
+    name: 'accounting_future_item_early_settlement',
+    up: () => {
+      // Existing databases retain the original IF NOT EXISTS trigger definition.
+      // Drop and reinstall it so scheduled items can be settled before their due date.
+      db.exec('DROP TRIGGER IF EXISTS accounting_future_items_state_guard');
+      db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
     },
   },
 ] ; 
