@@ -81,13 +81,14 @@ function parseJalali(value: string): string | null {
 export function JalaliDateInput({
   value, onChange, className, required, disabled, min, max, 'aria-label': ariaLabel, id, jalali = true,
 }: JalaliDateInputProps) {
-  if (!jalali) {
-    return <input id={id} type="date" value={value} onChange={(event) => onChange(event.target.value)} className={className} required={required} disabled={disabled} min={min} max={max} aria-label={ariaLabel} />;
-  }
   const [draftState, setDraftState] = useState(() => ({ sourceValue: value, draft: formatJalali(value), invalid: false }));
   const draft = draftState.sourceValue === value ? draftState.draft : formatJalali(value);
   const invalid = draftState.sourceValue === value && draftState.invalid;
   const setDraft = (nextDraft: string) => setDraftState({ sourceValue: value, draft: nextDraft, invalid: false });
+
+  if (!jalali) {
+    return <input id={id} type="date" value={value} onChange={(event) => onChange(event.target.value)} className={className} required={required} disabled={disabled} min={min} max={max} aria-label={ariaLabel} />;
+  }
 
   const commit = () => {
     if (!draft.trim()) {
@@ -113,14 +114,13 @@ export function JalaliDateInput({
       dir="ltr"
       aria-label={ariaLabel}
       aria-invalid={invalid || undefined}
-      aria-describedby={invalid ? `${id || 'jalali-date'}-error` : undefined}
+      title={invalid ? 'تاریخ شمسی معتبر نیست یا خارج از بازه مجاز است.' : undefined}
       placeholder="۱۴۰۵/۰۸/۰۵"
       value={draft}
       required={required}
       disabled={disabled}
       className={className}
       onChange={(event) => {
-        setDraft(event.target.value);
         setDraft(event.target.value);
         if (!event.target.value.trim() && !required) onChange('');
       }}
