@@ -379,8 +379,8 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         <p className="text-xs text-muted-foreground">{t.amountHint} · {unitAdapter.label}</p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <label className="space-y-1 text-sm"><span>{t.amount}</span><input required value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className={inputClass} /></label>
-          <label className="space-y-1 text-sm"><span>{t.date}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className={inputClass} /></label>
-          <label className="space-y-1 text-sm"><span>{t.dueDate}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.date}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={expenseDate} onChange={setExpenseDate} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.dueDate}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={dueDate} onChange={setDueDate} className={inputClass} /></label>
           <label className="space-y-1 text-sm"><span>{t.category}</span><select required value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={selectClass}><option value="">—</option>{activeCategories.map((c) => <option key={c.id} value={c.id}>{accountingExpenseCategoryName(c.id, c.name, locale, t.taxPayments)}</option>)}</select></label>
           <label className="space-y-1 text-sm"><span>{t.description}</span><input required value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass} /></label>
           <label className="space-y-1 text-sm"><span>{t.payee}</span><input value={payee} onChange={(e) => setPayee(e.target.value)} className={inputClass} /></label>
@@ -389,7 +389,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
           {paymentStatus === 'paid' && <>
             <label className="space-y-1 text-sm"><span>{t.method}</span><select required value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className={selectClass}>{mappings.filter((m) => m.payment_method_active !== false).map((m) => <option key={m.payment_method_key} value={m.payment_method_key}>{accountingPaymentMethodName(m.payment_method_name, locale)}</option>)}</select></label>
             <label className="space-y-1 text-sm"><span>{t.paymentAccount}</span><select required value={expensePaymentAccountId} onChange={(e) => setExpensePaymentAccountId(e.target.value)} className={selectClass}><option value="">—</option>{activeLiquidAssets.map((a) => <option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>
-            <label className="space-y-1 text-sm"><span>{t.paymentDate}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className={inputClass} /></label>
+            <label className="space-y-1 text-sm"><span>{t.paymentDate}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={paymentDate} onChange={setPaymentDate} className={inputClass} /></label>
           </>}
         </div>
         <div className="flex flex-wrap gap-2"><button disabled={busy || !activeCategories.length || (paymentStatus === 'paid' && !activeLiquidAssets.length)} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{editingExpenseId ? t.updateExpense : t.createExpense}</button></div>
@@ -412,7 +412,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <label className="space-y-1 text-sm"><span>{t.status}</span><select value={activityType} onChange={(e) => setActivityType(e.target.value as Activity['activity_type'])} className={selectClass}><option value="other_income">{t.otherIncome}</option><option value="owner_contribution">{t.ownerContribution}</option><option value="owner_drawing">{t.ownerDrawing}</option></select></label>
           <label className="space-y-1 text-sm"><span>{t.amount}</span><input required value={activityAmount} onChange={(e) => setActivityAmount(e.target.value)} inputMode="decimal" className={inputClass} /></label>
-          <label className="space-y-1 text-sm"><span>{t.date}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={activityDate} onChange={(e) => setActivityDate(e.target.value)} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.date}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={activityDate} onChange={setActivityDate} className={inputClass} /></label>
           <label className="space-y-1 text-sm"><span>{t.liquidAccount}</span><select required value={activityAssetAccount} onChange={(e) => setActivityAssetAccount(e.target.value)} className={selectClass}>{activeLiquidAssets.map((a) => <option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>
           {activityType === 'other_income' && <label className="space-y-1 text-sm"><span>{t.incomeAccount}</span><select required value={activityIncomeAccount} onChange={(e) => setActivityIncomeAccount(e.target.value)} className={selectClass}>{accounts.filter((a) => a.account_type === 'revenue' && a.is_active === 1 && a.is_postable === 1 && !['acct-sales-revenue','acct-sales-returns','acct-sales-discounts'].includes(a.id)).map((a) => <option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>}
           <label className="space-y-1 text-sm md:col-span-2"><span>{t.description}</span><input required value={activityDescription} onChange={(e) => setActivityDescription(e.target.value)} className={inputClass} /></label>
@@ -428,7 +428,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <label className="space-y-1 text-sm"><span>{t.account}</span><select required value={openingAccount} onChange={(e) => { const id = e.target.value; setOpeningAccount(id); setOpeningClassification(classificationForAccount(activeOpeningAccounts.find((a) => a.id === id))); }} className={selectClass}><option value="">—</option>{activeOpeningAccounts.map((a) => <option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>
           <label className="space-y-1 text-sm"><span>{t.amount}</span><input required value={openingAmount} onChange={(e) => setOpeningAmount(e.target.value)} inputMode="decimal" className={inputClass} /></label>
-          <label className="space-y-1 text-sm"><span>{t.date}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.date}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={openingDate} onChange={setOpeningDate} className={inputClass} /></label>
           <label className="space-y-1 text-sm"><span>{t.sourceClassification}</span><input readOnly value={t[({cash_on_hand:'cashOnHand',bank_balance:'bankBalance',accounts_receivable:'accountsReceivable',accounts_payable:'accountsPayable',owner_equity:'ownerEquity',other_asset:'otherAsset',other_liability:'otherLiability',other_equity:'otherEquity'} as const)[openingClassification]]} className={inputClass} /></label>
           <label className="space-y-1 text-sm md:col-span-2"><span>{t.description}</span><input value={openingDescription} onChange={(e) => setOpeningDescription(e.target.value)} className={inputClass} /></label>
         </div>
@@ -475,7 +475,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         {!reconciliation?.adjustment_account_available && <p className="text-sm text-destructive">{t.adjustmentAccountMissing}</p>}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <label className="space-y-1 text-sm"><span>{t.account}</span><select required value={reconciliationAccount} onChange={(e) => setReconciliationAccount(e.target.value)} className={selectClass}>{accounts.filter((a) => ['asset','liability'].includes(a.account_type) && a.is_active === 1 && a.is_postable === 1 && !['inventory','opening_balance_equity','reconciliation_adjustment_equity'].includes(a.system_key || '')).map((a) => <option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>
-          <label className="space-y-1 text-sm"><span>{t.reconciliationDate}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={reconciliationDate} onChange={(e) => setReconciliationDate(e.target.value)} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.reconciliationDate}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={reconciliationDate} onChange={setReconciliationDate} className={inputClass} /></label>
           <label className="space-y-1 text-sm"><span>{t.verifiedBalance}</span><input required value={verifiedBalance} onChange={(e) => setVerifiedBalance(e.target.value)} inputMode="decimal" className={inputClass} /></label>
           <label className="space-y-1 text-sm"><span>{t.sourceReference}</span><input value={reconciliationReference} onChange={(e) => setReconciliationReference(e.target.value)} className={inputClass} /></label>
           <label className="space-y-1 text-sm md:col-span-2"><span>{t.reason}</span><input required value={reconciliationReason} onChange={(e) => setReconciliationReason(e.target.value)} className={inputClass} /></label>
@@ -492,8 +492,8 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         </div>
         <p className="text-sm text-muted-foreground">{t.sourceAuditNotice}</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
-          <label className="space-y-1 text-sm"><span>{t.sourceFrom}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={sourceEventFrom} onChange={(e) => setSourceEventFrom(e.target.value)} className={inputClass} /></label>
-          <label className="space-y-1 text-sm"><span>{t.sourceTo}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={sourceEventTo} onChange={(e) => setSourceEventTo(e.target.value)} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.sourceFrom}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={sourceEventFrom} onChange={setSourceEventFrom} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.sourceTo}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} value={sourceEventTo} onChange={setSourceEventTo} className={inputClass} /></label>
           <button type="button" disabled={busy} onClick={() => void loadSourceEvents()} className="self-end rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{t.filterSourceEvents}</button>
         </div>
         {!sourceEventAudit ? <p className="text-sm text-destructive">{t.loadFailed}</p> : <>
@@ -526,7 +526,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
           <label className="space-y-1 text-sm"><span>{t.transferFrom}</span><select value={sourceAccount} onChange={(e) => setSourceAccount(e.target.value)} className={selectClass}>{activeLiquidAssets.map((a) => <option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>
           <label className="space-y-1 text-sm"><span>{t.transferTo}</span><select value={destinationAccount} onChange={(e) => setDestinationAccount(e.target.value)} className={selectClass}>{activeAssets.map((a) => <option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>
           <label className="space-y-1 text-sm"><span>{t.amount}</span><input required value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} inputMode="decimal" className={inputClass} /></label>
-          <label className="space-y-1 text-sm"><span>{t.date}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={transferDate} onChange={(e) => setTransferDate(e.target.value)} className={inputClass} /></label>
+          <label className="space-y-1 text-sm"><span>{t.date}</span><JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={transferDate} onChange={setTransferDate} className={inputClass} /></label>
           <label className="space-y-1 text-sm md:col-span-2"><span>{t.description}</span><input required value={transferDescription} onChange={(e) => setTransferDescription(e.target.value)} className={inputClass} /></label>
         </div><button disabled={busy || activeLiquidAssets.length < 2} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{t.transfer}</button>
       </form>
@@ -555,7 +555,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         </label>
         <label className="block space-y-1 text-sm">
           <span>{t.reversalDate}</span>
-          <JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={reversalDateValue} onChange={(event) => setReversalDateValue(event.target.value)} disabled={busy} className={inputClass + ' w-full'} />
+          <JalaliDateInput jalali={locale.toLowerCase().startsWith('fa')} required value={reversalDateValue} onChange={setReversalDateValue} disabled={busy} className={inputClass + ' w-full'} />
         </label>
         <div className="flex flex-wrap justify-end gap-2">
           <button type="button" disabled={busy} onClick={() => setReversalExpense(null)} className="min-h-10 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">{locale.toLowerCase().startsWith('fa') ? 'انصراف' : 'Cancel'}</button>
