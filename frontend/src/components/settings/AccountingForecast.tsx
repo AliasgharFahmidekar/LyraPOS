@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
 import { formatAccountingMoney } from '@/lib/countries';
 import { accountingSystemDescription, accountingStatusLabel, formatAccountingDate } from '@/lib/accounting-i18n';
+import { JalaliDateInput } from '@/components/ui/JalaliDateInput';
 
 type ForecastEvent = {
   id: string; date: string; kind: string; description: string; counterparty: string | null;
@@ -90,8 +91,8 @@ export function AccountingForecast() {
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div><h2 className="text-xl font-semibold">{t.title}</h2><p className="mt-1 text-sm text-muted-foreground">{data ? data.from + ' — ' + data.to : ''}</p></div>
       <form className="flex flex-wrap items-end gap-2" onSubmit={event => { event.preventDefault(); void load(); }}>
-        <label className="space-y-1 text-sm"><span className="block">{t.from}</span><input className={input} type="date" value={from} max={to} onChange={event => setFrom(event.target.value)} /></label>
-        <label className="space-y-1 text-sm"><span className="block">{t.to}</span><input className={input} type="date" value={to} min={from} onChange={event => setTo(event.target.value)} /></label>
+        <label className="space-y-1 text-sm"><span className="block">{t.from}</span><JalaliDateInput className={input} value={from} max={to} onChange={event => setFrom(event.target.value)} /></label>
+        <label className="space-y-1 text-sm"><span className="block">{t.to}</span><JalaliDateInput className={input} value={to} min={from} onChange={event => setTo(event.target.value)} /></label>
         <button disabled={loading} className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{loading ? '…' : t.refresh}</button>
       </form>
     </div>
