@@ -10,7 +10,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
   return originalLoad.apply(this, arguments as any);
 };
 const dbModule = require('../main/db');
-const { initDatabase, getDatabase, getCurrentSchemaVersion, closeDatabase } = dbModule;
+const { initDatabase, getDatabase, getCurrentSchemaVersion, getLatestSchemaVersion, closeDatabase } = dbModule;
 const expenses = require('../main/accounting/expenses');
 const transfers = require('../main/accounting/transfers');
 let checks = 0;
