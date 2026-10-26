@@ -95,6 +95,9 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
   const [transferDate, setTransferDate] = useState(today());
   const [transferDescription, setTransferDescription] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reversalExpense, setReversalExpense] = useState<Expense | null>(null);
+  const [reversalReasonValue, setReversalReasonValue] = useState('');
+  const [reversalDateValue, setReversalDateValue] = useState(today());
   const expenseRequestKey = useRef('');
   const expenseRequestPayload = useRef('');
   const transferRequestKey = useRef('');
@@ -222,15 +225,29 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
       document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(downloadUrl);
     } catch { toast.error(t.saveFailed); } finally { setBusy(false); }
   }
-  async function reverseExpense(expense: Expense) {
-    const reason = window.prompt(t.reversalReason);
-    if (!reason || !reason.trim()) return;
-    const reversalDate = window.prompt(t.reversalDate, today());
-    if (!reversalDate) return;
-    if (!window.confirm(t.reversalConfirm)) return;
+  function openReverseExpense(expense: Expense) {
+    if (busy || expense.status !== 'posted') return;
+    setReversalExpense(expense);
+    setReversalReasonValue('');
+    setReversalDateValue(today());
+  }
+  async function submitExpenseReversal(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const expense = reversalExpense;
+    const reason = reversalReasonValue.trim();
+    if (!expense || busy || expense.status !== 'posted' || !reason || !/^\\d{4}-\\d{2}-\\d{2}$/.test(reversalDateValue)) return;
     setBusy(true);
-    try { await api.post('/accounting/expenses/' + expense.id + '/reverse', { reason: reason.trim(), reversal_date: reversalDate }); await load(); }
-    catch { toast.error(t.saveFailed); } finally { setBusy(false); }
+    try {
+      await api.post('/accounting/expenses/' + expense.id + '/reverse', { reason, reversal_date: reversalDateValue });
+      setReversalExpense(null);
+      setReversalReasonValue('');
+      await load();
+      toast.success(locale.toLowerCase().startsWith('fa') ? 'سند معکوس با موفقیت ثبت شد.' : 'Reversing journal posted successfully.');
+    } catch {
+      toast.error(t.saveFailed);
+    } finally {
+      setBusy(false);
+    }
   }
   async function saveTransfer() {
     const minor = parseAmount(transferAmount);
@@ -384,7 +401,7 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         {expenses.length === 0 ? <p className="text-sm text-muted-foreground">{t.noRows}</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b"><th className="p-2 text-start">{t.date}</th><th className="p-2 text-start">{t.dueDate}</th><th className="p-2 text-start">{t.description}</th><th className="p-2 text-start">{t.category}</th><th className="p-2 text-start">{t.amount}</th><th className="p-2 text-start">{t.paymentAccount}</th><th className="p-2 text-start">{t.status}</th><th /></tr></thead><tbody>{expenses.map((e) => <tr key={e.id} className="border-b border-border/60"><td className="p-2 whitespace-nowrap">{formatAccountingDate(e.expense_date, locale, tenant?.calendar)}</td><td className="p-2 whitespace-nowrap">{e.due_date ? formatAccountingDate(e.due_date, locale, tenant?.calendar) : '—'}</td><td className="p-2">{e.description}</td><td className="p-2">{accountingExpenseCategoryName(e.category_id, e.category_name, locale, t.taxPayments)}</td><td className="p-2 whitespace-nowrap">{money(e.amount_minor)}</td><td className="p-2 whitespace-nowrap">{e.payment_account_name ? accountingSystemAccountNameFromName(e.payment_account_name, locale) : '—'}</td><td className="p-2">{e.is_overdue ? t.overdue : (t[e.status as 'draft' | 'posted' | 'reversed'] || e.status)} · {e.payment_status === 'paid' ? t.paid : t.unpaid}</td><td className="p-2 whitespace-nowrap">
           {e.status === 'draft' && e.payment_status === 'unpaid' && <><button type="button" disabled={busy} onClick={() => beginEditExpense(e)} className="text-brand underline">{t.editExpense}</button><button type="button" disabled={busy} onClick={() => void cancelDraftExpense(e)} className="ms-3 text-destructive underline">{t.cancelExpense}</button></>}
           {e.status === 'draft' && e.payment_status === 'paid' && <button type="button" disabled={busy} onClick={() => { void api.post('/accounting/expenses/' + e.id + '/post').then(() => load()).catch(() => toast.error(t.saveFailed)); }} className="text-brand underline">{t.post}</button>}
-          {e.status === 'posted' && <button type="button" disabled={busy} onClick={() => void reverseExpense(e)} className="text-brand underline">{t.reverse}</button>}
+          {e.status === 'posted' && <button type="button" disabled={busy} onClick={() => openReverseExpense(e)} className="inline-flex min-h-9 items-center rounded-md border border-border px-3 py-1.5 text-sm font-medium text-brand hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50">{t.reverse}</button>}
         </td></tr>)}</tbody></table></div>}
       </div>
     </div>}
@@ -524,6 +541,26 @@ export function AccountingSettings({ isAdmin, mode = 'operations' }: { isAdmin: 
         </div>
         {mappings.map((m) => <label key={m.payment_method_key} className="grid grid-cols-1 gap-2 border-b border-border/60 py-2 text-sm md:grid-cols-2"><span>{accountingPaymentMethodName(m.payment_method_name, locale)}</span><select disabled={busy} value={m.account_id || ''} onChange={(e) => void saveMapping(m.payment_method_key, e.target.value)} className={selectClass}><option value="">{t.useDefaultPaymentAccount} ({defaultPaymentAccountLabel})</option>{activeLiquidAssets.map((a) => <option key={a.id} value={a.id}>{a.account_code} · {accountingSystemAccountName(a.system_key, a.name, locale)}</option>)}</select></label>)}
       </div>
+    </div>}
+    {reversalExpense && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setReversalExpense(null); }}>
+      <form role="dialog" aria-modal="true" aria-labelledby="accounting-reversal-title" onSubmit={(event) => void submitExpenseReversal(event)} className="w-full max-w-lg space-y-4 rounded-xl border border-border bg-background p-5 shadow-xl">
+        <div className="space-y-1">
+          <h2 id="accounting-reversal-title" className="text-lg font-semibold">{t.reverse} · {reversalExpense.description}</h2>
+          <p className="text-sm text-muted-foreground">{t.reversalConfirm}</p>
+        </div>
+        <label className="block space-y-1 text-sm">
+          <span>{t.reversalReason}</span>
+          <textarea autoFocus required maxLength={500} value={reversalReasonValue} onChange={(event) => setReversalReasonValue(event.target.value)} disabled={busy} className={inputClass + ' min-h-24 w-full'} />
+        </label>
+        <label className="block space-y-1 text-sm">
+          <span>{t.reversalDate}</span>
+          <input type="date" required value={reversalDateValue} onChange={(event) => setReversalDateValue(event.target.value)} disabled={busy} className={inputClass + ' w-full'} />
+        </label>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" disabled={busy} onClick={() => setReversalExpense(null)} className="min-h-10 rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50">{locale.toLowerCase().startsWith('fa') ? 'انصراف' : 'Cancel'}</button>
+          <button type="submit" disabled={busy || !reversalReasonValue.trim() || !reversalDateValue} className="min-h-10 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? (locale.toLowerCase().startsWith('fa') ? 'در حال ثبت…' : 'Posting…') : (locale.toLowerCase().startsWith('fa') ? 'تأیید و ثبت برگشت' : 'Confirm reversal')}</button>
+        </div>
+      </form>
     </div>}
   </section>;
 }
