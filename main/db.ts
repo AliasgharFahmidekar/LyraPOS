@@ -3952,7 +3952,7 @@ export function getCurrentSchemaVersion(): number {
 
 /** Latest supported schema is derived from the migration registry, never duplicated in tests. */
 export function getLatestSchemaVersion(): number {
-  return MIGRATIONS.length > 0 ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
+  return LATEST_SCHEMA_VERSION;
 }
 
 /** Builds in-memory database using migration pipeline as ideal schema reference. */
@@ -7533,7 +7533,10 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       db.exec(ACCOUNTING_FUTURE_ITEM_TRIGGER_SQL);
     },
   },
-] ; 
+] ;
+
+/** Single source of truth for the latest schema supported by this build. */
+export const LATEST_SCHEMA_VERSION = MIGRATIONS.length > 0 ? MIGRATIONS[MIGRATIONS.length - 1].version : 0;
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
   if (buildingIdealSchema) return;
