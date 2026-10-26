@@ -1147,7 +1147,7 @@ async function main(): Promise<void> {
       outgoingSettlementReportBefore.body.summary.posted_expenses_minor + 2500,
       'actual outgoing settlement recognizes the expense exactly once on the actual payment date');
 
-    // Early actual settlement: pay/receive before due date without creating a fictional due-date journal.
+    // Early actual settlement: recognize the clearing step and cash settlement on the actual date, never the future due date.
     const earlyDueDate = (() => {
       const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 30); return date.toISOString().slice(0, 10);
     })();
@@ -1162,8 +1162,9 @@ async function main(): Promise<void> {
     equal(earlySettlement.status, 200, 'manager can settle a scheduled receipt before its due date');
     equal(earlySettlement.body.item?.status, 'settled', 'early settlement marks the future item settled');
     equal(earlySettlement.body.item?.early_settlement, true, 'early settlement is identified explicitly in the response');
-    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=? AND source_event='due_registration'").get(earlyIncomingId) as any).count, 0,
-      'early settlement does not fabricate a due-registration journal');
+    const earlyDueJournal = db.prepare("SELECT entry_date FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=? AND source_event='due_registration'").get(earlyIncomingId) as any;
+    ok(earlyDueJournal, 'early settlement records the clearing step required by the ledger invariants');
+    equal(earlyDueJournal.entry_date, todayAccountingDate, 'early settlement never backdates the clearing journal to the future due date');
     const earlySettlementLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
       .all(earlySettlement.body.item?.settlement_journal_entry_id) as any[];
     ok(earlySettlementLines.some((line) => line.account_id === 'acct-bank' && line.debit_minor === 5000),
