@@ -1147,6 +1147,38 @@ async function main(): Promise<void> {
       outgoingSettlementReportBefore.body.summary.posted_expenses_minor + 2500,
       'actual outgoing settlement recognizes the expense exactly once on the actual payment date');
 
+    // Early actual settlement: pay/receive before due date without creating a fictional due-date journal.
+    const earlyDueDate = (() => {
+      const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 30); return date.toISOString().slice(0, 10);
+    })();
+    const earlyIncoming = await request(app).post('/api/accounting/future-items')
+      .set(manager).set('Idempotency-Key', 'future-early-settlement-create-001')
+      .send({ ...futureIncomingPayload, due_date: earlyDueDate, auto_register: false, reference_number: 'RCPT-EARLY-001' });
+    equal(earlyIncoming.status, 201, 'manager can create a future receipt that may be settled early');
+    const earlyIncomingId = earlyIncoming.body.item?.id;
+    const earlySettlement = await request(app).post('/api/accounting/future-items/' + earlyIncomingId + '/settle')
+      .set(manager).set('Idempotency-Key', 'future-early-settlement-001')
+      .send({ settlement_date: todayAccountingDate, settlement_account_id: 'acct-bank' });
+    equal(earlySettlement.status, 200, 'manager can settle a scheduled receipt before its due date');
+    equal(earlySettlement.body.item?.status, 'settled', 'early settlement marks the future item settled');
+    equal(earlySettlement.body.item?.early_settlement, true, 'early settlement is identified explicitly in the response');
+    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=? AND source_event='due_registration'").get(earlyIncomingId) as any).count, 0,
+      'early settlement does not fabricate a due-registration journal');
+    const earlySettlementLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
+      .all(earlySettlement.body.item?.settlement_journal_entry_id) as any[];
+    ok(earlySettlementLines.some((line) => line.account_id === 'acct-bank' && line.debit_minor === 5000),
+      'early receipt debits the actual selected bank account');
+    ok(earlySettlementLines.some((line) => line.account_id === 'acct-other-income' && line.credit_minor === 5000),
+      'early receipt recognizes the configured income only on the actual receipt date');
+    equal(earlySettlementLines.reduce((sum, line) => sum + line.debit_minor, 0),
+      earlySettlementLines.reduce((sum, line) => sum + line.credit_minor, 0),
+      'early settlement journal remains balanced');
+    const earlySettlementRetry = await request(app).post('/api/accounting/future-items/' + earlyIncomingId + '/settle')
+      .set(manager).set('Idempotency-Key', 'future-early-settlement-001')
+      .send({ settlement_date: todayAccountingDate, settlement_account_id: 'acct-bank' });
+    equal(earlySettlementRetry.status, 200, 'identical early settlement retry is idempotent');
+    equal(earlySettlementRetry.body.item?.duplicate, true, 'identical early settlement retry is marked duplicate');
+
     const cancelDueDate = (() => {
       const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 30); return date.toISOString().slice(0, 10);
     })();
