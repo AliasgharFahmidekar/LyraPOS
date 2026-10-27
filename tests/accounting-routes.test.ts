@@ -1229,6 +1229,36 @@ async function main(): Promise<void> {
     equal(customBank.is_liquid, true, 'custom bank is explicitly marked as a liquid account');
     ok(String(customBank.system_key).startsWith('custom_liquid:bank:'), 'custom bank has a dedicated non-colliding liquid classification');
     equal(customBank.balance_minor, 0, 'new account starts with a zero ledger balance, not a fabricated opening balance');
+    // Regression: an account created in the chart of accounts must immediately accept its opening balance.
+    // Custom bank accounts use a custom_liquid:bank:* system key, so the opening-balance
+    // classification must remain bank_balance (not other_asset).
+    const customBankOpening = await request(app).post('/api/accounting/opening-balances')
+      .set(manager).set('Idempotency-Key', 'custom-bank-opening-001')
+      .send({
+        account_id: customBank.id,
+        entry_date: '2026-10-01',
+        amount_minor: 87500,
+        currency_code: 'INR',
+        source_classification: 'bank_balance',
+        description: 'Opening balance for newly created bank account',
+      });
+    equal(customBankOpening.status, 201, 'a newly created custom bank account accepts an opening balance');
+    equal(customBankOpening.body.opening_balance?.account_id, customBank.id, 'opening balance is linked to the newly created account');
+    equal(customBankOpening.body.opening_balance?.source_classification, 'bank_balance', 'new custom bank opening balance keeps bank classification');
+    equal((db.prepare('SELECT amount_minor FROM accounting_opening_balances WHERE account_id=?').get(customBank.id) as any).amount_minor,
+      87500, 'new custom bank opening amount is persisted exactly');
+    const customBankOpeningLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
+      .all(customBankOpening.body.opening_balance?.journal_entry_id) as any[];
+    equal(customBankOpeningLines.length, 2, 'new custom bank opening balance creates a balanced two-line journal');
+    equal(customBankOpeningLines.find((line: any) => line.account_id === customBank.id)?.debit_minor, 87500,
+      'new custom bank opening journal debits the exact bank balance');
+    equal((db.prepare('SELECT SUM(debit_minor) AS debit, SUM(credit_minor) AS credit FROM accounting_journal_lines WHERE journal_entry_id=?')
+      .get(customBankOpening.body.opening_balance?.journal_entry_id) as any).debit, 87500,
+      'new custom bank opening journal debit total matches the opening amount');
+    equal((db.prepare('SELECT SUM(debit_minor) AS debit, SUM(credit_minor) AS credit FROM accounting_journal_lines WHERE journal_entry_id=?')
+      .get(customBankOpening.body.opening_balance?.journal_entry_id) as any).credit, 87500,
+      'new custom bank opening journal credit total matches the opening amount');
+
     const renamedBank = await request(app).put('/api/accounting/accounts/' + customBank.id).set(manager)
       .send({ name: 'Renamed test bank', description: 'Renamed without changing chart identity', account_type: 'expense', account_code: '5999', is_active: true });
     equal(renamedBank.status, 200, 'manager can rename a chart-of-accounts entry');
