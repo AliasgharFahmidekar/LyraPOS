@@ -22,6 +22,11 @@ function classificationForAccount(account?: Account): SourceClassification {
   const systemClassifications: Record<string, SourceClassification> = { cash_drawer: 'cash_on_hand', bank_accounts: 'bank_balance', accounts_receivable: 'accounts_receivable', accounts_payable: 'accounts_payable', owner_capital: 'owner_equity' };
   if (!account) return 'other_asset';
   if (account.system_key && systemClassifications[account.system_key]) return systemClassifications[account.system_key];
+  // Custom liquid accounts use namespaced system keys rather than the seeded keys above.
+  // Match the API's expectedClassification() logic so the UI does not send other_asset
+  // for a newly created bank/cash account and get rejected by the opening-balance endpoint.
+  if (account.system_key?.startsWith('custom_liquid:cash:')) return 'cash_on_hand';
+  if (account.system_key?.startsWith('custom_liquid:bank:')) return 'bank_balance';
   return account.account_type === 'asset' ? 'other_asset' : account.account_type === 'liability' ? 'other_liability' : 'other_equity';
 }
 type Category = { id: string; name: string; expense_account_id: string; expense_account_name: string; is_active: number };
