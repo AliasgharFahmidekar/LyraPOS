@@ -223,7 +223,7 @@ function validateMerchantTemplateTextSafe(raw: string): boolean {
 // 2–4. Export/import over HTTP (owner role) + round-trip parity
 // ---------------------------------------------------------------------------
 
-const { initDatabase, getDatabase, closeDatabase } = require('../main/db');
+const { initDatabase, getDatabase, closeDatabase, MIGRATIONS } = require('../main/db');
 try {
   initDatabase();
 } catch (error: any) {
@@ -240,6 +240,12 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const { getJWTSecret } = require('../main/routes/auth');
 const { printTemplateRoutes } = require('../main/routes/print-templates');
+
+const migration73 = MIGRATIONS.find((migration: any) => migration.version === 73);
+assert.ok(migration73, 'migration v73 exists');
+function rerunMigration73(): void {
+  getDatabase().transaction(() => migration73.up())();
+}
 
 const app = express();
 // Deliberately ABOVE the 256 KB envelope cap so the feature's own size gate
@@ -549,9 +555,7 @@ async function runLegacyStorageNormalization(): Promise<void> {
     insertLegacy.run('legacy-rollback-row', 'Legacy Rollback Point', canonical, 'active', legacyPreviousText, sha256(canonical));
     insertLegacy.run('legacy-tampered-row', 'Legacy Tampered Row', legacyText, 'draft', null, tamperedChecksum);
 
-    getDatabase().pragma('user_version = 72');
-    closeDatabase();
-    initDatabase();
+    rerunMigration73();
 
     const readRow = (id: string): any => getDatabase().prepare(
       'SELECT id, status, payload_json, previous_payload_json, checksum FROM merchant_print_templates WHERE id = ?'
@@ -578,10 +582,8 @@ async function runLegacyStorageNormalization(): Promise<void> {
     assert.equal(untouchedTampered.checksum, tamperedChecksum);
     ok('legacy payloads and rollback points normalize once; integrity-unknown rows stay untouched');
 
-    // Idempotency: replaying the migration changes nothing further.
-    getDatabase().pragma('user_version = 72');
-    closeDatabase();
-    initDatabase();
+    // Idempotency: rerunning only migration 73 changes nothing further.
+    rerunMigration73();
     assert.deepEqual(readRow('legacy-active-row'), migratedActive,
       'second migration run leaves normalized rows unchanged');
     assert.deepEqual(readRow('legacy-rollback-row'), migratedRollback);

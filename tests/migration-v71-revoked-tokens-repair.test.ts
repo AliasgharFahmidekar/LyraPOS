@@ -28,10 +28,13 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
   return originalLoad.apply(this, arguments as any);
 };
 
-const { initDatabase, getDatabase, closeDatabase, getCurrentSchemaVersion } = require('../main/db');
+const { initDatabase, getDatabase, closeDatabase, getCurrentSchemaVersion, MIGRATIONS } = require('../main/db');
+const originalMigrations = MIGRATIONS.slice();
 
 function main() {
   console.log('Migration v71: repair databases desynced by the v55 numbering collision');
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations.filter((migration: any) => migration.version <= 55));
   initDatabase();
   try {
     const db = getDatabase();
@@ -40,7 +43,10 @@ function main() {
     if (!before) throw new Error('sanity check failed: fresh install did not create revoked_tokens via v55');
 
     db.prepare('DROP TABLE revoked_tokens').run();
-    db.pragma('user_version = 55');
+    // Build a real v55 fixture and let migrations v56+ run once. Rewinding a
+    // fully migrated v102 database would replay unrelated newer migrations.
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations);
     closeDatabase();
 
     initDatabase();
@@ -63,6 +69,8 @@ function main() {
     console.log('  ✓ the restored table is indexed and writable');
     console.log('1/1 passed');
   } finally {
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations);
     closeDatabase();
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
   }
@@ -71,6 +79,8 @@ function main() {
 try {
   main();
 } catch (error: any) {
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
   try { closeDatabase(); } catch {}
   try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
   console.error(error);

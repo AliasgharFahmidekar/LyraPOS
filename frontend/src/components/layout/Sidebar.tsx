@@ -22,9 +22,10 @@ import {
   Moon,
   Monitor,
   Boxes,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react';
-import { useTranslations, type AppConfig } from 'use-intl';
+import { useLocale, useTranslations, type AppConfig } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import { usePosSettingsStore } from '@/store/pos-settings';
 import { getLandingPage } from '@/components/layout/AuthGuard';
@@ -59,7 +60,8 @@ type NavKey = keyof AppConfig['Messages']['nav'];
 
 interface NavItem {
   href: string;
-  labelKey: NavKey;
+  labelKey?: NavKey;
+  label?: string;
   icon: LucideIcon;
   roles: readonly Role[];
   businessTypes: string[] | null;
@@ -73,6 +75,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { href: '/whatsapp', labelKey: 'whatsapp', icon: MessageCircle, roles: ROLE_ACCESS.ownerManagerCashier, businessTypes: null },
   { href: '/products', labelKey: 'products', icon: Package, roles: ROLE_ACCESS.ownerManager, businessTypes: null },
   { href: '/inventory', labelKey: 'inventory', icon: Boxes, roles: ROLE_ACCESS.ownerManager, businessTypes: null },
+  { href: '/accounting', label: 'Accounting', icon: BookOpen, roles: ROLE_ACCESS.ownerManager, businessTypes: null },
   { href: '/tables', labelKey: 'tables', icon: Grid3X3, roles: ROLE_ACCESS.ownerManager, businessTypes: ['restaurant'] },
   { href: '/settings?tab=kds', labelKey: 'kds', icon: ChefHat, roles: ROLE_ACCESS.ownerManager, businessTypes: ['restaurant'] },
   { href: '/customers', labelKey: 'customers', icon: Users, roles: ROLE_ACCESS.ownerManager, businessTypes: null },
@@ -85,6 +88,7 @@ export default function AppSidebar() {
   const { user, currentTenant, logout } = useAuthStore();
   const { tablesRequired, kdsEnabled, whatsappEnabled, setTablesRequired, setKdsEnabled, setWhatsappEnabled } = usePosSettingsStore();
   const { isMobile, setOpenMobile } = useSidebar();
+  const locale = useLocale();
   const t = useTranslations('nav');
   const tCommon = useTranslations('common');
   const { confirm, ConfirmDialog } = useConfirm();
@@ -185,7 +189,7 @@ export default function AppSidebar() {
                 const isActive = !hrefQuery && (pathname === hrefPath || pathname?.startsWith(hrefPath + '/'));
                 return (
                   <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild isActive={isActive} tooltip={t(item.labelKey)}>
+                    <SidebarMenuButton asChild isActive={isActive} tooltip={item.labelKey ? t(item.labelKey) : (locale.toLowerCase().startsWith('fa') ? 'حسابداری' : (item.label || 'Accounting'))}>
                       <Link href={item.href} onClick={closeMobile}>
                         <span className="relative flex size-4 shrink-0 items-center justify-center">
                           <item.icon className="size-4 shrink-0" />
@@ -193,7 +197,7 @@ export default function AppSidebar() {
                             <span aria-label="Email verification required" className="absolute -end-1 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-sidebar" />
                           )}
                         </span>
-                        <span>{t(item.labelKey)}</span>
+                        <span>{item.labelKey ? t(item.labelKey) : (locale.toLowerCase().startsWith('fa') ? 'حسابداری' : (item.label || 'Accounting'))}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

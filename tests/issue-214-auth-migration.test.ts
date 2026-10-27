@@ -13,7 +13,8 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const express = require('express');
-const { initDatabase, getDatabase, closeDatabase, now } = require('../main/db');
+const { initDatabase, getDatabase, closeDatabase, now, MIGRATIONS } = require('../main/db');
+const originalMigrations = MIGRATIONS.slice();
 const { getJWTSecret, authRoutes, seedSetupProfile } = require('../main/routes/auth');
 
 async function request(baseUrl: string, pathName: string, options: Record<string, any> = {}) {
@@ -28,6 +29,8 @@ async function request(baseUrl: string, pathName: string, options: Record<string
 
 async function main() {
   console.log('Issue #214: demo credential migration and inactive sessions');
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations.filter((migration: any) => migration.version <= 47));
   initDatabase();
   const db = getDatabase();
 
@@ -49,8 +52,10 @@ async function main() {
       { expiresIn: '1h' },
     );
 
-    // Simulate a v47 database being opened by the v48 binary.
-    db.pragma('user_version = 47');
+    // Build a genuine v47 fixture and apply migrations v48+ once. Rewinding
+    // a current-schema database would replay unrelated newer migrations.
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations);
     closeDatabase();
     initDatabase();
     const upgraded = getDatabase();
@@ -111,6 +116,8 @@ async function main() {
       server.close();
     }
   } finally {
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...originalMigrations);
     closeDatabase();
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
   }
@@ -119,6 +126,8 @@ async function main() {
 }
 
 main().catch((error: any) => {
+  MIGRATIONS.length = 0;
+  MIGRATIONS.push(...originalMigrations);
   try { closeDatabase(); } catch {}
   try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
   console.error(error);

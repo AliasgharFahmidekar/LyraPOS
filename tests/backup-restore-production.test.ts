@@ -66,6 +66,69 @@ function copyAndStamp(sourcePath: string, destinationPath: string, schemaVersion
   fs.copyFileSync(sourcePath, destinationPath);
   const backupDb = new Database(destinationPath);
   backupDb.pragma('foreign_keys = OFF');
+
+  // A lower user_version must be paired with the schema that existed then.
+  // Stamping a v102-shaped file as v101 masked restore behavior for tables
+  // added by Phase 2; v99 fixtures must omit both ledger generations.
+  if (schemaVersion < 102) {
+    backupDb.exec(`
+      DROP TABLE IF EXISTS accounting_expenses;
+      DROP TABLE IF EXISTS accounting_payment_method_mappings;
+      DROP TABLE IF EXISTS accounting_expense_categories;
+    `);
+  }
+  if (schemaVersion < 100) {
+    backupDb.exec(`
+      DROP TABLE IF EXISTS accounting_journal_lines;
+      DROP TABLE IF EXISTS accounting_journal_entries;
+      DROP TABLE IF EXISTS accounting_audit_log;
+      DROP TABLE IF EXISTS accounting_sequences;
+      DROP TABLE IF EXISTS accounting_accounts;
+    `);
+  }
+  if (schemaVersion < 116) {
+    backupDb.exec(`
+      DROP TRIGGER IF EXISTS accounting_loans_no_delete;
+      DROP TRIGGER IF EXISTS accounting_loans_status_guard;
+      DROP TRIGGER IF EXISTS accounting_loans_status_audit;
+      DROP TRIGGER IF EXISTS accounting_loans_identity_guard;
+      DROP TRIGGER IF EXISTS accounting_loans_opening_fields_insert_guard;
+      DROP TRIGGER IF EXISTS accounting_loan_batch_no_update;
+      DROP TRIGGER IF EXISTS accounting_loan_batch_no_delete;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_no_delete;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_registration_guard;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_identity_guard;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_state_guard;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_settled_immutable;
+      DROP TRIGGER IF EXISTS accounting_loans_audit_insert;
+      DROP TRIGGER IF EXISTS accounting_loans_audit_update;
+      DROP TRIGGER IF EXISTS accounting_loan_batch_audit_insert;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_audit_insert;
+      DROP TRIGGER IF EXISTS accounting_loan_installment_audit_update;
+      DROP TABLE IF EXISTS accounting_loan_installments;
+      DROP TABLE IF EXISTS accounting_loan_installment_batches;
+      DROP TABLE IF EXISTS accounting_loans;
+    `);
+    const accountsTableExists = backupDb.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='accounting_accounts'").get();
+    if (accountsTableExists) {
+      const accountTriggers = backupDb.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='accounting_accounts'").all() as {name:string}[];
+      for (const trigger of accountTriggers) {
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trigger.name)) backupDb.exec(`DROP TRIGGER IF EXISTS "${trigger.name}"`);
+      }
+      backupDb.prepare("DELETE FROM accounting_accounts WHERE system_key='loans_payable'").run();
+    }
+  } else if (schemaVersion < 117) {
+    // A real v116 backup has the loan tables, but not v117's metadata columns.
+    backupDb.exec(`
+      DROP TRIGGER IF EXISTS accounting_loans_identity_guard;
+      DROP TRIGGER IF EXISTS accounting_loans_opening_fields_insert_guard;
+      DROP TRIGGER IF EXISTS accounting_loans_audit_insert;
+      ALTER TABLE accounting_loans DROP COLUMN historical_principal_repaid_minor;
+      ALTER TABLE accounting_loans DROP COLUMN accounting_start_date;
+      ALTER TABLE accounting_loans DROP COLUMN origination_date;
+    `);
+  }
+
   backupDb.prepare("UPDATE _flo_meta SET value = ? WHERE key = 'schema_version'").run(String(schemaVersion));
   backupDb.pragma(`user_version = ${schemaVersion}`);
   backupDb.close();
@@ -193,9 +256,27 @@ async function run() {
       'backup-only users remain disabled after restore',
     );
 
-    // Make the backup appear to be an older schema while retaining real linked data.
+    // Create a loan row on the current schema first, then remove v117 metadata to
+    // produce a real v116-shaped backup. Restore must reconstruct only fields known to v116.
+    const legacyLoanSource = path.join(testDir, 'legacy-loan-current-schema.db');
+    copyAndStamp(sameSchemaBackup, legacyLoanSource, currentVersion);
+    const legacyLoanSourceDb = new Database(legacyLoanSource);
+    legacyLoanSourceDb.pragma('foreign_keys = OFF');
+    legacyLoanSourceDb.prepare(`
+      INSERT INTO accounting_loans
+        (id,mode,status,lender,loan_date,origination_date,accounting_start_date,historical_principal_repaid_minor,
+         currency_code,original_principal_minor,initial_outstanding_minor,liability_account_id,cash_account_id,
+         initial_journal_entry_id,idempotency_key,payload_hash,created_by)
+      VALUES ('restore-legacy-v116-loan','opening','active','Legacy lender','2026-10-03','2026-08-01','2026-10-03',3000,
+        'IRR',9000,6000,'acct-loans-payable',NULL,NULL,'restore-legacy-v116-loan-key',?,'test-owner')
+    `).run('b'.repeat(64));
+    legacyLoanSourceDb.close();
+
     const olderBackup = path.join(testDir, 'older-schema.db');
-    copyAndStamp(sameSchemaBackup, olderBackup, currentVersion - 1);
+    copyAndStamp(legacyLoanSource, olderBackup, 116);
+
+    const preV116Backup = path.join(testDir, 'pre-v116-loan-account.db');
+    copyAndStamp(sameSchemaBackup, preV116Backup, 115);
 
     const inconsistentLedgerBackup = path.join(testDir, 'inconsistent-ledger.db');
     copyAndStamp(sameSchemaBackup, inconsistentLedgerBackup, currentVersion - 1);
@@ -279,11 +360,28 @@ async function run() {
     );
 
     const legacyPreLedgerBackup = path.join(testDir, 'legacy-pre-ledger.db');
-    copyAndStamp(sameSchemaBackup, legacyPreLedgerBackup, currentVersion - 1);
+    copyAndStamp(sameSchemaBackup, legacyPreLedgerBackup, 99);
     const legacyPreLedgerDb = new Database(legacyPreLedgerBackup);
     legacyPreLedgerDb.pragma('foreign_keys = OFF');
     legacyPreLedgerDb.prepare('UPDATE products SET stock_quantity = ? WHERE id = ?').run(5, 'restore-product');
-    legacyPreLedgerDb.exec('DROP TABLE inventory_movements');
+    legacyPreLedgerDb.exec(`
+      DROP TABLE IF EXISTS accounting_expenses;
+      DROP TABLE IF EXISTS accounting_payment_method_mappings;
+      DROP TABLE IF EXISTS accounting_expense_categories;
+      DROP TABLE IF EXISTS accounting_journal_lines;
+      DROP TABLE IF EXISTS accounting_journal_entries;
+      DROP TABLE IF EXISTS accounting_audit_log;
+      DROP TABLE IF EXISTS accounting_sequences;
+      DROP TABLE IF EXISTS accounting_accounts;
+      DROP TABLE inventory_movements;
+    `);
+    for (const table of ['accounting_expense_categories', 'accounting_payment_method_mappings', 'accounting_expenses', 'accounting_accounts']) {
+      assert.equal(
+        (legacyPreLedgerDb.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name=?").get(table) as { count: number }).count,
+        0,
+        'pre-ledger fixture excludes ' + table,
+      );
+    }
     legacyPreLedgerDb.close();
     const legacyPreLedgerRestore = restoreBackup(legacyPreLedgerBackup, false);
     assert.equal(legacyPreLedgerRestore.success, false, 'pre-ledger backups with stock are rejected without movement history');
@@ -294,8 +392,123 @@ async function run() {
     );
 
     clearLinkedData();
+    // Regression: a version-mismatched data-only restore must not fail when
+    // the live database contains protected accounting rows. Restore is the
+    // privileged replacement path; normal writes remain guarded by triggers.
+    const ledgerEntryId = 'restore-accounting-posted-entry';
+    getDatabase().prepare(`
+      INSERT INTO accounting_journal_entries
+        (id, entry_number, entry_date, description, currency_code, payload_hash)
+      VALUES (?, ?, '2026-10-10', 'Restore regression entry', 'IRR', ?)
+    `).run(ledgerEntryId, 'JE-RESTORE-001', 'a'.repeat(64));
+    getDatabase().prepare(`
+      INSERT INTO accounting_journal_lines
+        (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor)
+      VALUES ('restore-accounting-line-1', ?, 1, 'acct-cash-drawer', 500, 0),
+             ('restore-accounting-line-2', ?, 2, 'acct-sales-revenue', 0, 500)
+    `).run(ledgerEntryId, ledgerEntryId);
+    getDatabase().prepare(`
+      UPDATE accounting_journal_entries
+      SET status = 'posted', posted_at = datetime('now')
+      WHERE id = ?
+    `).run(ledgerEntryId);
+
     const restored = restoreBackup(olderBackup, false);
     assert.equal(restored.success, true, 'foreign-key-linked data-only restore succeeds');
+    assert.equal(
+      (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE id = ?').get(ledgerEntryId) as { count: number }).count,
+      0,
+      'data-only restore can replace a posted accounting entry from an older backup',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE is_system = 1").get() as { count: number }).count >= 20,
+      true,
+      'data-only restore preserves the seeded system chart of accounts',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE system_key = 'loans_payable' AND is_system = 1 AND is_postable = 1").get() as { count: number }).count,
+      1,
+      'data-only restore from a v116 backup preserves the dedicated Loans payable account',
+    );
+    const restoredLegacyLoan = getDatabase().prepare(`
+      SELECT origination_date, accounting_start_date, historical_principal_repaid_minor, cash_account_id
+      FROM accounting_loans WHERE id='restore-legacy-v116-loan'
+    `).get() as any;
+    assert.equal(restoredLegacyLoan.origination_date, null, 'restore leaves an unknown historical origination date blank instead of guessing');
+    assert.equal(restoredLegacyLoan.accounting_start_date, '2026-10-03', 'restore rebuilds the v117 accounting start date from the v116 posting date');
+    assert.equal(restoredLegacyLoan.historical_principal_repaid_minor, 3000, 'restore rebuilds historical principal repayment from original and remaining principal');
+    assert.equal(restoredLegacyLoan.cash_account_id, null, 'legacy loan restore does not invent cash receipt');
+    const preV116Restored = restoreBackup(preV116Backup, false);
+    assert.equal(preV116Restored.success, true, 'data-only restore from a true pre-v116 backup succeeds');
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_accounts WHERE system_key = 'loans_payable' AND is_system = 1 AND is_postable = 1").get() as { count: number }).count,
+      1,
+      'data-only restore reseeds the dedicated Loans payable account when the backup predates it',
+    );
+    assert.throws(
+      () => getDatabase().prepare("UPDATE accounting_accounts SET is_system = 0 WHERE id = 'acct-cash-drawer'").run(),
+      /system or posted accounting account definitions are immutable/i,
+      'data-only restore reinstates the hardened system-account identity guard',
+    );
+    assert.throws(
+      () => getDatabase().prepare("UPDATE accounting_accounts SET system_key = 'bank_key_reassigned' WHERE id = 'acct-bank'").run(),
+      /system or posted accounting account definitions are immutable/i,
+      'data-only restore reinstates the stable system-key guard',
+    );
+    assert.throws(
+      () => getDatabase().prepare("DELETE FROM accounting_accounts WHERE id = 'acct-bank'").run(),
+      /system accounting accounts cannot be deleted/i,
+      'data-only restore keeps system-account deletion protection',
+    );
+    for (const trigger of [
+      'accounting_bill_finalization_fields_immutable',
+      'accounting_finalized_bill_amounts_immutable',
+      'accounting_custom_payment_method_mapping_cleanup',
+    ]) {
+      assert.equal(
+        (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger) as { count: number }).count,
+        1,
+        'data-only restore reinstates Phase 3 trigger ' + trigger,
+      );
+    }
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name='accounting_custom_payment_method_default_mapping'").get() as { count: number }).count,
+      0,
+      'data-only restore does not reinstate a hard-coded custom-method account instead of the configurable default',
+    );
+    // Restore must reinstate accounting period-close guards, not only ledger guards.
+    for (const trigger of [
+      'accounting_journal_entries_closed_period_insert_guard',
+      'accounting_journal_entries_closed_period_guard',
+      'accounting_period_closures_no_delete',
+      'accounting_closed_period_posted_entry_update_guard',
+      'accounting_closed_period_posted_entry_delete_guard',
+      'accounting_closed_period_posted_line_insert_guard',
+      'accounting_closed_period_posted_line_update_guard',
+      'accounting_closed_period_posted_line_delete_guard',
+    ]) {
+      assert.equal(
+        (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger) as { count: number }).count,
+        1,
+        'data-only restore reinstates period-close trigger ' + trigger,
+      );
+    }
+    const postRestoreMethod = getDatabase().prepare(
+      'INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES (?, 1, 999, datetime(\'now\'), datetime(\'now\'))',
+    ).run('Restore Custom Accounting Method');
+    assert.equal(
+      (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { count: number }).count,
+      0,
+      'new custom methods remain unassigned and therefore use the configurable default account',
+    );
+    getDatabase().prepare("INSERT INTO accounting_payment_method_mappings (payment_method_key, account_id, updated_by) VALUES (?, 'acct-payment-clearing', NULL)")
+      .run('custom:' + Number(postRestoreMethod.lastInsertRowid));
+    getDatabase().prepare('DELETE FROM payment_methods WHERE id=?').run(Number(postRestoreMethod.lastInsertRowid));
+    assert.equal(
+      (getDatabase().prepare('SELECT COUNT(*) AS count FROM accounting_payment_method_mappings WHERE payment_method_key=?').get('custom:' + Number(postRestoreMethod.lastInsertRowid)) as { count: number }).count,
+      0,
+      'restored payment-method cleanup trigger deletes its mapping',
+    );
     assert.equal(
       (getDatabase().prepare('SELECT name FROM products WHERE id = ?').get('restore-product') as { name: string }).name,
       'Restore Product',
@@ -361,7 +574,7 @@ async function run() {
     );
 
     const direct = restoreBackup(sameSchemaBackup, true);
-    assert.equal(direct.success, true, 'same-schema direct restore still succeeds');
+    assert.equal(direct.success, true, `same-schema direct restore still succeeds: ${direct.error || 'no error details returned'}`);
     assertNoRestoreAttachment();
 
     const recoveryArtifactsBeforeJournalTest = new Set(fs.readdirSync(path.join(testDir, 'backups')).filter((name) => /recovery-/.test(name)));
@@ -451,6 +664,238 @@ async function run() {
     assert.equal((getDatabase().prepare('SELECT name FROM products WHERE id = ?').get('restore-product') as { name: string }).name, 'Restore Product', 'startup recovers a durable interrupted-restore snapshot');
     assert.equal(fs.existsSync(recoveryMarker), false, 'startup removes the consumed recovery marker');
     assert.equal(fs.existsSync(recoveryJournal), false, 'startup removes the consumed recovery journal');
+
+    // Exercise a successful data-only restore immediately before the guards:
+    // this isolates restore-trigger recreation from later rollback/retry fixtures.
+    const periodGuardRestore = restoreBackup(olderBackup, false);
+    assert.equal(periodGuardRestore.success, true, 'period-close guard verification starts from a successful data-only restore');
+    const restoredPeriodEntry = 'restore-period-guard-entry';
+    getDatabase().prepare("INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, source_type, source_id, source_event, idempotency_key, payload_hash) VALUES (?, ?, '2026-10-10', 'restore guard test', 'IRR', ?, ?, ?, ?, ?)").run(
+      restoredPeriodEntry, 'JE-RESTORE-PERIOD-001',
+      'backup_restore_regression', 'period-guard-fixture', 'posted_fixture',
+      'backup-restore-regression-idempotency-key', 'b'.repeat(64),
+    );
+    getDatabase().prepare("INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, debit_minor, credit_minor) VALUES ('restore-period-line-1', ?, 1, 'acct-cash-drawer', 500, 0), ('restore-period-line-2', ?, 2, 'acct-sales-revenue', 0, 500)").run(restoredPeriodEntry, restoredPeriodEntry);
+    getDatabase().prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=datetime('now') WHERE id=?").run(restoredPeriodEntry);
+
+    // Persist a real-shaped reconciliation-adjustment journal and immutable metadata row
+    // so the round-trip proves the financial reconciliation data survives, not only the GL.
+    const reconciliationJournalId = 'restore-reconciliation-adjustment-entry';
+    getDatabase().prepare(
+      "INSERT INTO accounting_journal_entries (id, entry_number, entry_date, description, currency_code, source_type, source_id, source_event, idempotency_key, payload_hash) VALUES (?, ?, '2026-10-10', 'Restore reconciliation adjustment', 'INR', ?, ?, ?, ?, ?)",
+    ).run(
+      reconciliationJournalId, 'JE-RESTORE-RECON-001',
+      'accounting_reconciliation_adjustment', 'restore-adjustment-fixture', 'balance_adjustment',
+      'restore-adjustment-idempotency-key', 'd'.repeat(64),
+    );
+    getDatabase().prepare(
+      "INSERT INTO accounting_journal_lines (id, journal_entry_id, line_no, account_id, description, debit_minor, credit_minor) VALUES ('restore-adjustment-line-1', ?, 1, 'acct-cash-drawer', 'verified balance debit', 500, 0), ('restore-adjustment-line-2', ?, 2, 'acct-reconciliation-adjustment-equity', 'reconciliation offset', 0, 500)",
+    ).run(reconciliationJournalId, reconciliationJournalId);
+    getDatabase().prepare("UPDATE accounting_journal_entries SET status='posted', posted_at=datetime('now') WHERE id=?").run(reconciliationJournalId);
+    getDatabase().prepare(
+      "INSERT INTO accounting_reconciliation_adjustments (id, account_id, adjustment_date, system_balance_minor, verified_balance_minor, difference_minor, currency_code, reason, source_reference, journal_entry_id, idempotency_key, payload_hash, created_by) VALUES (?, 'acct-cash-drawer', '2026-10-10', 0, 500, 500, 'INR', ?, ?, ?, ?, ?, ?)",
+    ).run(
+      'restore-reconciliation-adjustment',
+      'Backup restore reconciliation regression', 'restore-bank-statement-001',
+      reconciliationJournalId, 'restore-adjustment-idempotency-key', 'd'.repeat(64), 'restore-test',
+    );
+
+    getDatabase().prepare(
+      "INSERT INTO accounting_future_items (id, record_type, direction, due_date, amount_minor, currency_code, description, classification_account_id, auto_register, status, idempotency_key, payload_hash, created_by) VALUES (?, 'cheque', 'incoming', '2090-01-01', 550, 'INR', 'Restore future cheque', 'acct-other-income', 0, 'scheduled', ?, ?, ?)",
+    ).run('restore-future-item', 'restore-future-item-idempotency-key', 'e'.repeat(64), 'restore-test');
+    getDatabase().prepare("INSERT INTO accounting_period_closures (id, period_start, period_end, status, close_reason, closed_by) VALUES ('restore-period-guard-close', '2026-10-10', '2026-10-10', 'closed', 'restore regression', 'restore-test')").run();
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_journal_entries SET description=? WHERE id=?').run('changed', restoredPeriodEntry),
+      /ACCOUNTING_PERIOD_CLOSED_IMMUTABLE/,
+      'restored trigger prevents edits to posted journals in closed periods',
+    );
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_journal_lines SET description=? WHERE journal_entry_id=?').run('changed', restoredPeriodEntry),
+      /ACCOUNTING_PERIOD_CLOSED_IMMUTABLE/,
+      'restored trigger prevents edits to posted lines in closed periods',
+    );
+    assert.throws(
+      () => getDatabase().prepare('DELETE FROM accounting_period_closures WHERE id=?').run('restore-period-guard-close'),
+      /ACCOUNTING_PERIOD_CLOSE_IMMUTABLE/,
+      'restored trigger protects close history from deletion',
+    );
+
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_period_closures SET close_reason=? WHERE id=?').run('tampered after restore', 'restore-period-guard-close'),
+      /ACCOUNTING_PERIOD_CLOSE_INVALID_TRANSITION/,
+      'restored trigger blocks direct mutations of period-close records',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=? AND action='closed'").get('restore-period-guard-close') as { count: number }).count,
+      1,
+      'restored trigger recreates automatic period-close audit recording',
+    );
+
+    // Full backup/direct-restore must preserve the audit-grade identity of accounting journals,
+    // their idempotency/source references, period-close history, audit rows, and SQL guards.
+    getDatabase().prepare(
+      "INSERT INTO accounting_audit_log (entity_type, entity_id, action, actor_user_id, before_json, after_json) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      'accounting_source_event', 'backup-restore-regression-event', 'regression_fixture',
+      'restore-test', null, JSON.stringify({ source_type: 'backup_restore_regression', source_id: 'period-guard-fixture' }),
+    );
+    const accountingRoundTripBackup = await createBackup();
+    const backupSnapshotDb = new Database(accountingRoundTripBackup.path, { readonly: true, fileMustExist: true });
+    try {
+      const snapshotJournal = backupSnapshotDb.prepare(
+        'SELECT status, source_type, source_id, source_event, idempotency_key, payload_hash FROM accounting_journal_entries WHERE id=?',
+      ).get(restoredPeriodEntry) as any;
+      assert.equal(snapshotJournal?.status, 'posted', 'full backup preserves the posted accounting journal');
+      assert.equal(snapshotJournal?.source_type, 'backup_restore_regression', 'full backup preserves the journal source type');
+      assert.equal(snapshotJournal?.source_id, 'period-guard-fixture', 'full backup preserves the source identity');
+      assert.equal(snapshotJournal?.source_event, 'posted_fixture', 'full backup preserves the source event');
+      assert.equal(snapshotJournal?.idempotency_key, 'backup-restore-regression-idempotency-key', 'full backup preserves the idempotency key');
+      assert.equal(snapshotJournal?.payload_hash, 'b'.repeat(64), 'full backup preserves the exact payload hash');
+      assert.equal(
+        (backupSnapshotDb.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=? AND action='closed'").get('restore-period-guard-close') as any).count,
+        1,
+        'full backup preserves period-close audit history',
+      );
+      assert.equal(
+        (backupSnapshotDb.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=?").get('backup-restore-regression-event') as any).count,
+        1,
+        'full backup preserves source-event audit metadata',
+      );
+      assert.equal(
+        (backupSnapshotDb.prepare("SELECT COUNT(*) AS count FROM accounting_period_closures WHERE id='restore-period-guard-close' AND status='closed'").get() as any).count,
+        1,
+        'full backup preserves the closed-period record',
+      );
+      const snapshotFutureItem = backupSnapshotDb.prepare(
+        'SELECT record_type, direction, due_date, amount_minor, currency_code, description, classification_account_id, auto_register, status, idempotency_key, payload_hash FROM accounting_future_items WHERE id=?',
+      ).get('restore-future-item') as any;
+      assert.equal(snapshotFutureItem?.record_type, 'cheque', 'full backup preserves future-item record type');
+      assert.equal(snapshotFutureItem?.direction, 'incoming', 'full backup preserves future-item direction');
+      assert.equal(snapshotFutureItem?.due_date, '2090-01-01', 'full backup preserves future-item due date');
+      assert.equal(snapshotFutureItem?.amount_minor, 550, 'full backup preserves future-item exact amount');
+      assert.equal(snapshotFutureItem?.currency_code, 'INR', 'full backup preserves future-item currency');
+      assert.equal(snapshotFutureItem?.classification_account_id, 'acct-other-income', 'full backup preserves future-item account mapping');
+      assert.equal(snapshotFutureItem?.auto_register, 0, 'full backup preserves manual confirmation mode');
+      assert.equal(snapshotFutureItem?.status, 'scheduled', 'full backup preserves scheduled status');
+      assert.equal(snapshotFutureItem?.idempotency_key, 'restore-future-item-idempotency-key', 'full backup preserves future-item idempotency key');
+      assert.equal(snapshotFutureItem?.payload_hash, 'e'.repeat(64), 'full backup preserves future-item payload hash');
+      const snapshotAdjustment = backupSnapshotDb.prepare(
+        'SELECT account_id, adjustment_date, system_balance_minor, verified_balance_minor, difference_minor, currency_code, reason, source_reference, journal_entry_id, idempotency_key, payload_hash FROM accounting_reconciliation_adjustments WHERE id=?',
+      ).get('restore-reconciliation-adjustment') as any;
+      assert.equal(snapshotAdjustment?.account_id, 'acct-cash-drawer', 'full backup preserves reconciliation adjustment account');
+      assert.equal(snapshotAdjustment?.adjustment_date, '2026-10-10', 'full backup preserves reconciliation adjustment date');
+      assert.equal(snapshotAdjustment?.system_balance_minor, 0, 'full backup preserves reconciliation before-balance');
+      assert.equal(snapshotAdjustment?.verified_balance_minor, 500, 'full backup preserves reconciliation verified balance');
+      assert.equal(snapshotAdjustment?.difference_minor, 500, 'full backup preserves reconciliation difference');
+      assert.equal(snapshotAdjustment?.currency_code, 'INR', 'full backup preserves reconciliation currency');
+      assert.equal(snapshotAdjustment?.reason, 'Backup restore reconciliation regression', 'full backup preserves reconciliation reason');
+      assert.equal(snapshotAdjustment?.source_reference, 'restore-bank-statement-001', 'full backup preserves reconciliation evidence reference');
+      assert.equal(snapshotAdjustment?.journal_entry_id, reconciliationJournalId, 'full backup preserves reconciliation journal link');
+      assert.equal(snapshotAdjustment?.idempotency_key, 'restore-adjustment-idempotency-key', 'full backup preserves reconciliation idempotency key');
+      assert.equal(snapshotAdjustment?.payload_hash, 'd'.repeat(64), 'full backup preserves reconciliation payload hash');
+    } finally {
+      backupSnapshotDb.close();
+    }
+
+    const accountingRoundTripRestore = restoreBackup(accountingRoundTripBackup.path, true);
+    assert.equal(accountingRoundTripRestore.success, true, 'full direct restore accepts a current complete accounting backup');
+    const roundTrippedJournal = getDatabase().prepare(
+      'SELECT status, source_type, source_id, source_event, idempotency_key, payload_hash FROM accounting_journal_entries WHERE id=?',
+    ).get(restoredPeriodEntry) as any;
+    assert.equal(roundTrippedJournal?.status, 'posted', 'direct restore preserves posted journal status');
+    assert.equal(roundTrippedJournal?.source_type, 'backup_restore_regression', 'direct restore preserves source type');
+    assert.equal(roundTrippedJournal?.source_id, 'period-guard-fixture', 'direct restore preserves source identity');
+    assert.equal(roundTrippedJournal?.source_event, 'posted_fixture', 'direct restore preserves source event');
+    assert.equal(roundTrippedJournal?.idempotency_key, 'backup-restore-regression-idempotency-key', 'direct restore preserves idempotency identity');
+    assert.equal(roundTrippedJournal?.payload_hash, 'b'.repeat(64), 'direct restore preserves idempotency payload hash');
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_period' AND entity_id=? AND action='closed'").get('restore-period-guard-close') as any).count,
+      1,
+      'direct restore preserves period-close audit history',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=?").get('backup-restore-regression-event') as any).count,
+      1,
+      'direct restore preserves source-event audit metadata',
+    );
+    assert.equal(
+      (getDatabase().prepare("SELECT COUNT(*) AS count FROM accounting_period_closures WHERE id='restore-period-guard-close' AND status='closed'").get() as any).count,
+      1,
+      'direct restore preserves closed-period records',
+    );
+    const restoredFutureItem = getDatabase().prepare(
+      'SELECT record_type, direction, due_date, amount_minor, currency_code, description, classification_account_id, auto_register, status, idempotency_key, payload_hash FROM accounting_future_items WHERE id=?',
+    ).get('restore-future-item') as any;
+    assert.equal(restoredFutureItem?.record_type, 'cheque', 'direct restore preserves future-item type');
+    assert.equal(restoredFutureItem?.direction, 'incoming', 'direct restore preserves future-item direction');
+    assert.equal(restoredFutureItem?.due_date, '2090-01-01', 'direct restore preserves future-item due date');
+    assert.equal(restoredFutureItem?.amount_minor, 550, 'direct restore preserves future-item amount');
+    assert.equal(restoredFutureItem?.currency_code, 'INR', 'direct restore preserves future-item currency');
+    assert.equal(restoredFutureItem?.classification_account_id, 'acct-other-income', 'direct restore preserves future-item account mapping');
+    assert.equal(restoredFutureItem?.auto_register, 0, 'direct restore preserves manual mode');
+    assert.equal(restoredFutureItem?.status, 'scheduled', 'direct restore preserves future-item status');
+    assert.equal(restoredFutureItem?.idempotency_key, 'restore-future-item-idempotency-key', 'direct restore preserves future-item idempotency key');
+    assert.equal(restoredFutureItem?.payload_hash, 'e'.repeat(64), 'direct restore preserves future-item payload hash');
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_future_items SET due_date=? WHERE id=?').run('2090-01-02', 'restore-future-item'),
+      /ACCOUNTING_FUTURE_ITEM_PAYLOAD_IMMUTABLE/,
+      'direct restore reinstates future-item payload immutability',
+    );
+    assert.throws(
+      () => getDatabase().prepare('DELETE FROM accounting_future_items WHERE id=?').run('restore-future-item'),
+      /ACCOUNTING_FUTURE_ITEM_IMMUTABLE/,
+      'direct restore reinstates future-item delete protection',
+    );
+    const restoredAdjustment = getDatabase().prepare(
+      'SELECT account_id, adjustment_date, system_balance_minor, verified_balance_minor, difference_minor, currency_code, reason, source_reference, journal_entry_id, idempotency_key, payload_hash FROM accounting_reconciliation_adjustments WHERE id=?',
+    ).get('restore-reconciliation-adjustment') as any;
+    assert.equal(restoredAdjustment?.account_id, 'acct-cash-drawer', 'direct restore preserves reconciliation adjustment account');
+    assert.equal(restoredAdjustment?.adjustment_date, '2026-10-10', 'direct restore preserves reconciliation adjustment date');
+    assert.equal(restoredAdjustment?.system_balance_minor, 0, 'direct restore preserves reconciliation before-balance');
+    assert.equal(restoredAdjustment?.verified_balance_minor, 500, 'direct restore preserves reconciliation verified balance');
+    assert.equal(restoredAdjustment?.difference_minor, 500, 'direct restore preserves reconciliation difference');
+    assert.equal(restoredAdjustment?.currency_code, 'INR', 'direct restore preserves reconciliation currency');
+    assert.equal(restoredAdjustment?.reason, 'Backup restore reconciliation regression', 'direct restore preserves reconciliation reason');
+    assert.equal(restoredAdjustment?.source_reference, 'restore-bank-statement-001', 'direct restore preserves reconciliation evidence reference');
+    assert.equal(restoredAdjustment?.journal_entry_id, 'restore-reconciliation-adjustment-entry', 'direct restore preserves reconciliation journal link');
+    assert.equal(restoredAdjustment?.idempotency_key, 'restore-adjustment-idempotency-key', 'direct restore preserves reconciliation idempotency key');
+    assert.equal(restoredAdjustment?.payload_hash, 'd'.repeat(64), 'direct restore preserves reconciliation payload hash');
+    assert.throws(
+      () => getDatabase().prepare('UPDATE accounting_reconciliation_adjustments SET reason=? WHERE id=?').run('tamper after restore', 'restore-reconciliation-adjustment'),
+      /ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE/,
+      'full restore reinstates reconciliation metadata immutability against updates',
+    );
+    assert.throws(
+      () => getDatabase().prepare('DELETE FROM accounting_reconciliation_adjustments WHERE id=?').run('restore-reconciliation-adjustment'),
+      /ACCOUNTING_RECONCILIATION_ADJUSTMENT_IMMUTABLE/,
+      'full restore reinstates reconciliation metadata immutability against deletion',
+    );
+    for (const trigger of [
+      'accounting_period_closures_insert_guard',
+      'accounting_period_closures_update_guard',
+      'accounting_period_closures_no_overlap_insert',
+      'accounting_period_closures_no_overlap_update',
+      'accounting_period_closures_audit_insert',
+      'accounting_period_closures_audit_update',
+      'accounting_reconciliation_adjustments_immutable_update',
+      'accounting_reconciliation_adjustments_immutable_delete',
+      'accounting_future_items_state_guard',
+      'accounting_future_items_no_delete',
+      'accounting_future_items_audit_insert',
+      'accounting_future_items_audit_update',
+      'accounting_closed_period_posted_entry_update_guard',
+      'accounting_closed_period_posted_entry_delete_guard',
+      'accounting_closed_period_posted_line_insert_guard',
+      'accounting_closed_period_posted_line_update_guard',
+      'accounting_closed_period_posted_line_delete_guard',
+    ]) {
+      assert.equal(
+        (getDatabase().prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger' AND name=?").get(trigger) as any).count,
+        1,
+        'full direct restore reinstates ' + trigger,
+      );
+    }
+    assert.deepEqual(getDatabase().pragma('foreign_key_check'), [], 'full direct restore leaves no foreign-key violations');
 
     console.log('✅ Production database restore tests passed');
   } finally {
