@@ -1288,7 +1288,7 @@ async function main(): Promise<void> {
       .send({ name: 'Renamed test bank', description: 'Retained after deactivation', is_active: false });
     equal(deactivatedBank.status, 200, 'a custom account without active dependencies can be deactivated');
     equal(deactivatedBank.body.account.is_active, 0, 'successful deactivation marks the custom account inactive');
-    equal(deactivatedBank.body.account.balance_minor, 5000, 'deactivation preserves posted account balance and history');
+    equal(deactivatedBank.body.account.balance_minor, 92500, 'deactivation preserves the opening balance plus subsequent transfer history');
     const afterDeactivationList = await request(app).get('/api/accounting/accounts/managed').set(manager);
     equal(afterDeactivationList.body.accounts.find((a: any) => a.id === customBank.id)?.is_active, 0,
       'inactive account remains visible in account management');
