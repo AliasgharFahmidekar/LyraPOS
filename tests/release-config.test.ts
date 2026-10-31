@@ -84,6 +84,8 @@ function testCurrentWorkflows() {
 
   const windowsRelease = loadWorkflow('.github/workflows/lyrapos-windows-release.yml');
   const releaseTriggers = windowsRelease.on || windowsRelease.true;
+  assert.deepEqual(releaseTriggers.pull_request.branches, ['main']);
+  assert.ok(releaseTriggers.pull_request.paths.includes('.github/workflows/lyrapos-windows-release.yml'));
   assert.deepEqual(releaseTriggers.push.tags, ['[0-9]*.[0-9]*.[0-9]*']);
   assert.equal(releaseTriggers.workflow_dispatch.inputs.publish_release.default, false);
   assert.equal(windowsRelease.permissions.contents, 'write');
