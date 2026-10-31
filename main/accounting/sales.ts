@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { getAccountingMinorUnitFactor, getCurrencyMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 import { localDateInTimezone, now, parseDbTimestamp, tenantBusinessDayStartTime } from '../db';
 import { createDraftJournalEntry, postJournalEntry } from './ledger';
+import { isLiquidAccountSystemKey } from './chart-of-accounts';
 
 type DB = Database.Database;
 
@@ -42,14 +43,20 @@ export function accountingDate(db: DB, timestamp: string): string {
 function toMinorUnits(value: unknown, currency: string, label: string): number {
   const numeric = typeof value === 'number' ? value : (typeof value === 'string' && value.trim() ? Number(value) : Number.NaN);
   const factor = getAccountingMinorUnitFactor(currency);
-  const minor = Math.round(numeric * factor);
-  if (!Number.isFinite(numeric) || !Number.isSafeInteger(minor) || numeric < 0 || !Number.isSafeInteger(factor) || factor <= 0) {
+  if (!Number.isFinite(numeric) || numeric < 0 || !Number.isSafeInteger(factor) || factor <= 0) {
     fail('accounting_amount_invalid', label + ' is not a valid non-negative store-currency amount.', 409);
   }
-  // Persisted POS values are already rounded by the store's currency helpers.
-  // This boundary converts them once to integer ledger units. For IRR, the
-  // stored amount is already in whole rials; UI fraction-digit preferences do
-  // not create a fractional rial denomination.
+
+  // POS values are canonical currency amounts, not UI-display amounts. In Iran
+  // they are whole rials regardless of whether screens display rial or toman;
+  // USD/EUR/etc. are converted to their ISO minor units. Reject precision that
+  // cannot be represented exactly instead of silently rounding a payment.
+  const scaled = numeric * factor;
+  const minor = Math.round(scaled);
+  const floatingPointTolerance = Math.min(1e-7, Number.EPSILON * Math.max(1, Math.abs(scaled)) * 8);
+  if (!Number.isSafeInteger(minor) || Math.abs(scaled - minor) > floatingPointTolerance) {
+    fail('accounting_amount_invalid', label + ' exceeds the precision supported by the configured store currency.', 409);
+  }
   return minor;
 }
 
@@ -64,15 +71,27 @@ function postingAccountBySystemKey(db: DB, key: string, expectedType: string): s
 }
 
 function mappedPaymentAccount(db: DB, methodKey: string): { id: string; type: string } {
-  const mapping = db.prepare(
-    'SELECT a.id, a.account_type, a.is_active, a.is_postable FROM accounting_payment_method_mappings AS m JOIN accounting_accounts AS a ON a.id = m.account_id WHERE m.payment_method_key = ?',
-  ).get(methodKey) as { id: string; account_type: string; is_active: number; is_postable: number } | undefined;
-  const expectedType = 'asset';
-  if (!mapping) fail('payment_mapping_required', 'Map payment method "' + methodKey + '" to an accounting account before recording this financial event.', 409);
-  if (mapping.is_active !== 1 || mapping.is_postable !== 1 || mapping.account_type !== expectedType) {
-    fail('payment_mapping_invalid', 'The accounting mapping for "' + methodKey + '" must target an active postable ' + expectedType + ' account.', 409);
+  const explicit = db.prepare(
+    'SELECT account_id FROM accounting_payment_method_mappings WHERE payment_method_key = ?',
+  ).get(methodKey) as { account_id: string } | undefined;
+  const isDefault = !explicit;
+  let accountId = explicit?.account_id;
+  if (isDefault) {
+    const setting = db.prepare("SELECT value FROM settings WHERE key='accounting_default_payment_account_id'").get() as { value: string | null } | undefined;
+    // Compatibility fallback only applies when the setting row is absent.
+    accountId = setting ? (typeof setting.value === 'string' ? setting.value.trim() : '') : 'acct-payment-clearing';
   }
-  return { id: mapping.id, type: mapping.account_type };
+  const mapping = accountId ? db.prepare(
+    'SELECT id, account_type, system_key, is_active, is_postable FROM accounting_accounts WHERE id = ?',
+  ).get(accountId) as { id: string; account_type: string; system_key: string | null; is_active: number; is_postable: number } | undefined : undefined;
+  const valid = Boolean(mapping && mapping.is_active === 1 && mapping.is_postable === 1
+    && mapping.account_type === 'asset'
+    && isLiquidAccountSystemKey(mapping.system_key));
+  if (!valid) {
+    if (isDefault) fail('payment_default_mapping_invalid', 'The default payment account must be an active postable cash, bank, or payment-clearing account.', 409);
+    fail('payment_mapping_invalid', 'The accounting mapping for "' + methodKey + '" must target an active postable cash, bank, or payment-clearing account.', 409);
+  }
+  return { id: mapping!.id, type: mapping!.account_type };
 }
 
 function paymentMethodKey(db: DB, payment: any): string {
@@ -252,9 +271,8 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
   if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
   if (paymentLines.length && !isAutomaticSalesPostingEnabled(db)) {
-    // Keep the POS collection path independent from accounting validation while
-    // automatic posting is off. The payment itself is already committed by POS;
-    // this path records an audit note but must never reject collection.
+    // Keep POS collection independent from accounting validation while posting is off.
+    // The operational payment remains committed; this branch only records the intentional skip.
     paymentLines.forEach((payment, index) => {
       if (payment?.method === 'wallet' || payment?.method === 'loyalty') return;
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
@@ -309,8 +327,8 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
   // Wallet-only or historical-only batches must not create accounting entries.
   if (!eligiblePaymentLines.length) return;
 
-  // Snapshot finalization and money-receipt recognition are separate. With the
-  // opt-in setting enabled, lock a fully settled bill before posting its receipts.
+  // Keep the old commercial snapshot policy separate from the financial event:
+  // new money on a legacy bill is recorded, but does not backfill/finalize that bill.
   if (bill.payment_status === 'paid' && canFinalizeBillSnapshot(db, bill)) finalizeBillSale(db, billId, actorId);
   const currency = configuredCurrency(db);
   const revenueId = postingAccountBySystemKey(db, 'sales_revenue', 'revenue');
@@ -368,10 +386,8 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     if (['wallet', 'loyalty', 'credit', 'store_credit', 'loyalty_wallet'].includes(refundMethod)) {
       return { posted: false, reason: 'non_monetary_refund_ignored' };
     }
-    // A refund must reverse revenue only when the original sale receipt was
-    // actually posted. Turning off automatic sales posting must not create a
-    // standalone negative-revenue journal for a sale absent from the ledger.
-    // Check this before cutover validation so disabled accounting cannot block a POS refund.
+    // Refunds reverse sales only when the original receipt exists in the ledger.
+    // Turning posting off must never create a standalone negative-revenue journal.
     if (!isAutomaticSalesPostingEnabled(db) && !hasAccountingRecordedMonetaryReceipt(db, bill.id)) {
       auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting', actorId, {
         refund_id: String(refund.id),

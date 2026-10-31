@@ -239,7 +239,7 @@
     "test:wordpress-bridge": "ts-node --transpile-only -P tests/tsconfig.json tests/wordpress-bridge-contract.test.ts",
     "test:accounting-ledger": "node tests/run-electron-node-test.cjs tests/accounting-ledger.test.ts",
     "test:accounting-expenses": "node tests/run-electron-node-test.cjs tests/accounting-expenses.test.ts",
-    "test:accounting-routes": "node tests/run-electron-node-test.cjs tests/accounting-routes.test.ts",
+    "test:accounting-routes": "node tests/run-electron-node-test.cjs tests/accounting-routes.test.ts && node tests/run-electron-node-test.cjs tests/accounting-sales-auto-posting-routes.test.ts",
     "test:accounting-source-reconciliation": "node tests/run-electron-node-test.cjs tests/accounting-source-reconciliation.test.ts",
     "test:accounting-sales": "node tests/run-electron-node-test.cjs tests/accounting-sales.test.ts",
     "test:accounting-recurring-obligations": "node tests/run-electron-node-test.cjs tests/accounting-recurring-obligations.test.ts",

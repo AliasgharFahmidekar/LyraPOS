@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
+import ExcelJS from 'exceljs';
 import { getDatabase } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
-import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, updateDraftExpense, postExpense, reverseExpense } from '../accounting/expenses';
+import { AccountingExpenseError, createExpense, getExpense, listExpenseCategories, listExpenses, listPostingAccounts, saveExpenseCategory, setPaymentAccountMapping, listPaymentAccountMappings, getDefaultPaymentAccountMapping, setDefaultPaymentAccountMapping, updateDraftExpense, postExpense, reverseExpense, cancelDraftExpense } from '../accounting/expenses';
+import { AccountingAccountError, createManagedAccountingAccount, listManagedAccountingAccounts, updateManagedAccountingAccount } from '../accounting/chart-of-accounts';
 import { AccountingLedgerError } from '../accounting/ledger';
 import { createCashBankTransfer, listCashBankTransfers } from '../accounting/transfers';
-import { resolveTenantCurrency } from '../countries';
+import { getAccountingMinorUnitFactor, resolveTenantCurrency } from '../countries';
 import { createManualAccountingActivity, listManualAccountingActivities } from '../accounting/manual-activities';
 import { createOpeningBalance, listAccountTransactionHistory, listOpeningBalances } from '../accounting/opening-balances';
 import { createReconciliationAdjustment, getAccountingReconciliationOverview } from '../accounting/reconciliation';
@@ -14,10 +16,10 @@ import { getAccountingForecast } from '../accounting/forecast';
 import { getAccountingSourceEventReconciliation } from '../accounting/source-reconciliation';
 import { getAccountingTrialBalance } from '../accounting/trial-balance';
 import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } from '../accounting/period-close';
+import { isAutomaticSalesPostingEnabled } from '../accounting/sales';
 import { cancelFutureItem, createFutureItem, listFutureItems, registerFutureItem, settleFutureItem, FutureItemError } from '../accounting/future-items';
 import { cancelRecurringObligation, createRecurringObligation, listRecurringObligations, RecurringObligationError } from '../accounting/recurring-obligations';
-import { AccountingLoanError, cancelLoanInstallment, createLoan, createLoanInstallments, listLoans, registerLoanInstallment, settleLoanInstallment } from '../accounting/loans';
-import { isAutomaticSalesPostingEnabled } from '../accounting/sales';
+import { AccountingLoanError, cancelLoanInstallment, createLoan, createLoanInstallments, listLoans, registerLoanInstallment, settleLoanInstallment, updateLoanOriginationDate, updateLoanInstallment, cancelLoan, correctLoan } from '../accounting/loans';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -26,6 +28,9 @@ function actorId(req: Request): string | null {
   return user?.userId == null ? null : String(user.userId);
 }
 function respondError(res: Response, error: any): void {
+  if (error instanceof AccountingAccountError) {
+    res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
+  }
   if (error instanceof AccountingLoanError) {
     res.status(error.statusCode).json({ error: error.message, code: error.code }); return;
   }
@@ -56,8 +61,24 @@ router.post('/loans', managerOnly, (req, res) => {
   try { res.status(201).json({ loan: createLoan(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) }); }
   catch (error) { respondError(res, error); }
 });
+router.put('/loans/:id/origination-date', managerOnly, (req, res) => {
+  try { res.json({ loan: updateLoanOriginationDate(getDatabase(), String(req.params.id), req.body?.origination_date, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/loans/:id/cancel', managerOnly, (req, res) => {
+  try { res.json({ loan: cancelLoan(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/loans/:id/correct', managerOnly, (req, res) => {
+  try { res.json({ loan: correctLoan(getDatabase(), String(req.params.id), req.body, actorId(req), req.get('Idempotency-Key')) }); }
+  catch (error) { respondError(res, error); }
+});
 router.post('/loans/:id/installments', managerOnly, (req, res) => {
   try { res.status(201).json(createLoanInstallments(getDatabase(), String(req.params.id), req.body, actorId(req), req.get('Idempotency-Key'))); }
+  catch (error) { respondError(res, error); }
+});
+router.put('/loan-installments/:id', managerOnly, (req, res) => {
+  try { res.json({ installment: updateLoanInstallment(getDatabase(), String(req.params.id), req.body, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.post('/loan-installments/:id/register', managerOnly, (req, res) => {
@@ -138,6 +159,18 @@ router.post('/opening-balances', managerOnly, (req, res) => {
     res.status(201).json({ opening_balance: createOpeningBalance(getDatabase(), req.body, actorId(req), req.get('Idempotency-Key')) });
   } catch (error) { respondError(res, error); }
 });
+router.get('/accounts/managed', managerOnly, (req, res) => {
+  try { res.json({ accounts: listManagedAccountingAccounts(getDatabase()) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/accounts', managerOnly, (req, res) => {
+  try { res.status(201).json({ account: createManagedAccountingAccount(getDatabase(), req.body, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.put('/accounts/:id', managerOnly, (req, res) => {
+  try { res.json({ account: updateManagedAccountingAccount(getDatabase(), String(req.params.id), req.body, actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
 router.get('/accounts/:accountId/transactions', managerOnly, (req, res) => {
   try { res.json(listAccountTransactionHistory(getDatabase(), String(req.params.accountId), req.query)); }
   catch (error) { respondError(res, error); }
@@ -165,6 +198,23 @@ router.post('/periods/close', managerOnly, (req, res) => {
 router.post('/periods/:id/reopen', managerOnly, (req, res) => {
   try { res.json({ period: reopenAccountingPeriod(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) }); }
   catch (error) { respondError(res, error); }
+});
+router.get('/sales-auto-posting', managerOnly, (_req, res) => {
+  try {
+    res.json({ enabled: isAutomaticSalesPostingEnabled(getDatabase()) });
+  } catch (error) { respondError(res, error); }
+});
+router.put('/sales-auto-posting', managerOnly, (req, res) => {
+  if (typeof req.body?.enabled !== 'boolean') {
+    res.status(400).json({ error: 'enabled must be a boolean.', code: 'invalid_setting' });
+    return;
+  }
+  try {
+    const db = getDatabase();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('accounting_auto_post_sales', ?, CURRENT_TIMESTAMP)")
+      .run(req.body.enabled ? 'true' : 'false');
+    res.json({ enabled: isAutomaticSalesPostingEnabled(db) });
+  } catch (error) { respondError(res, error); }
 });
 router.get('/source-events', managerOnly, (req, res) => {
   try {
@@ -221,34 +271,16 @@ router.get('/export', managerOnly, (_req, res) => {
     respondError(res, error);
   }
 });
-router.get('/sales-auto-posting', managerOnly, (_req, res) => {
-  try {
-    res.json({ enabled: isAutomaticSalesPostingEnabled(getDatabase()) });
-  } catch (error) { respondError(res, error); }
-});
-router.put('/sales-auto-posting', managerOnly, (req, res) => {
-  try {
-    if (typeof req.body?.enabled !== 'boolean') {
-      res.status(400).json({ error: 'enabled must be a boolean.', code: 'invalid_accounting_setting' });
-      return;
-    }
-    const db = getDatabase();
-    const enabled = req.body.enabled;
-    db.prepare(`
-      INSERT INTO settings (key, value, updated_at)
-      VALUES ('accounting_auto_post_sales', ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
-    `).run(enabled ? 'true' : 'false');
-    res.json({ enabled: isAutomaticSalesPostingEnabled(db) });
-  } catch (error) { respondError(res, error); }
-});
 router.get('/accounts', managerOnly, (req, res) => {
   try {
     const types = typeof req.query.types === 'string' ? req.query.types.split(',') : undefined;
     const db = getDatabase();
     const regionalRows = db.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency')").all() as { key: string; value: string | null }[];
     const regional = Object.fromEntries(regionalRows.map((row) => [row.key, row.value ?? undefined]));
-    res.json({ accounts: listPostingAccounts(db, types), currency_code: resolveTenantCurrency(regional.currency, regional.country ?? '') });
+    const currencyCode = resolveTenantCurrency(regional.currency, regional.country ?? '');
+    const accountingFactor = getAccountingMinorUnitFactor(currencyCode);
+    const accountingFractionDigits = Math.round(Math.log10(accountingFactor));
+    res.json({ accounts: listPostingAccounts(db, types), currency_code: currencyCode, accounting_fraction_digits: accountingFractionDigits });
   } catch (error) { respondError(res, error); }
 });
 router.get('/expense-categories', managerOnly, (req, res) => {
@@ -264,12 +296,104 @@ router.put('/expense-categories/:id', managerOnly, (req, res) => {
   catch (error) { respondError(res, error); }
 });
 router.get('/payment-account-mappings', managerOnly, (_req, res) => {
-  try { res.json({ mappings: listPaymentAccountMappings(getDatabase()) }); }
+  try {
+    const db = getDatabase();
+    res.json({ mappings: listPaymentAccountMappings(db), default_account: getDefaultPaymentAccountMapping(db) });
+  } catch (error) { respondError(res, error); }
+});
+router.put('/payment-account-mappings/default', managerOnly, (req, res) => {
+  try { res.json({ default_account: setDefaultPaymentAccountMapping(getDatabase(), req.body?.account_id, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.put('/payment-account-mappings/:key', managerOnly, (req, res) => {
   try { res.json({ mapping: setPaymentAccountMapping(getDatabase(), decodeURIComponent(String(req.params.key)), req.body?.account_id, actorId(req)) }); }
   catch (error) { respondError(res, error); }
+});
+router.get('/expenses/export.xlsx', managerOnly, async (req, res) => {
+  try {
+    const db = getDatabase();
+    const rows: any[] = [];
+    let offset = 0;
+    const pageSize = 500;
+    while (true) {
+      const page = listExpenses(db, { ...req.query, limit: pageSize, offset });
+      rows.push(...page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+
+    const isPersian = String(req.query.locale || 'fa').toLowerCase().startsWith('fa');
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'LyraPOS';
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet(isPersian ? 'هزینه‌ها' : 'Expenses', {
+      views: [{ state: 'frozen', ySplit: 1, rightToLeft: isPersian }],
+    });
+    sheet.columns = isPersian ? [
+      { header: 'تاریخ هزینه', key: 'expense_date', width: 16 },
+      { header: 'سررسید', key: 'due_date', width: 16 },
+      { header: 'شرح', key: 'description', width: 32 },
+      { header: 'دسته‌بندی', key: 'category', width: 22 },
+      { header: 'پرداخت به', key: 'payee', width: 22 },
+      { header: 'شماره پیگیری', key: 'reference', width: 20 },
+      { header: 'مبلغ', key: 'amount', width: 18 },
+      { header: 'واحد پول', key: 'currency', width: 12 },
+      { header: 'وضعیت پرداخت', key: 'payment_status', width: 18 },
+      { header: 'وضعیت دفتر کل', key: 'ledger_status', width: 18 },
+      { header: 'حساب پرداخت‌کننده', key: 'payment_account', width: 26 },
+      { header: 'تاریخ پرداخت', key: 'payment_date', width: 16 },
+    ] : [
+      { header: 'Expense date', key: 'expense_date', width: 16 },
+      { header: 'Due date', key: 'due_date', width: 16 },
+      { header: 'Description', key: 'description', width: 32 },
+      { header: 'Category', key: 'category', width: 22 },
+      { header: 'Payee', key: 'payee', width: 22 },
+      { header: 'Reference', key: 'reference', width: 20 },
+      { header: 'Amount', key: 'amount', width: 18 },
+      { header: 'Currency', key: 'currency', width: 12 },
+      { header: 'Payment status', key: 'payment_status', width: 18 },
+      { header: 'Ledger status', key: 'ledger_status', width: 18 },
+      { header: 'Payment account', key: 'payment_account', width: 26 },
+      { header: 'Payment date', key: 'payment_date', width: 16 },
+    ];
+    const factor = getAccountingMinorUnitFactor(String(rows[0]?.currency_code || 'IRR'));
+    const decimalPlaces = factor === 1 ? 0 : Math.round(Math.log10(factor));
+    const amountFormat = decimalPlaces === 0
+      ? '#,##0;[Red]-#,##0'
+      : '#,##0.' + '0'.repeat(decimalPlaces) + ';[Red]-#,##0.' + '0'.repeat(decimalPlaces);
+    for (const expense of rows) {
+      sheet.addRow({
+        expense_date: expense.expense_date || '',
+        due_date: expense.due_date || '',
+        description: expense.description || '',
+        category: expense.category_name || '',
+        payee: expense.payee || '',
+        reference: expense.reference_number || '',
+        amount: Number(expense.amount_minor || 0) / factor,
+        currency: expense.currency_code || '',
+        payment_status: isPersian
+          ? (expense.payment_status === 'paid' ? 'پرداخت‌شده' : expense.is_overdue ? 'عقب‌افتاده' : 'پرداخت‌نشده')
+          : (expense.payment_status === 'paid' ? 'Paid' : expense.is_overdue ? 'Overdue' : 'Unpaid'),
+        ledger_status: isPersian
+          ? ({ draft: 'پیش‌نویس', posted: 'ثبت‌شده', reversed: 'برگشت‌خورده' } as Record<string, string>)[expense.status] || expense.status
+          : ({ draft: 'Draft', posted: 'Posted', reversed: 'Reversed' } as Record<string, string>)[expense.status] || expense.status,
+        payment_account: expense.payment_account_name || '',
+        payment_date: expense.payment_date || '',
+      });
+    }
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+    sheet.autoFilter = { from: 'A1', to: 'L1' };
+    sheet.getColumn('amount').numFmt = amountFormat;
+    sheet.eachRow((row, rowNumber) => {
+      row.alignment = { vertical: 'middle', horizontal: isPersian ? 'right' : 'left', wrapText: rowNumber === 1 };
+      if (rowNumber > 1) row.height = 20;
+    });
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="lyrapos-expenses.xlsx"');
+    res.status(200).send(buffer);
+  } catch (error) { respondError(res, error); }
 });
 router.get('/expenses', managerOnly, (req, res) => {
   try { res.json({ expenses: listExpenses(getDatabase(), req.query) }); }
@@ -289,6 +413,10 @@ router.put('/expenses/:id', managerOnly, (req, res) => {
 });
 router.post('/expenses/:id/post', managerOnly, (req, res) => {
   try { res.json({ expense: postExpense(getDatabase(), String(req.params.id), actorId(req)) }); }
+  catch (error) { respondError(res, error); }
+});
+router.post('/expenses/:id/cancel', managerOnly, (req, res) => {
+  try { res.json({ expense: cancelDraftExpense(getDatabase(), String(req.params.id), req.body?.reason, actorId(req)) }); }
   catch (error) { respondError(res, error); }
 });
 router.post('/expenses/:id/reverse', managerOnly, (req, res) => {

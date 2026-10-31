@@ -140,29 +140,6 @@ test('a missing journal is an exception and not silently repaired', () => {
   assert.equal(result.events[0].reason, 'No journal entry matches this operational source event.');
 });
 
-test('receipt intentionally skipped by the automatic-posting setting is not reported as a missing journal', () => {
-  const result = getAccountingSourceEventReconciliation(fakeDb({
-    cutoff: '2026-10-01T00:00:00Z',
-    bills: [{ id: 18, created_at: '2026-10-02 12:00:00', payment_details: JSON.stringify([
-      { payment_event_id: 'auto-off-1', method: 'cash', amount: 600, timestamp: '2026-10-02T12:01:00Z' },
-    ]) }],
-    auditEvents: [{ entity_id: 'payment:auto-off-1', action: 'skipped_auto_sales_posting' }],
-  }));
-  assert.equal(result.events[0].status, 'skipped_auto_posting');
-  assert.deepEqual(result.events[0].journal_entry_ids, []);
-  assert.match(result.events[0].reason || '', /disabled/i);
-});
-
-test('refund intentionally skipped because its original sale was not posted is recognized', () => {
-  const result = getAccountingSourceEventReconciliation(fakeDb({
-    cutoff: '2026-10-01T00:00:00Z',
-    refunds: [{ id: 19, bill_id: 18, amount_cents: 500, method: 'cash', created_at: '2026-10-02T12:05:00Z', bill_created_at: '2026-10-02T12:00:00Z' }],
-    auditEvents: [{ entity_id: 'refund:19', action: 'skipped_auto_refund_posting' }],
-  }));
-  assert.equal(result.events[0].status, 'skipped_auto_posting');
-  assert.deepEqual(result.events[0].journal_entry_ids, []);
-});
-
 test('audited intentionally skipped receipt remains skipped when its timestamp is missing', () => {
   const result = getAccountingSourceEventReconciliation(fakeDb({
     cutoff: '2026-10-01T00:00:00Z',
@@ -184,4 +161,4 @@ test('audited intentionally skipped refund remains skipped with an invalid times
   assert.equal(result.events[0].status, 'skipped_auto_posting');
 });
 
-process.stdout.write('Accounting source reconciliation: 9 assertions groups passed.\n');
+process.stdout.write('Accounting source reconciliation: 7 assertions groups passed.\n');\n');

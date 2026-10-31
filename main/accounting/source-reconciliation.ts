@@ -27,12 +27,6 @@ function validDate(value: unknown, field: string): string | undefined {
   return value;
 }
 
-function wasSkippedBecauseAutoPostingDisabled(db: DB, entityId: string, action: string): boolean {
-  return Boolean(db.prepare(
-    "SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action=? LIMIT 1",
-  ).get(entityId, action));
-}
-
 function journalMatches(db: DB, sourceType: string, sourceId: string, sourceEvent: string): Array<{ id: string; entry_number: string; status: string }> {
   return db.prepare(
     'SELECT id, entry_number, status FROM accounting_journal_entries WHERE source_type=? AND source_id=? AND source_event=? ORDER BY created_at,id',
@@ -85,6 +79,12 @@ function inAccountingDateRange(db: DB, timestamp: string | null, from?: string, 
   const day = accountingEventDate(db, timestamp);
   if (!day) return true;
   return (!from || day >= from) && (!to || day <= to);
+}
+
+function wasSkippedBecauseAutoPostingDisabled(db: DB, entityId: string, action: string): boolean {
+  return Boolean(db.prepare(
+    "SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action=? LIMIT 1",
+  ).get(entityId, action));
 }
 
 /**
@@ -142,14 +142,9 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       if (eventId && wasSkippedBecauseAutoPostingDisabled(db, 'payment:' + eventId, 'skipped_auto_sales_posting')) {
         if (!inAccountingDateRange(db, eventDate, from, to)) continue;
         events.push({
-          event_type: 'receipt',
-          source_id: sourceId,
-          event_date: eventDate,
-          amount,
-          method,
-          status: 'skipped_auto_posting',
-          journal_entry_ids: [],
-          reason: 'Automatic sales posting was disabled in accounting settings; no journal was expected.',
+          event_type: 'receipt', source_id: sourceId, event_date: eventDate, amount, method,
+          status: 'skipped_auto_posting', journal_entry_ids: [],
+          reason: 'Automatic sales posting was disabled when this receipt was accepted; no accounting journal was expected.',
         });
         continue;
       }
@@ -207,14 +202,9 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
     if (wasSkippedBecauseAutoPostingDisabled(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting')) {
       if (!inAccountingDateRange(db, refund.created_at, from, to)) continue;
       events.push({
-        event_type: 'refund',
-        source_id: String(refund.id),
-        event_date: refund.created_at,
-        amount: Number(refund.amount_cents),
-        method: refund.method,
-        status: 'skipped_auto_posting',
-        journal_entry_ids: [],
-        reason: 'Automatic sales posting was disabled and the original sale had no posted receipt; no refund journal was expected.',
+        event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at,
+        amount: Number(refund.amount_cents), method: refund.method, status: 'skipped_auto_posting',
+        journal_entry_ids: [], reason: 'The original sale was not posted while automatic sales posting was disabled; no standalone refund journal was expected.',
       });
       continue;
     }
