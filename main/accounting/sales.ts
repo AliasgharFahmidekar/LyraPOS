@@ -126,7 +126,7 @@ export function isAutomaticSalesPostingEnabled(db: DB): boolean {
   return setting?.value === 'true' || setting?.value === '1';
 }
 
-function auditPreCutoverEvent(db: DB, entityId: string, action: string, actorId: string | null, details: unknown): void {
+function auditSourceEvent(db: DB, entityId: string, action: string, actorId: string | null, details: unknown): void {
   const exists = db.prepare('SELECT 1 FROM accounting_audit_log WHERE entity_type = ? AND entity_id = ? AND action = ? LIMIT 1')
     .get('accounting_source_event', entityId, action);
   if (exists) return;
@@ -188,6 +188,42 @@ export function hasAccountingRecordedMonetaryReceipt(db: DB, billId: string | nu
     LIMIT 1
   `).get(billKey + ':%');
   return Boolean(row);
+}
+
+/**
+ * Remaining cash receipts recognized by the ledger for this bill, net of
+ * refunds already posted against those receipts. This is deliberately derived
+ * from posted journal lines, not POS paid_amount/payment_details: auto-posting
+ * may have been disabled for some receipts.
+ */
+export function getRemainingRecordedReceiptMinor(db: DB, billId: string | number): number {
+  const receipts = db.prepare(`
+    SELECT COALESCE(SUM(line.debit_minor), 0) AS total
+    FROM accounting_journal_entries entry
+    JOIN accounting_journal_lines line ON line.journal_entry_id = entry.id
+    WHERE entry.source_type = 'bill_payment'
+      AND entry.source_event = 'money_received'
+      AND entry.status = 'posted'
+      AND substr(entry.source_id, 1, instr(entry.source_id, ':') - 1) = ?
+  `).get(String(billId)) as { total: number };
+  const refunds = db.prepare(`
+    SELECT COALESCE(SUM(line.debit_minor), 0) AS total
+    FROM refunds refund
+    JOIN accounting_journal_entries entry
+      ON entry.source_type = 'refund'
+     AND entry.source_event = 'money_refunded'
+     AND entry.source_id = CAST(refund.id AS TEXT)
+     AND entry.status = 'posted'
+    JOIN accounting_journal_lines line ON line.journal_entry_id = entry.id
+    JOIN accounting_accounts account ON account.id = line.account_id AND account.system_key = 'sales_returns'
+    WHERE refund.bill_id = ?
+  `).get(String(billId)) as { total: number };
+  const receiptTotal = Number(receipts?.total ?? 0);
+  const refundTotal = Number(refunds?.total ?? 0);
+  if (!Number.isSafeInteger(receiptTotal) || !Number.isSafeInteger(refundTotal) || receiptTotal < 0 || refundTotal < 0) {
+    fail('accounting_receipt_total_invalid', 'Recorded receipt/refund totals are invalid; the refund was not posted.', 409);
+  }
+  return Math.max(0, receiptTotal - refundTotal);
 }
 
 /**
@@ -291,7 +327,7 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
         }
       }
       const action = isPreCutover ? 'skipped_pre_cutover_payment' : 'skipped_auto_sales_posting';
-      auditPreCutoverEvent(db, auditId, action, actorId, {
+      auditSourceEvent(db, auditId, action, actorId, {
         bill_id: String(bill.id),
         payment_event_id: eventId || null,
         amount: payment?.amount ?? null,
@@ -330,7 +366,7 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
       fail('payment_event_timestamp_missing', 'A new payment line has no stable event timestamp; receipt posting was blocked.', 409);
     }
     if (isBeforeAccountingCutover(db, eventTimestamp)) {
-      if (eventId) auditPreCutoverEvent(db, 'payment:' + eventId, 'skipped_pre_cutover_payment', actorId, {
+      if (eventId) auditSourceEvent(db, 'payment:' + eventId, 'skipped_pre_cutover_payment', actorId, {
         bill_id: String(bill.id), payment_event_id: eventId, amount: payment.amount, method: payment.method,
         event_timestamp: eventTimestamp,
         reason: 'The receipt event timestamp predates accounting cutover; historical money receipts are intentionally not backfilled.',
@@ -405,7 +441,7 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     // Historical events must retain their pre-cutover classification regardless of
     // the current automatic-posting preference. Never backfill legacy refunds.
     if (isBeforeAccountingCutover(db, refund.created_at || now())) {
-      auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
+      auditSourceEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
         refund_id: String(refund.id), bill_id: String(bill.id), event_timestamp: refund.created_at || null,
         reason: 'The refund event timestamp predates accounting cutover; historical monetary refunds are intentionally not backfilled.',
       });
@@ -414,7 +450,7 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     // Refunds reverse sales only when the original receipt exists in the ledger.
     // Turning posting off must never create a standalone negative-revenue journal.
     if (!isAutomaticSalesPostingEnabled(db) && !hasAccountingRecordedMonetaryReceipt(db, bill.id)) {
-      auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting', actorId, {
+      auditSourceEvent(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting', actorId, {
         refund_id: String(refund.id),
         bill_id: String(bill.id),
         event_timestamp: refund.created_at || null,
@@ -434,6 +470,24 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
       || !Number.isSafeInteger(accountingFactor) || accountingFactor <= 0
       || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
       fail('refund_amount_invalid', 'The committed refund has an invalid amount in the configured accounting currency.', 409);
+    }
+    const remainingRecordedReceiptMinor = getRemainingRecordedReceiptMinor(db, bill.id);
+    if (amountMinor > remainingRecordedReceiptMinor) {
+      auditSourceEvent(db, 'refund:' + String(refund.id), 'skipped_unmatched_refund_posting', actorId, {
+        refund_id: String(refund.id),
+        bill_id: String(bill.id),
+        refund_amount_minor: amountMinor,
+        remaining_recorded_receipt_minor: remainingRecordedReceiptMinor,
+        reason: remainingRecordedReceiptMinor <= 0
+          ? 'No unrefunded monetary receipt for this bill exists in the accounting ledger; posting this refund would create a negative/unmatched sales return.'
+          : 'The refund exceeds the remaining monetary receipts recognized in the accounting ledger; no partial or overstated refund journal was created.',
+      });
+      return {
+        posted: false,
+        reason: remainingRecordedReceiptMinor <= 0
+          ? 'no_accounting_recorded_receipt'
+          : 'refund_exceeds_recorded_receipts',
+      };
     }
     const payout = mappedPaymentAccount(db, resolveRefundPaymentKey(db, refund.method));
     const contraRevenue = postingAccountBySystemKey(db, 'sales_returns', 'revenue');

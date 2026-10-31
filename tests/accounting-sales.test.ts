@@ -232,6 +232,8 @@ try {
   {
     const db = freshDb();
     const { billId } = makeBill(db, 'REFUND');
+    const received = { payment_event_id: 'refund-test-receipt-001', method: 'cash', amount: 100, timestamp: now() };
+    db.transaction(() => sales.postCollectionPaymentLines(db, billId, [received], 'test-owner-accounting'))();
     sales.finalizeBillSale(db, billId, 'test-owner-accounting');
     const stamp = now();
     const refund = db.prepare(
@@ -248,6 +250,18 @@ try {
     const again = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
     equal(again.posted, true, 'refund retry resolves through original source journal');
     equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='refund' AND source_id=? AND source_event='money_refunded'").get(String(refund.lastInsertRowid)).n, 1, 'refund retry never duplicates journal');
+
+    const excessRefund = db.prepare(
+      'INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(billId, 7600, 'cash', 'refund exceeds unrefunded recorded receipts', 'test-owner-accounting', 'test-owner-accounting', now());
+    const excessResult = sales.postCommittedRefund(db, Number(excessRefund.lastInsertRowid), 'test-owner-accounting');
+    equal(excessResult.posted, false, 'refund above remaining posted receipts is retained operationally but not overstated in accounting');
+    equal(excessResult.reason, 'refund_exceeds_recorded_receipts', 'excess refund returns an explicit reconciliation reason');
+    equal(journalForSource(db, 'refund', String(excessRefund.lastInsertRowid), 'money_refunded'), undefined,
+      'excess refund creates no negative or unmatched sales-return journal');
+    ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_unmatched_refund_posting'")
+      .get('refund:' + Number(excessRefund.lastInsertRowid)), 'excess refund is flagged for reconciliation');
+
     const walletRefund = db.prepare(
       'INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at) VALUES (?,?,?,?,?,?,?)',
     ).run(billId, 10, 'wallet', 'non-monetary store credit', 'test-owner-accounting', 'test-owner-accounting', now());
@@ -261,6 +275,23 @@ try {
     equal(ignoredStoreCredit.posted, false, 'store-credit refund is ignored as non-monetary');
     equal(ignoredStoreCredit.reason, 'non_monetary_refund_ignored', 'store-credit refund returns the explicit non-monetary result');
     equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_journal_entries WHERE source_type='refund'").get().n, 1, 'store-credit refund creates no journal');
+    closeDatabase();
+  }
+
+  // Refunds cannot create returns against income that was never recognized.
+  {
+    const db = freshDb();
+    const { billId } = makeBill(db, 'REFUND-WITHOUT-RECEIPT');
+    const refund = db.prepare(
+      'INSERT INTO refunds (bill_id,amount_cents,method,reason,approved_by,created_by,created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(billId, 1000, 'cash', 'no ledger receipt exists', 'test-owner-accounting', 'test-owner-accounting', now());
+    const result = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
+    equal(result.posted, false, 'automatic posting does not post a refund when no monetary receipt exists in the ledger');
+    equal(result.reason, 'no_accounting_recorded_receipt', 'unmatched refund reports the absence of an accounting receipt');
+    equal(journalForSource(db, 'refund', String(refund.lastInsertRowid), 'money_refunded'), undefined,
+      'unmatched refund does not create negative sales returns or a payout journal');
+    ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_unmatched_refund_posting'")
+      .get('refund:' + Number(refund.lastInsertRowid)), 'unmatched refund is retained for source reconciliation');
     closeDatabase();
   }
 
@@ -297,7 +328,7 @@ try {
 
     const refund = db.prepare(
       'INSERT INTO refunds (bill_id, amount_cents, method, reason, approved_by, created_by, created_at) VALUES (?,?,?,?,?,?,?)',
-    ).run(billId, 2500, 'cash', 'Post-cutover refund on legacy bill', 'test-owner-accounting', 'test-owner-accounting', '2025-01-02T08:00:00.000Z');
+    ).run(billId, 1000, 'cash', 'Post-cutover refund within the recorded receipt', 'test-owner-accounting', 'test-owner-accounting', '2025-01-02T08:00:00.000Z');
     const refundResult = sales.postCommittedRefund(db, Number(refund.lastInsertRowid), 'test-owner-accounting');
     equal(refundResult.posted, true, 'post-cutover refund is posted even when its source bill predates cutover');
     const refundJournal = journalForSource(db, 'refund', String(refund.lastInsertRowid), 'money_refunded');

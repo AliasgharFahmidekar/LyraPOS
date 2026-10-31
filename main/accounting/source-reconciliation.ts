@@ -228,7 +228,16 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       continue;
     }
     const match = statusFor(journalMatches(db, 'refund', String(refund.id), 'money_refunded'));
-    events.push({ event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at, amount: Number(refund.amount_cents), method: refund.method, ...match });
+    const unmatchedRefund = wasSkippedBecauseAutoPostingDisabled(db, 'refund:' + String(refund.id), 'skipped_unmatched_refund_posting');
+    events.push({
+      event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at,
+      amount: Number(refund.amount_cents), method: refund.method,
+      ...match,
+      ...(unmatchedRefund ? {
+        status: 'missing_journal' as const,
+        reason: 'The refund exceeds the remaining monetary receipts recognized in accounting, or no such receipt exists; no unmatched refund journal was created. Review the receipt and refund records.',
+      } : {}),
+    });
   }
 
   const expenses = db.prepare(

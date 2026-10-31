@@ -164,6 +164,16 @@ test('audited intentionally skipped receipt remains skipped when its timestamp i
   assert.equal(result.events[0].event_date, null);
 });
 
+test('unmatched refund is surfaced as a missing-journal exception, not accepted as a normal skip', () => {
+  const result = getAccountingSourceEventReconciliation(fakeDb({
+    cutoff: '2026-10-01T00:00:00Z',
+    refunds: [{ id: 23, bill_id: 22, amount_cents: 2500, method: 'cash', created_at: '2026-10-02T12:00:00Z', bill_created_at: '2026-10-02T11:00:00Z' }],
+    auditEvents: [{ entity_id: 'refund:23', action: 'skipped_unmatched_refund_posting' }],
+  }));
+  assert.equal(result.events[0].status, 'missing_journal');
+  assert.match(result.events[0].reason || '', /exceeds the remaining monetary receipts/i);
+});
+
 test('audited intentionally skipped refund remains skipped with an invalid timestamp', () => {
   const result = getAccountingSourceEventReconciliation(fakeDb({
     cutoff: '2026-10-01T00:00:00Z',
