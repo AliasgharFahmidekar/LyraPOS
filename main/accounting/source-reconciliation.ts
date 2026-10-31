@@ -139,7 +139,12 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
       const sourceId = eventId ? String(bill.id) + ':' + eventId : 'bill:' + String(bill.id);
       const eventDate = typeof payment?.timestamp === 'string' && payment.timestamp.trim() ? payment.timestamp.trim() : null;
-      if (eventId && wasSkippedBecauseAutoPostingDisabled(db, 'payment:' + eventId, 'skipped_auto_sales_posting')) {
+      // A real pre-cutover timestamp is authoritative even if an older build left
+      // a stale auto-skipped audit marker for this same event. Missing/invalid timestamps
+      // still rely on the explicit skip audit to distinguish intentional skips.
+      const eventIsPreCutover = Boolean(eventDate && isPreCutover(eventDate));
+      if (eventId && !eventIsPreCutover
+        && wasSkippedBecauseAutoPostingDisabled(db, 'payment:' + eventId, 'skipped_auto_sales_posting')) {
         if (!inAccountingDateRange(db, eventDate, from, to)) continue;
         events.push({
           event_type: 'receipt', source_id: sourceId, event_date: eventDate, amount, method,

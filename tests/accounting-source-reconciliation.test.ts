@@ -140,6 +140,18 @@ test('a missing journal is an exception and not silently repaired', () => {
   assert.equal(result.events[0].reason, 'No journal entry matches this operational source event.');
 });
 
+test('valid pre-cutover timestamp takes precedence over a stale auto-skipped audit marker', () => {
+  const result = getAccountingSourceEventReconciliation(fakeDb({
+    cutoff: '2026-10-01T00:00:00Z',
+    bills: [{ id: 22, created_at: '2024-01-01 12:00:00', payment_details: JSON.stringify([
+      { payment_event_id: 'stale-auto-off-legacy', method: 'cash', amount: 900, timestamp: '2024-01-01T12:05:00Z' },
+    ]) }],
+    auditEvents: [{ entity_id: 'payment:stale-auto-off-legacy', action: 'skipped_auto_sales_posting' }],
+  }));
+  assert.equal(result.events[0].status, 'skipped_pre_cutover',
+    'a verifiably old receipt is not hidden behind a stale auto-posting-disabled marker');
+});
+
 test('audited intentionally skipped receipt remains skipped when its timestamp is missing', () => {
   const result = getAccountingSourceEventReconciliation(fakeDb({
     cutoff: '2026-10-01T00:00:00Z',

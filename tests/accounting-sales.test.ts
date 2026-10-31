@@ -527,6 +527,21 @@ try {
     const db = freshDb();
     db.prepare("DELETE FROM settings WHERE key='accounting_auto_post_sales'").run();
     equal(sales.isAutomaticSalesPostingEnabled(db), false, 'missing preference defaults automatic sales posting to disabled');
+    const { billId: preCutoverBillId } = makeBill(db, 'AUTO-POST-OFF-LEGACY');
+    const preCutoverPayment = {
+      payment_event_id: 'auto-off-pre-cutover-payment-001', method: 'cash', amount: 25,
+      timestamp: '1999-12-31T23:59:00.000Z',
+    };
+    db.transaction(() => sales.postCollectionPaymentLines(db, preCutoverBillId, [preCutoverPayment], 'test-owner-accounting'))();
+    ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_pre_cutover_payment'")
+      .get('payment:' + preCutoverPayment.payment_event_id),
+      'pre-cutover receipt keeps its legacy classification even when automatic posting is disabled');
+    equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_auto_sales_posting'")
+      .get('payment:' + preCutoverPayment.payment_event_id).n, 0,
+      'pre-cutover receipt is not mislabeled as a post-cutover auto-posting skip');
+    equal(journalForSource(db, 'bill_payment', String(preCutoverBillId) + ':' + preCutoverPayment.payment_event_id, 'money_received'), undefined,
+      'pre-cutover receipt is never backfilled while automatic posting is disabled');
+
     const { billId: skippedBillId } = makeBill(db, 'AUTO-POST-OFF');
     const skippedPayment = { payment_event_id: 'auto-off-payment-001', method: 'cash', amount: 30, timestamp: now() };
     db.transaction(() => sales.postCollectionPaymentLines(db, skippedBillId, [skippedPayment], 'test-owner-accounting'))();
@@ -551,6 +566,13 @@ try {
     db.transaction(() => sales.postCollectionPaymentLines(db, postedBillId, [postedPayment], 'test-owner-accounting'))();
     const postedReceipt = journalForSource(db, 'bill_payment', String(postedBillId) + ':' + postedPayment.payment_event_id, 'money_received');
     ok(postedReceipt, 'enabled automatic sales posting creates the normal receipt journal');
+
+    const { billId: missingTimestampBillId } = makeBill(db, 'AUTO-POST-MISSING-TIMESTAMP');
+    const missingTimestampPayment = { payment_event_id: 'auto-on-payment-missing-timestamp-001', method: 'cash', amount: 10 };
+    throwsCode(() => db.transaction(() => sales.postCollectionPaymentLines(db, missingTimestampBillId, [missingTimestampPayment], 'test-owner-accounting'))(),
+      'payment_event_timestamp_missing', 'enabled posting rejects a payment without its actual event timestamp instead of inventing one');
+    equal(journalForSource(db, 'bill_payment', String(missingTimestampBillId) + ':' + missingTimestampPayment.payment_event_id, 'money_received'), undefined,
+      'missing payment timestamp creates no journal under a synthetic current date');
 
     db.prepare("UPDATE settings SET value='false' WHERE key='accounting_auto_post_sales'").run();
     const postedRefund = db.prepare(

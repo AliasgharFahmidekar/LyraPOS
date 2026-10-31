@@ -272,21 +272,34 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
   if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
   if (paymentLines.length && !isAutomaticSalesPostingEnabled(db)) {
     // Keep POS collection independent from accounting validation while posting is off.
-    // The operational payment remains committed; this branch only records the intentional skip.
+    // Still classify verifiably pre-cutover events correctly so legacy receipts are not
+    // mislabeled as user-disabled posting (and remain visible in the cutover report).
     paymentLines.forEach((payment, index) => {
       if (payment?.method === 'wallet' || payment?.method === 'loyalty') return;
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
       const eventTimestamp = typeof payment?.timestamp === 'string' && payment.timestamp.trim()
         ? payment.timestamp.trim()
-        : now();
+        : null;
       const auditId = eventId ? 'payment:' + eventId : 'payment:unidentified:' + String(bill.id) + ':' + String(index);
-      auditPreCutoverEvent(db, auditId, 'skipped_auto_sales_posting', actorId, {
+      let isPreCutover = false;
+      if (eventTimestamp) {
+        try {
+          isPreCutover = isBeforeAccountingCutover(db, eventTimestamp);
+        } catch {
+          // With accounting posting disabled, a missing/invalid cutover configuration
+          // must not interrupt the POS payment. The event remains audited as auto-skipped.
+        }
+      }
+      const action = isPreCutover ? 'skipped_pre_cutover_payment' : 'skipped_auto_sales_posting';
+      auditPreCutoverEvent(db, auditId, action, actorId, {
         bill_id: String(bill.id),
         payment_event_id: eventId || null,
         amount: payment?.amount ?? null,
         method: payment?.method ?? null,
         event_timestamp: eventTimestamp,
-        reason: 'Automatic sales posting was disabled in accounting settings; no journal was created.',
+        reason: isPreCutover
+          ? 'The receipt event timestamp predates accounting cutover; historical money receipts are intentionally not backfilled.'
+          : 'Automatic sales posting was disabled in accounting settings; no journal was created.',
       });
     });
     return;
@@ -312,7 +325,10 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
     const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
     const eventTimestamp = typeof payment?.timestamp === 'string' && payment.timestamp.trim()
       ? payment.timestamp.trim()
-      : now();
+      : null;
+    if (!eventTimestamp) {
+      fail('payment_event_timestamp_missing', 'A new payment line has no stable event timestamp; receipt posting was blocked.', 409);
+    }
     if (isBeforeAccountingCutover(db, eventTimestamp)) {
       if (eventId) auditPreCutoverEvent(db, 'payment:' + eventId, 'skipped_pre_cutover_payment', actorId, {
         bill_id: String(bill.id), payment_event_id: eventId, amount: payment.amount, method: payment.method,
