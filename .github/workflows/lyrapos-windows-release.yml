@@ -1,0 +1,189 @@
+name: LyraPOS Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish a stable GitHub Release (only from main); otherwise build an Actions artifact"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lyrapos-windows-release
+  cancel-in-progress: false
+
+jobs:
+  build-windows-release:
+    name: Build and optionally publish LyraPOS Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npm run release:win
+
+      - name: Verify release artifact names
+        run: npm run verify:release-artifacts
+
+      - name: Run Windows packaging identity guard
+        run: npm run test:windows-packaging-identity
+
+      - name: Validate release mode and version
+        id: release-mode
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (node -p "require('./package.json').version").Trim()
+          if ($version -notmatch '^\\d+\\.\\d+\\.\\d+$') {
+            throw "Windows stable release requires X.Y.Z package version; found '$version'."
+          }
+
+          $publish = $false
+          if ($env:EVENT_NAME -eq 'push') {
+            if ($env:REF_TYPE -ne 'tag' -or $env:REF_NAME -ne $version) {
+              throw "Pushed tag '$($env:REF_NAME)' must exactly match package.json version '$version'."
+            }
+            git fetch origin main --quiet
+            if ($LASTEXITCODE -ne 0) { throw 'Could not fetch main for release provenance validation.' }
+            git merge-base --is-ancestor $env:COMMIT_SHA origin/main
+            if ($LASTEXITCODE -ne 0) { throw 'Refusing to release a tag whose commit is not in main history.' }
+            $publish = $true
+          } elseif ($env:PUBLISH_RELEASE -eq 'true') {
+            if ($env:REF -ne 'refs/heads/main') {
+              throw 'Publishing from a workflow_dispatch run is allowed only from main. PR-branch runs are build-only.'
+            }
+            $remoteTag = git ls-remote --tags origin "refs/tags/$version"
+            if ($LASTEXITCODE -ne 0) { throw 'Could not check whether the release tag already exists.' }
+            if ($remoteTag) { throw "Tag '$version' already exists; refusing to retarget or overwrite it." }
+            $publish = $true
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          Write-Host "Package version: $version; publish release: $publish"
+
+      - name: Upload Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyrapos-windows
+          path: |
+            release/lyrapos-*.exe
+            release/latest.yml
+            release/*.blockmap
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create draft GitHub Release with Windows updater assets
+        if: steps.release-mode.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ github.token }}
+          tag_name: ${{ steps.release-mode.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: LyraPOS ${{ steps.release-mode.outputs.version }}
+          draft: true
+          prerelease: false
+          make_latest: false
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          files: |
+            release/lyrapos-*.exe
+            release/latest.yml
+            release/*.blockmap
+
+      - name: Verify draft release and updater manifest
+        if: steps.release-mode.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release-mode.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = gh release view $env:RELEASE_TAG --json tagName,isDraft,isPrerelease,assets,databaseId | ConvertFrom-Json
+          if ($release.tagName -ne $env:RELEASE_TAG) { throw 'Draft release tag mismatch.' }
+          if (-not $release.isDraft -or $release.isPrerelease) { throw 'Expected an unpublished stable draft release.' }
+
+          $assets = @($release.assets)
+          $assetNames = @($assets | ForEach-Object { $_.name })
+          foreach ($required in @('latest.yml')) {
+            if ($assetNames -notcontains $required) { throw "Release is missing required updater asset '$required'." }
+          }
+          $installer = $assets | Where-Object { $_.name -match '^lyrapos-.*-win-x64\\.exe$' } | Select-Object -First 1
+          if (-not $installer -or $installer.size -le 0) { throw 'Release is missing a non-empty x64 Windows installer.' }
+          $blockmap = $assets | Where-Object { $_.name -eq ($installer.name + '.blockmap') } | Select-Object -First 1
+          if (-not $blockmap -or $blockmap.size -le 0) { throw 'Release is missing the installer blockmap.' }
+
+          $checkDir = Join-Path $env:RUNNER_TEMP 'lyrapos-release-verification'
+          New-Item -ItemType Directory -Force -Path $checkDir | Out-Null
+          gh release download $env:RELEASE_TAG --pattern latest.yml --dir $checkDir
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download latest.yml from the draft release.' }
+          $manifestPath = Join-Path $checkDir 'latest.yml'
+          $manifest = Get-Content $manifestPath -Raw
+          $manifestVersion = [regex]::Match($manifest, '(?m)^version:\\s*["'']?([^""''\\s]+)').Groups[1].Value
+          $manifestAsset = [regex]::Match($manifest, '(?m)^\\s*-\\s*url:\\s*["'']?([^""''\\s]+)').Groups[1].Value
+          $manifestHash = [regex]::Match($manifest, '(?m)^\\s*sha512:\\s*["'']?([^""''\\s]+)').Groups[1].Value
+          if ($manifestVersion -ne $env:RELEASE_TAG) { throw "latest.yml version '$manifestVersion' does not match release tag '$($env:RELEASE_TAG)'." }
+          if (-not $manifestAsset -or $assetNames -notcontains $manifestAsset) { throw "latest.yml references '$manifestAsset', which is not attached to this release." }
+          if (-not $manifestHash) { throw 'latest.yml is missing the SHA-512 checksum.' }
+          if ($manifestAsset -ne $installer.name) { throw 'latest.yml does not point to the expected x64 Windows installer.' }
+
+          gh release download $env:RELEASE_TAG --pattern $manifestAsset --dir $checkDir
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the installer referenced by latest.yml.' }
+          $installerPath = Join-Path $checkDir $manifestAsset
+          $sha = [System.Security.Cryptography.SHA512]::Create()
+          try {
+            $actualHash = [Convert]::ToBase64String($sha.ComputeHash([System.IO.File]::ReadAllBytes($installerPath)))
+          } finally {
+            $sha.Dispose()
+          }
+          if ($actualHash -ne $manifestHash) { throw 'Downloaded installer SHA-512 does not match latest.yml.' }
+          Write-Host "Verified published draft assets and latest.yml for $($env:RELEASE_TAG)."
+
+      - name: Publish verified Windows release as GitHub Latest
+        if: steps.release-mode.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release-mode.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = gh release view $env:RELEASE_TAG --json databaseId,isDraft,isPrerelease | ConvertFrom-Json
+          if (-not $release.isDraft -or $release.isPrerelease) { throw 'Refusing to publish a non-draft or prerelease release.' }
+          gh api --method PATCH "repos/$env:GH_REPO/releases/$($release.databaseId)" -F draft=false -F make_latest=true | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub rejected publication of the verified release.' }
+          $latestTag = gh api "repos/$env:GH_REPO/releases/latest" --jq .tag_name
+          if ($LASTEXITCODE -ne 0 -or $latestTag.Trim() -ne $env:RELEASE_TAG) {
+            throw "Published release did not become GitHub Latest (reported '$latestTag')."
+          }
+          Write-Host "Published LyraPOS $($env:RELEASE_TAG) and confirmed GitHub Latest."
