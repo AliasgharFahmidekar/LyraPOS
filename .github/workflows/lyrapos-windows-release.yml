@@ -63,7 +63,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $version = (node -p "require('./package.json').version").Trim()
-          if ($version -notmatch '^\\d+\\.\\d+\\.\\d+$') {
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
             throw "Windows stable release requires X.Y.Z package version; found '$version'."
           }
 
@@ -138,7 +138,7 @@ jobs:
           foreach ($required in @('latest.yml')) {
             if ($assetNames -notcontains $required) { throw "Release is missing required updater asset '$required'." }
           }
-          $installer = $assets | Where-Object { $_.name -match '^lyrapos-.*-win-x64\\.exe$' } | Select-Object -First 1
+          $installer = $assets | Where-Object { $_.name -match '^lyrapos-.*-win-x64\.exe$' } | Select-Object -First 1
           if (-not $installer -or $installer.size -le 0) { throw 'Release is missing a non-empty x64 Windows installer.' }
           $blockmap = $assets | Where-Object { $_.name -eq ($installer.name + '.blockmap') } | Select-Object -First 1
           if (-not $blockmap -or $blockmap.size -le 0) { throw 'Release is missing the installer blockmap.' }
@@ -149,9 +149,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not download latest.yml from the draft release.' }
           $manifestPath = Join-Path $checkDir 'latest.yml'
           $manifest = Get-Content $manifestPath -Raw
-          $manifestVersion = [regex]::Match($manifest, '(?m)^version:\\s*["'']?([^""''\\s]+)').Groups[1].Value
-          $manifestAsset = [regex]::Match($manifest, '(?m)^\\s*-\\s*url:\\s*["'']?([^""''\\s]+)').Groups[1].Value
-          $manifestHash = [regex]::Match($manifest, '(?m)^\\s*sha512:\\s*["'']?([^""''\\s]+)').Groups[1].Value
+          $manifestVersion = [regex]::Match($manifest, '(?m)^version:\s*["'']?([^""''\s]+)').Groups[1].Value
+          $manifestAsset = [regex]::Match($manifest, '(?m)^\s*-\s*url:\s*["'']?([^""''\s]+)').Groups[1].Value
+          $manifestHash = [regex]::Match($manifest, '(?m)^\s*sha512:\s*["'']?([^""''\s]+)').Groups[1].Value
           if ($manifestVersion -ne $env:RELEASE_TAG) { throw "latest.yml version '$manifestVersion' does not match release tag '$($env:RELEASE_TAG)'." }
           if (-not $manifestAsset -or $assetNames -notcontains $manifestAsset) { throw "latest.yml references '$manifestAsset', which is not attached to this release." }
           if (-not $manifestHash) { throw 'latest.yml is missing the SHA-512 checksum.' }
