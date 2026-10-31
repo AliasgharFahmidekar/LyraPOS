@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     const disabled = await request(app).put('/api/accounting/sales-auto-posting').set(owner).send({ enabled: false });
     equal(disabled.status, 200, 'owner can disable automatic sales posting');
     equal(disabled.body.enabled, false, 'disabled preference is persisted');
-    process.stdout.write('PASS accounting sales auto-posting routes: ' + assertions + ' assertions\\n');
+    process.stdout.write('PASS accounting sales auto-posting routes: ' + assertions + ' assertions\n');
   } finally {
     closeDatabase();
     Module._load = originalLoad;

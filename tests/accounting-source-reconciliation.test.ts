@@ -161,4 +161,4 @@ test('audited intentionally skipped refund remains skipped with an invalid times
   assert.equal(result.events[0].status, 'skipped_auto_posting');
 });
 
-process.stdout.write('Accounting source reconciliation: 7 assertions groups passed.\n');\n');
+process.stdout.write('Accounting source reconciliation: 11 assertions passed.\n');
