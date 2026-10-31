@@ -386,6 +386,15 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     if (['wallet', 'loyalty', 'credit', 'store_credit', 'loyalty_wallet'].includes(refundMethod)) {
       return { posted: false, reason: 'non_monetary_refund_ignored' };
     }
+    // Historical events must retain their pre-cutover classification regardless of
+    // the current automatic-posting preference. Never backfill legacy refunds.
+    if (isBeforeAccountingCutover(db, refund.created_at || now())) {
+      auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
+        refund_id: String(refund.id), bill_id: String(bill.id), event_timestamp: refund.created_at || null,
+        reason: 'The refund event timestamp predates accounting cutover; historical monetary refunds are intentionally not backfilled.',
+      });
+      return { posted: false, reason: 'pre_cutover_bill' };
+    }
     // Refunds reverse sales only when the original receipt exists in the ledger.
     // Turning posting off must never create a standalone negative-revenue journal.
     if (!isAutomaticSalesPostingEnabled(db) && !hasAccountingRecordedMonetaryReceipt(db, bill.id)) {
@@ -396,13 +405,6 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
         reason: 'The original sale was not posted because automatic sales posting was disabled; no standalone refund journal was created.',
       });
       return { posted: false, reason: 'automatic_sales_posting_disabled' };
-    }
-    if (isBeforeAccountingCutover(db, refund.created_at || now())) {
-      auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
-        refund_id: String(refund.id), bill_id: String(bill.id), event_timestamp: refund.created_at || null,
-        reason: 'The refund event timestamp predates accounting cutover; historical monetary refunds are intentionally not backfilled.',
-      });
-      return { posted: false, reason: 'pre_cutover_bill' };
     }
     const currency = configuredCurrency(db);
     // refunds.amount_cents follows the legacy POS fraction-factor storage contract;
