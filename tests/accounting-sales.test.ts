@@ -573,7 +573,7 @@ try {
     equal(journalForSource(db, 'bill_payment', String(preCutoverBillId) + ':' + preCutoverPayment.payment_event_id, 'money_received'), undefined,
       'pre-cutover receipt is never backfilled while automatic posting is disabled');
 
-    const { billId: skippedBillId } = makeBill(db, 'AUTO-POST-OFF');
+    const { billId: skippedBillId } = makeBill(db, 'AUTO-POST-OFF', 30, 0);
     db.prepare("UPDATE bills SET paid_amount=30,balance=0,payment_status='paid' WHERE id=?").run(skippedBillId);
     const skippedPayment = { payment_event_id: 'auto-off-payment-001', method: 'cash', amount: 30, timestamp: now() };
     db.transaction(() => sales.postCollectionPaymentLines(db, skippedBillId, [skippedPayment], 'test-owner-accounting'))();
