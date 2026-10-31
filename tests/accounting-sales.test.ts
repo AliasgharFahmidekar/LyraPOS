@@ -31,6 +31,9 @@ function freshDb() {
   db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('timezone','Asia/Tehran',?)").run(timestamp);
   // This test begins after cutover; legacy behavior is covered in a separate scenario.
   db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('accounting_cutover_at','2000-01-01T00:00:00.000Z',?)").run(timestamp);
+  // Existing scenarios explicitly exercise the enabled path. The opt-in default
+  // is tested separately with this preference removed.
+  db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('accounting_auto_post_sales','true',?)").run(timestamp);
   db.prepare("INSERT OR IGNORE INTO users (id,name,password,role,is_active,created_at,updated_at) VALUES ('test-owner-accounting','Test Owner','test-password','owner',1,?,?)").run(timestamp, timestamp);
   return db;
 }
@@ -245,6 +248,49 @@ try {
     const refundJournal = journalForSource(db, 'refund', String(refund.lastInsertRowid), 'money_refunded');
     equal(refundJournal.status, 'posted', 'legacy-bill refund follows the normal posted-journal path');
     equal(db.prepare("SELECT COUNT(*) AS n FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_pre_cutover_refund'").get('refund:' + Number(refund.lastInsertRowid)).n, 0, 'new refund is not incorrectly audited as a skipped legacy refund');
+    closeDatabase();
+  }
+
+  // Scenario 9: automatic sales posting is opt-in, and refunds cannot create
+  // standalone negative revenue when the original sale was never posted.
+  {
+    const db = freshDb();
+    db.prepare("DELETE FROM settings WHERE key='accounting_auto_post_sales'").run();
+    equal(sales.isAutomaticSalesPostingEnabled(db), false, 'missing preference defaults automatic sales posting to disabled');
+
+    const disabledSale = makeBill(db, 'AUTO-POST-OFF');
+    const disabledPayment = { payment_event_id: 'auto-post-off-payment-001', method: 'cash', amount: 30, timestamp: '2026-10-14T09:00:00.000Z' };
+    db.transaction(() => sales.postCollectionPaymentLines(db, disabledSale.billId, [disabledPayment], 'test-owner-accounting'))();
+    equal(journalForSource(db, 'bill_payment', String(disabledSale.billId) + ':' + disabledPayment.payment_event_id, 'money_received'), undefined,
+      'sales receipt does not create a journal when the setting is absent');
+    ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_auto_sales_posting'")
+      .get('payment:' + disabledPayment.payment_event_id), 'disabled sales posting is recorded in audit history');
+
+    const disabledRefund = db.prepare(
+      'INSERT INTO refunds (bill_id, amount_cents, method, reason, approved_by, created_by, created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(disabledSale.billId, 1000, 'cash', 'Refund of unposted sale', 'test-owner-accounting', 'test-owner-accounting', '2026-10-14T09:10:00.000Z');
+    const skippedRefund = sales.postCommittedRefund(db, Number(disabledRefund.lastInsertRowid), 'test-owner-accounting');
+    equal(skippedRefund.posted, false, 'refund of an unposted sale is not journaled when automatic sales posting is disabled');
+    equal(journalForSource(db, 'refund', String(disabledRefund.lastInsertRowid), 'money_refunded'), undefined,
+      'disabled automatic posting does not create a standalone refund journal');
+    ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_auto_refund_posting'")
+      .get('refund:' + Number(disabledRefund.lastInsertRowid)), 'skipped refund is recorded in audit history');
+
+    db.prepare("INSERT OR REPLACE INTO settings (key,value,updated_at) VALUES ('accounting_auto_post_sales','true',?)").run(now());
+    const enabledSale = makeBill(db, 'AUTO-POST-ON');
+    const enabledPayment = { payment_event_id: 'auto-post-on-payment-001', method: 'cash', amount: 40, timestamp: '2026-10-14T10:00:00.000Z' };
+    db.transaction(() => sales.postCollectionPaymentLines(db, enabledSale.billId, [enabledPayment], 'test-owner-accounting'))();
+    ok(journalForSource(db, 'bill_payment', String(enabledSale.billId) + ':' + enabledPayment.payment_event_id, 'money_received'),
+      'setting true enables automatic posting of a new sales receipt');
+
+    db.prepare("UPDATE settings SET value='false', updated_at=? WHERE key='accounting_auto_post_sales'").run(now());
+    const linkedRefund = db.prepare(
+      'INSERT INTO refunds (bill_id, amount_cents, method, reason, approved_by, created_by, created_at) VALUES (?,?,?,?,?,?,?)',
+    ).run(enabledSale.billId, 1000, 'cash', 'Refund after disabling future auto-posting', 'test-owner-accounting', 'test-owner-accounting', '2026-10-14T10:10:00.000Z');
+    const linkedRefundResult = sales.postCommittedRefund(db, Number(linkedRefund.lastInsertRowid), 'test-owner-accounting');
+    equal(linkedRefundResult.posted, true, 'refund still posts when its original sales receipt was already recorded');
+    ok(journalForSource(db, 'refund', String(linkedRefund.lastInsertRowid), 'money_refunded'),
+      'refund of a previously posted sale retains accounting integrity after disabling automatic sales posting');
     closeDatabase();
   }
 
