@@ -163,4 +163,25 @@ test('refund intentionally skipped because its original sale was not posted is r
   assert.deepEqual(result.events[0].journal_entry_ids, []);
 });
 
-process.stdout.write('Accounting source reconciliation: 7 assertions groups passed.\n');
+test('audited intentionally skipped receipt remains skipped when its timestamp is missing', () => {
+  const result = getAccountingSourceEventReconciliation(fakeDb({
+    cutoff: '2026-10-01T00:00:00Z',
+    bills: [{ id: 20, created_at: '2026-10-02 12:00:00', payment_details: JSON.stringify([
+      { payment_event_id: 'auto-off-no-time', method: 'cash', amount: 700 },
+    ]) }],
+    auditEvents: [{ entity_id: 'payment:auto-off-no-time', action: 'skipped_auto_sales_posting' }],
+  }));
+  assert.equal(result.events[0].status, 'skipped_auto_posting');
+  assert.equal(result.events[0].event_date, null);
+});
+
+test('audited intentionally skipped refund remains skipped with an invalid timestamp', () => {
+  const result = getAccountingSourceEventReconciliation(fakeDb({
+    cutoff: '2026-10-01T00:00:00Z',
+    refunds: [{ id: 21, bill_id: 20, amount_cents: 500, method: 'cash', created_at: 'not-a-valid-timestamp', bill_created_at: '2026-10-02T12:00:00Z' }],
+    auditEvents: [{ entity_id: 'refund:21', action: 'skipped_auto_refund_posting' }],
+  }));
+  assert.equal(result.events[0].status, 'skipped_auto_posting');
+});
+
+process.stdout.write('Accounting source reconciliation: 9 assertions groups passed.\n');
