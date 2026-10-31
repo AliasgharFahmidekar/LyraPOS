@@ -17,6 +17,7 @@ import { closeAccountingPeriod, listAccountingPeriods, reopenAccountingPeriod } 
 import { cancelFutureItem, createFutureItem, listFutureItems, registerFutureItem, settleFutureItem, FutureItemError } from '../accounting/future-items';
 import { cancelRecurringObligation, createRecurringObligation, listRecurringObligations, RecurringObligationError } from '../accounting/recurring-obligations';
 import { AccountingLoanError, cancelLoanInstallment, createLoan, createLoanInstallments, listLoans, registerLoanInstallment, settleLoanInstallment } from '../accounting/loans';
+import { isAutomaticSalesPostingEnabled } from '../accounting/sales';
 
 const router = Router();
 const managerOnly = requireRole(...ROLE_ACCESS.ownerManager);
@@ -219,6 +220,27 @@ router.get('/export', managerOnly, (_req, res) => {
   } catch (error) {
     respondError(res, error);
   }
+});
+router.get('/sales-auto-posting', managerOnly, (_req, res) => {
+  try {
+    res.json({ enabled: isAutomaticSalesPostingEnabled(getDatabase()) });
+  } catch (error) { respondError(res, error); }
+});
+router.put('/sales-auto-posting', managerOnly, (req, res) => {
+  try {
+    if (typeof req.body?.enabled !== 'boolean') {
+      res.status(400).json({ error: 'enabled must be a boolean.', code: 'invalid_accounting_setting' });
+      return;
+    }
+    const db = getDatabase();
+    const enabled = req.body.enabled;
+    db.prepare(`
+      INSERT INTO settings (key, value, updated_at)
+      VALUES ('accounting_auto_post_sales', ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
+    `).run(enabled ? 'true' : 'false');
+    res.json({ enabled: isAutomaticSalesPostingEnabled(db) });
+  } catch (error) { respondError(res, error); }
 });
 router.get('/accounts', managerOnly, (req, res) => {
   try {
