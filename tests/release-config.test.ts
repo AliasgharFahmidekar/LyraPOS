@@ -103,11 +103,11 @@ function testCurrentWorkflows() {
   const draftRelease = publishSteps.find((s: any) => s.uses === 'softprops/action-gh-release@v2');
   assert.equal(draftRelease.with.draft, true);
   assert.equal(draftRelease.with.make_latest, false);
-  assert.match(draftRelease.with.files, /release\\/latest\\.yml/);
+  assert.ok(draftRelease.with.files.includes('release/latest.yml'));
   const verifyDraft = publishSteps.find((s: any) => s.name === 'Verify draft release and updater manifest');
   assert.match(verifyDraft.run, /latest.yml/);
   assert.match(verifyDraft.run, /SHA-512/);
-  assert.match(verifyDraft.run, /releases\\?per_page=100/);
+  assert.ok(verifyDraft.run.includes('releases?per_page=100'));
   const publishRelease = publishSteps.find((s: any) => s.name === 'Publish verified Windows release as GitHub Latest');
   assert.match(publishRelease.run, /make_latest=true/);
 
