@@ -139,6 +139,20 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
       const sourceId = eventId ? String(bill.id) + ':' + eventId : 'bill:' + String(bill.id);
       const eventDate = typeof payment?.timestamp === 'string' && payment.timestamp.trim() ? payment.timestamp.trim() : null;
+      if (eventId && wasSkippedBecauseAutoPostingDisabled(db, 'payment:' + eventId, 'skipped_auto_sales_posting')) {
+        if (!inAccountingDateRange(db, eventDate, from, to)) continue;
+        events.push({
+          event_type: 'receipt',
+          source_id: sourceId,
+          event_date: eventDate,
+          amount,
+          method,
+          status: 'skipped_auto_posting',
+          journal_entry_ids: [],
+          reason: 'Automatic sales posting was disabled in accounting settings; no journal was expected.',
+        });
+        continue;
+      }
       if (!eventDate) {
         // A pre-cutover bill plus a legacy payment-details line with neither immutable
         // event ID nor timestamp is the one case covered by the explicit no-backfill
@@ -181,18 +195,7 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
         continue;
       }
       const match = statusFor(journalMatches(db, 'bill_payment', String(bill.id) + ':' + eventId, 'money_received'));
-      const skipped = match.status === 'missing_journal'
-        && wasSkippedBecauseAutoPostingDisabled(db, 'payment:' + eventId, 'skipped_auto_sales_posting');
-      events.push({
-        event_type: 'receipt',
-        source_id: String(bill.id) + ':' + eventId,
-        event_date: eventDate,
-        amount,
-        method,
-        ...(skipped
-          ? { status: 'skipped_auto_posting' as const, journal_entry_ids: [], reason: 'Automatic sales posting was disabled in accounting settings; no journal was expected.' }
-          : match),
-      });
+      events.push({ event_type: 'receipt', source_id: String(bill.id) + ':' + eventId, event_date: eventDate, amount, method, ...match });
     }
   }
 
@@ -201,6 +204,20 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
   ).all() as Array<{ id: number; bill_id: number; amount_cents: number; method: string; created_at: string | null; bill_created_at: string | null }>;
   for (const refund of refunds) {
     if (isWallet(refund.method)) continue;
+    if (wasSkippedBecauseAutoPostingDisabled(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting')) {
+      if (!inAccountingDateRange(db, refund.created_at, from, to)) continue;
+      events.push({
+        event_type: 'refund',
+        source_id: String(refund.id),
+        event_date: refund.created_at,
+        amount: Number(refund.amount_cents),
+        method: refund.method,
+        status: 'skipped_auto_posting',
+        journal_entry_ids: [],
+        reason: 'Automatic sales posting was disabled and the original sale had no posted receipt; no refund journal was expected.',
+      });
+      continue;
+    }
     const refundAccountingDay = accountingEventDate(db, refund.created_at);
     if (!inAccountingDateRange(db, refund.created_at, from, to)) continue;
     if (!refundAccountingDay) {
@@ -216,18 +233,7 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       continue;
     }
     const match = statusFor(journalMatches(db, 'refund', String(refund.id), 'money_refunded'));
-    const skipped = match.status === 'missing_journal'
-      && wasSkippedBecauseAutoPostingDisabled(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting');
-    events.push({
-      event_type: 'refund',
-      source_id: String(refund.id),
-      event_date: refund.created_at,
-      amount: Number(refund.amount_cents),
-      method: refund.method,
-      ...(skipped
-        ? { status: 'skipped_auto_posting' as const, journal_entry_ids: [], reason: 'Automatic sales posting was disabled and the original sale had no posted receipt; no refund journal was expected.' }
-        : match),
-    });
+    events.push({ event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at, amount: Number(refund.amount_cents), method: refund.method, ...match });
   }
 
   const expenses = db.prepare(
