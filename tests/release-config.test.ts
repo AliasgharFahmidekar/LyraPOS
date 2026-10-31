@@ -88,7 +88,10 @@ function testCurrentWorkflows() {
   assert.ok(releaseTriggers.pull_request.paths.includes('.github/workflows/lyrapos-windows-release.yml'));
   assert.deepEqual(releaseTriggers.push.tags, ['[0-9]*.[0-9]*.[0-9]*']);
   assert.equal(releaseTriggers.workflow_dispatch.inputs.publish_release.default, false);
-  assert.equal(windowsRelease.permissions.contents, 'write');
+  assert.equal(windowsRelease.permissions.contents, 'read');
+  assert.equal(windowsRelease.jobs['build-windows-release'].permissions.contents, 'read');
+  assert.equal(windowsRelease.jobs['publish-windows-release'].permissions.contents, 'write');
+  assert.equal(windowsRelease.jobs['publish-windows-release'].needs, 'build-windows-release');
   const releaseSteps = windowsRelease.jobs['build-windows-release'].steps;
   assert.equal(releaseSteps.find((s: any) => s.name === 'Build Windows installer').run, 'npm run release:win');
   assert.equal(releaseSteps.find((s: any) => s.name === 'Verify release artifact names').run, 'npm run verify:release-artifacts');
