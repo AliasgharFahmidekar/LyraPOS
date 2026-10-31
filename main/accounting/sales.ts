@@ -251,6 +251,28 @@ function canFinalizeBillSnapshot(db: DB, bill: any): boolean {
 export function postCollectionPaymentLines(db: DB, billId: string | number, paymentLines: any[], actorId: string | null): void {
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
   if (!bill) fail('bill_not_found', 'Bill was not found.', 404);
+  if (paymentLines.length && !isAutomaticSalesPostingEnabled(db)) {
+    // Keep the POS collection path independent from accounting validation while
+    // automatic posting is off. The payment itself is already committed by POS;
+    // this path records an audit note but must never reject collection.
+    paymentLines.forEach((payment, index) => {
+      if (payment?.method === 'wallet' || payment?.method === 'loyalty') return;
+      const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
+      const eventTimestamp = typeof payment?.timestamp === 'string' && payment.timestamp.trim()
+        ? payment.timestamp.trim()
+        : now();
+      const auditId = eventId ? 'payment:' + eventId : 'payment:unidentified:' + String(bill.id) + ':' + String(index);
+      auditPreCutoverEvent(db, auditId, 'skipped_auto_sales_posting', actorId, {
+        bill_id: String(bill.id),
+        payment_event_id: eventId || null,
+        amount: payment?.amount ?? null,
+        method: payment?.method ?? null,
+        event_timestamp: eventTimestamp,
+        reason: 'Automatic sales posting was disabled in accounting settings; no journal was created.',
+      });
+    });
+    return;
+  }
   if (!paymentLines.length) {
     // A supported discount may consume the remaining balance after a prior real-money
     // partial receipt. When POS subsequently closes that bill without applying more
@@ -287,26 +309,9 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
   // Wallet-only or historical-only batches must not create accounting entries.
   if (!eligiblePaymentLines.length) return;
 
-  // Keep the old commercial snapshot policy separate from the financial event:
-  // bill snapshot finalization remains an audit operation and is independent of
-  // whether the owner enabled automatic journal posting.
+  // Snapshot finalization and money-receipt recognition are separate. With the
+  // opt-in setting enabled, lock a fully settled bill before posting its receipts.
   if (bill.payment_status === 'paid' && canFinalizeBillSnapshot(db, bill)) finalizeBillSale(db, billId, actorId);
-
-  if (!isAutomaticSalesPostingEnabled(db)) {
-    for (const payment of eligiblePaymentLines) {
-      const eventId = String(payment.payment_event_id);
-      auditPreCutoverEvent(db, 'payment:' + eventId, 'skipped_auto_sales_posting', actorId, {
-        bill_id: String(bill.id),
-        payment_event_id: eventId,
-        amount: payment.amount,
-        method: payment.method,
-        event_timestamp: payment.timestamp,
-        reason: 'Automatic sales posting was disabled in accounting settings; no journal was created.',
-      });
-    }
-    return;
-  }
-
   const currency = configuredCurrency(db);
   const revenueId = postingAccountBySystemKey(db, 'sales_revenue', 'revenue');
   for (const payment of eligiblePaymentLines) {
@@ -363,16 +368,10 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
     if (['wallet', 'loyalty', 'credit', 'store_credit', 'loyalty_wallet'].includes(refundMethod)) {
       return { posted: false, reason: 'non_monetary_refund_ignored' };
     }
-    if (isBeforeAccountingCutover(db, refund.created_at || now())) {
-      auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
-        refund_id: String(refund.id), bill_id: String(bill.id), event_timestamp: refund.created_at || null,
-        reason: 'The refund event timestamp predates accounting cutover; historical monetary refunds are intentionally not backfilled.',
-      });
-      return { posted: false, reason: 'pre_cutover_bill' };
-    }
     // A refund must reverse revenue only when the original sale receipt was
     // actually posted. Turning off automatic sales posting must not create a
     // standalone negative-revenue journal for a sale absent from the ledger.
+    // Check this before cutover validation so disabled accounting cannot block a POS refund.
     if (!isAutomaticSalesPostingEnabled(db) && !hasAccountingRecordedMonetaryReceipt(db, bill.id)) {
       auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting', actorId, {
         refund_id: String(refund.id),
@@ -381,6 +380,13 @@ export function postCommittedRefund(db: DB, refundId: string | number, actorId: 
         reason: 'The original sale was not posted because automatic sales posting was disabled; no standalone refund journal was created.',
       });
       return { posted: false, reason: 'automatic_sales_posting_disabled' };
+    }
+    if (isBeforeAccountingCutover(db, refund.created_at || now())) {
+      auditPreCutoverEvent(db, 'refund:' + String(refund.id), 'skipped_pre_cutover_refund', actorId, {
+        refund_id: String(refund.id), bill_id: String(bill.id), event_timestamp: refund.created_at || null,
+        reason: 'The refund event timestamp predates accounting cutover; historical monetary refunds are intentionally not backfilled.',
+      });
+      return { posted: false, reason: 'pre_cutover_bill' };
     }
     const currency = configuredCurrency(db);
     // refunds.amount_cents follows the legacy POS fraction-factor storage contract;
