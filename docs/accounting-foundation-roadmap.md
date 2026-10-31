@@ -19,7 +19,7 @@ The accounting subsystem should ultimately support:
 - An auditable chart of accounts and double-entry journal.
 - Expenses and non-sales income.
 - Cash/bank/clearing-account balances and transfers.
-- Automatic accounting entries for actual money received/refunded through configured cash, card and custom payment methods; bill finalization alone is not revenue.
+- Optional automatic accounting entries for actual money received/refunded through configured cash, card and custom payment methods, controlled by an Accounting Settings switch that defaults to off; bill finalization alone is not revenue.
 - Supplier purchases and payable balances.
 - Inventory valuation and cost of goods sold (COGS).
 - Management reports and, in a later phase, trial balance, balance sheet and a more complete income statement.
