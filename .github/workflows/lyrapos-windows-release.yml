@@ -213,7 +213,7 @@ jobs:
           if (-not $release -or -not $release.draft -or $release.prerelease) {
             throw 'Refusing to publish: the matching release is missing, already published, or marked prerelease.'
           }
-          gh api --method PATCH "repos/$env:GH_REPO/releases/$($release.id)" -F draft=false -F make_latest=true | Out-Null
+          gh api --method PATCH "repos/$env:GH_REPO/releases/$($release.id)" -F draft=false -f make_latest=true | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'GitHub rejected publication of the verified release.' }
           $latestTag = gh api "repos/$env:GH_REPO/releases/latest" --jq .tag_name
           if ($LASTEXITCODE -ne 0 -or $latestTag.Trim() -ne $env:RELEASE_TAG) {
