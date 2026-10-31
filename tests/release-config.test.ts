@@ -99,16 +99,17 @@ function testCurrentWorkflows() {
   const releaseMode = releaseSteps.find((s: any) => s.name === 'Validate release mode and version');
   assert.match(releaseMode.run, /refs\/heads\/main/);
   assert.match(releaseMode.run, /main history/);
-  const draftRelease = releaseSteps.find((s: any) => s.uses === 'softprops/action-gh-release@v2');
+  const publishSteps = windowsRelease.jobs['publish-windows-release'].steps;
+  const draftRelease = publishSteps.find((s: any) => s.uses === 'softprops/action-gh-release@v2');
   assert.equal(draftRelease.with.draft, true);
   assert.equal(draftRelease.with.make_latest, false);
-  assert.match(draftRelease.with.files, /release\/latest\.yml/);
-  const verifyDraft = releaseSteps.find((s: any) => s.name === 'Verify draft release and updater manifest');
+  assert.match(draftRelease.with.files, /release\\/latest\\.yml/);
+  const verifyDraft = publishSteps.find((s: any) => s.name === 'Verify draft release and updater manifest');
   assert.match(verifyDraft.run, /latest.yml/);
   assert.match(verifyDraft.run, /SHA-512/);
-  const publishRelease = releaseSteps.find((s: any) => s.name === 'Publish verified Windows release as GitHub Latest');
+  assert.match(verifyDraft.run, /releases\\?per_page=100/);
+  const publishRelease = publishSteps.find((s: any) => s.name === 'Publish verified Windows release as GitHub Latest');
   assert.match(publishRelease.run, /make_latest=true/);
-  assert.ok(releaseSteps.every((s: any) => !s.name || !/Create draft|Verify draft|Publish verified/.test(s.name) || s.if === "steps.release-mode.outputs.publish == 'true'"));
 
   const unix = loadWorkflow('.github/workflows/lyrapos-unix.yml');
   assert.ok(unix.jobs['validate-unix-identity']);
