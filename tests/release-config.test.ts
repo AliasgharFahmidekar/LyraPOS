@@ -66,8 +66,11 @@ function testCurrentWorkflows() {
     workflow_dispatch: null,
   });
   assert.equal(regression.jobs.test['runs-on'], 'ubuntu-latest');
-  assert.equal(regression.jobs.test.steps[1].with['node-version'], '22.13.0');
-  assert.equal(regression.jobs.test.steps.at(-1).run, 'xvfb-run -a npm test');
+  const regressionSteps = regression.jobs.test.steps;
+  assert.equal(regressionSteps.find((s: any) => s.name === 'Setup Node').with['node-version'], '22.13.0');
+  assert.equal(regressionSteps.find((s: any) => s.name === 'Run original test suite unchanged under virtual display').run, 'xvfb-run -a npm test');
+  assert.equal(regressionSteps.find((s: any) => s.name === 'Build application TypeScript').run, 'npm run build');
+  assert.equal(regressionSteps.find((s: any) => s.name === 'Lint backend and frontend').run, 'npm run lint');
 
   const windows = loadWorkflow('.github/workflows/lyrapos-windows.yml');
   assert.equal(windows.jobs['build-windows'].name, 'Build LyraPOS Windows');
@@ -78,6 +81,35 @@ function testCurrentWorkflows() {
   const winUpload = winSteps.find((s: any) => s.uses?.startsWith('actions/upload-artifact@'));
   assert.equal(winUpload.with.name, 'lyrapos-windows');
   assert.match(winUpload.with.path, /release\/lyrapos-\*\.exe/);
+
+  const windowsRelease = loadWorkflow('.github/workflows/lyrapos-windows-release.yml');
+  const releaseTriggers = windowsRelease.on || windowsRelease.true;
+  assert.deepEqual(releaseTriggers.pull_request.branches, ['main']);
+  assert.ok(releaseTriggers.pull_request.paths.includes('.github/workflows/lyrapos-windows-release.yml'));
+  assert.deepEqual(releaseTriggers.push.tags, ['[0-9]*.[0-9]*.[0-9]*']);
+  assert.equal(releaseTriggers.workflow_dispatch.inputs.publish_release.default, false);
+  assert.equal(windowsRelease.permissions.contents, 'read');
+  assert.equal(windowsRelease.jobs['build-windows-release'].permissions.contents, 'read');
+  assert.equal(windowsRelease.jobs['publish-windows-release'].permissions.contents, 'write');
+  assert.equal(windowsRelease.jobs['publish-windows-release'].needs, 'build-windows-release');
+  const releaseSteps = windowsRelease.jobs['build-windows-release'].steps;
+  assert.equal(releaseSteps.find((s: any) => s.name === 'Build Windows installer').run, 'npm run release:win');
+  assert.equal(releaseSteps.find((s: any) => s.name === 'Verify release artifact names').run, 'npm run verify:release-artifacts');
+  assert.equal(releaseSteps.find((s: any) => s.name === 'Run Windows packaging identity guard').run, 'npm run test:windows-packaging-identity');
+  const releaseMode = releaseSteps.find((s: any) => s.name === 'Validate release mode and version');
+  assert.match(releaseMode.run, /refs\/heads\/main/);
+  assert.match(releaseMode.run, /main history/);
+  const publishSteps = windowsRelease.jobs['publish-windows-release'].steps;
+  const draftRelease = publishSteps.find((s: any) => s.uses === 'softprops/action-gh-release@v2');
+  assert.equal(draftRelease.with.draft, true);
+  assert.equal(draftRelease.with.make_latest, false);
+  assert.ok(draftRelease.with.files.includes('release/latest.yml'));
+  const verifyDraft = publishSteps.find((s: any) => s.name === 'Verify draft release and updater manifest');
+  assert.match(verifyDraft.run, /latest.yml/);
+  assert.match(verifyDraft.run, /SHA-512/);
+  assert.ok(verifyDraft.run.includes('releases?per_page=100'));
+  const publishRelease = publishSteps.find((s: any) => s.name === 'Publish verified Windows release as GitHub Latest');
+  assert.match(publishRelease.run, /make_latest=true/);
 
   const unix = loadWorkflow('.github/workflows/lyrapos-unix.yml');
   assert.ok(unix.jobs['validate-unix-identity']);

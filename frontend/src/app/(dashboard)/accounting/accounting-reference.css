@@ -1,0 +1,202 @@
+/* Reference-matched accounting UI. All visual assets are bundled with the app; no CDN stylesheet or remote icon font. */
+.accounting-theme {
+  --acct-primary: #2563eb; --acct-primary-hover: #1d4ed8; --acct-primary-soft: #eff6ff;
+  --acct-ink: #1f2937; --acct-muted: #64748b; --acct-line: #e8edf3;
+  --acct-surface: #fff; --acct-shadow: 0 1px 2px rgba(15,23,42,.025), 0 6px 20px rgba(15,23,42,.025);
+  color: var(--acct-ink); font-family: var(--font-vazirmatn), "Vazirmatn", Tahoma, "Segoe UI", Arial, sans-serif;
+  font-size: 13px; line-height: 1.65;
+}
+.accounting-theme button,.accounting-theme input,.accounting-theme select,.accounting-theme textarea { font: inherit; }
+.accounting-theme button:focus-visible,.accounting-theme input:focus-visible,.accounting-theme select:focus-visible,.accounting-theme textarea:focus-visible { outline: 3px solid rgba(37,99,235,.22); outline-offset: 2px; }
+.accounting-theme .acct-page-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+.accounting-theme .acct-eyebrow { margin:0 0 3px; color:#718096; font-size:11px; font-weight:500; }
+.accounting-theme .acct-page-title { margin:0; color:var(--acct-ink); font-size:25px; line-height:1.45; font-weight:750; letter-spacing:-.025em; }
+.accounting-theme .acct-page-subtitle { margin:4px 0 0; color:var(--acct-muted); font-size:12px; }
+.accounting-theme .acct-navigation { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:3px; padding:7px; background:var(--acct-surface); border:1px solid var(--acct-line); border-radius:12px; box-shadow:var(--acct-shadow); }
+.accounting-theme .acct-nav-item { display:flex; align-items:center; justify-content:center; gap:7px; min-height:40px; min-width:0; padding:8px 10px; border:1px solid transparent; border-radius:8px; background:transparent; color:#5b6678; font-size:12px; font-weight:550; cursor:pointer; white-space:normal; transition:background .15s ease,color .15s ease; }
+.accounting-theme .acct-nav-item:hover { background:#f5f8fc; color:#243248; }
+.accounting-theme .acct-nav-item.is-active { color:var(--acct-primary); background:var(--acct-primary-soft); border-color:#dbeafe; font-weight:700; }
+.accounting-theme .acct-view-content { min-width:0; }
+.accounting-theme .acct-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:37px; padding:8px 13px; border:1px solid transparent; border-radius:8px; font-weight:650; font-size:12px; line-height:1.4; cursor:pointer; white-space:nowrap; transition:background .15s ease,border-color .15s ease,opacity .15s ease; }
+.accounting-theme .acct-button:disabled { cursor:not-allowed; opacity:.55; }
+.accounting-theme .acct-button-primary { background:var(--acct-primary); color:#fff; box-shadow:0 1px 2px rgba(37,99,235,.12); }
+.accounting-theme .acct-button-primary:hover:not(:disabled) { background:var(--acct-primary-hover); }
+.accounting-theme .acct-button-secondary { color:#465366; background:#fff; border-color:#dce3ec; }
+.accounting-theme .acct-button-secondary:hover:not(:disabled) { background:#f8fafc; border-color:#c6d1de; }
+.accounting-theme .acct-icon-button { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; flex-shrink:0; border:1px solid #e1e7ef; border-radius:8px; color:#5b6678; background:#fff; cursor:pointer; }
+.accounting-theme .acct-icon-button:hover:not(:disabled) { color:var(--acct-primary); border-color:#bfd3fb; background:#f8fbff; }
+.accounting-theme .acct-text-button,.accounting-theme .acct-link-button { display:inline-flex; align-items:center; justify-content:center; min-height:32px; border:1px solid transparent; border-radius:6px; padding:4px 8px; background:transparent; color:var(--acct-primary); font-size:12px; font-weight:650; cursor:pointer; touch-action:manipulation; }
+.accounting-theme .acct-text-button:hover,.accounting-theme .acct-link-button:hover { background:var(--acct-surface-muted, rgba(100,116,139,.10)); }
+.accounting-theme .acct-text-button:focus-visible,.accounting-theme .acct-link-button:focus-visible { outline:2px solid var(--acct-primary); outline-offset:2px; }
+.accounting-theme .acct-text-button:disabled,.accounting-theme .acct-link-button:disabled { cursor:not-allowed; opacity:.5; }
+.accounting-theme .acct-link-button { white-space:nowrap; }
+.accounting-theme .acct-period-bar { display:flex; align-items:center; gap:5px; flex-wrap:wrap; padding:8px; border:1px solid var(--acct-line); border-radius:11px; background:var(--acct-surface); }
+.accounting-theme .acct-period-button { padding:7px 11px; border:1px solid transparent; border-radius:7px; color:#697588; background:transparent; font-size:12px; cursor:pointer; }
+.accounting-theme .acct-period-button:hover { background:#f5f8fc; }
+.accounting-theme .acct-period-button.is-active { color:var(--acct-primary); background:var(--acct-primary-soft); border-color:#dbeafe; font-weight:700; }
+.accounting-theme .acct-custom-range { display:flex; align-items:end; flex-wrap:wrap; gap:8px; width:100%; padding:10px 4px 3px; border-top:1px solid var(--acct-line); }
+.accounting-theme .acct-custom-range label { display:grid; gap:4px; color:var(--acct-muted); font-size:11px; }
+.accounting-theme .acct-custom-range input { min-height:34px; }
+.accounting-theme .acct-kpi-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:13px; }
+.accounting-theme .acct-kpi-grid-3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.accounting-theme .acct-kpi-card { min-width:0; padding:17px 18px 15px; border:1px solid var(--acct-line); border-radius:12px; background:var(--acct-surface); box-shadow:var(--acct-shadow); }
+.accounting-theme .acct-kpi-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#657286; font-size:12px; font-weight:600; }
+.accounting-theme .acct-kpi-icon { display:inline-flex; align-items:center; justify-content:center; width:37px; height:37px; flex-shrink:0; border-radius:10px; background:#eff6ff; color:#2563eb; }
+.accounting-theme .acct-kpi-icon.is-positive { background:#ecfdf3; color:#16804a; }
+.accounting-theme .acct-kpi-icon.is-negative { background:#fff1f2; color:#d12e43; }
+.accounting-theme .acct-kpi-value { margin:13px 0 0; color:#202b3b; font-size:clamp(18px,1.6vw,26px); line-height:1.45; font-weight:750; letter-spacing:-.02em; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.accounting-theme .acct-kpi-foot { margin:6px 0 0; color:#8994a4; font-size:10.5px; line-height:1.8; }
+.accounting-theme .acct-panel { min-width:0; overflow:hidden; border:1px solid var(--acct-line); border-radius:12px; background:var(--acct-surface); box-shadow:var(--acct-shadow); }
+.accounting-theme .acct-panel-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:17px 19px 13px; }
+.accounting-theme .acct-panel-heading h2 { margin:0; color:#253246; font-size:15px; font-weight:750; }
+.accounting-theme .acct-panel-heading p { margin:3px 0 0; color:#8590a0; font-size:10.5px; line-height:1.7; }
+.accounting-theme .acct-overview-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
+.accounting-theme .acct-account-list,.accounting-theme .acct-due-list { padding:0 18px 12px; }
+.accounting-theme .acct-account-row,.accounting-theme .acct-due-row { display:flex; align-items:center; gap:10px; min-width:0; padding:12px 0; border-top:1px solid #f0f2f5; }
+.accounting-theme .acct-account-icon { display:inline-flex; align-items:center; justify-content:center; width:38px; height:38px; flex:0 0 38px; border-radius:10px; background:#f0f5ff; color:#3268dc; }
+.accounting-theme .acct-account-icon.is-muted { background:#f5f6f8; color:#7a8798; }
+.accounting-theme .acct-account-meta,.accounting-theme .acct-due-main { display:flex; min-width:0; flex:1; flex-direction:column; gap:2px; }
+.accounting-theme .acct-account-meta strong,.accounting-theme .acct-due-main strong { overflow-wrap:anywhere; color:#293548; font-size:12px; font-weight:650; }
+.accounting-theme .acct-account-meta span,.accounting-theme .acct-due-main span,.accounting-theme .acct-due-amount span { color:#8994a4; font-size:10.5px; }
+.accounting-theme .acct-money { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; color:#263548; }
+.accounting-theme .acct-due-icon { display:inline-flex; align-items:center; justify-content:center; width:35px; height:35px; flex-shrink:0; border-radius:9px; color:#a36b11; background:#fff7e7; }
+.accounting-theme .acct-due-amount { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+.accounting-theme .acct-empty { display:flex; align-items:center; justify-content:center; gap:10px; min-height:104px; padding:24px; color:#8994a4; font-size:12px; text-align:center; }
+.accounting-theme .acct-alert { display:flex; align-items:flex-start; gap:9px; padding:12px 14px; border-radius:9px; font-size:11px; line-height:1.8; }
+.accounting-theme .acct-alert-danger { border:1px solid #fecaca; background:#fff7f7; color:#a52e3b; }
+.accounting-theme .acct-alert-warning { border:1px solid #f5deb0; background:#fffbeb; color:#875a13; }
+.accounting-theme .acct-alert .acct-text-button { margin-inline-start:auto; flex-shrink:0; }
+.accounting-theme .acct-table-wrap { width:100%; overflow-x:auto; }
+.accounting-theme .acct-table { width:100%; min-width:680px; border-collapse:separate; border-spacing:0; color:#3c4757; font-size:11.5px; }
+.accounting-theme .acct-table thead { background:#f8fafc; }
+.accounting-theme .acct-table th { padding:11px 14px; color:#7b8796; font-size:10.5px; font-weight:650; white-space:nowrap; text-align:start; border-top:1px solid #edf0f4; border-bottom:1px solid #e9edf2; }
+.accounting-theme .acct-table td { padding:12px 14px; vertical-align:middle; border-bottom:1px solid #edf0f4; }
+.accounting-theme .acct-table tbody tr:last-child td { border-bottom:0; }
+.accounting-theme .acct-table tbody tr:hover td { background:#fbfcfe; }
+.accounting-theme .acct-table .acct-subtext { display:block; color:#929cac; margin-top:2px; font-size:10px; }
+.accounting-theme .acct-table-note { padding:9px 14px; margin:0; color:#7c8796; font-size:10px; border-top:1px solid #edf0f4; }
+.accounting-theme .acct-shortcuts { display:flex; align-items:center; justify-content:flex-start; gap:8px; flex-wrap:wrap; }
+.accounting-theme .acct-shortcuts button { display:flex; align-items:center; gap:9px; padding:10px 13px; color:#4c5a6e; background:#fff; border:1px solid var(--acct-line); border-radius:9px; font-size:11px; cursor:pointer; }
+.accounting-theme .acct-shortcuts button:hover { color:var(--acct-primary); border-color:#bfd3fb; background:#fbfdff; }
+.accounting-theme .acct-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:9px; padding:14px 16px; border-bottom:1px solid var(--acct-line); }
+.accounting-theme .acct-search-field { display:flex; align-items:center; gap:8px; min-width:min(260px,100%); flex:1; padding:0 11px; border:1px solid #dfe5ed; border-radius:8px; color:#8994a4; background:#fff; }
+.accounting-theme .acct-search-field input { width:100%; min-width:0; height:36px; border:0; outline:0; background:transparent; color:#293548; font-size:11px; }
+.accounting-theme .acct-select,.accounting-theme .acct-field input,.accounting-theme .acct-field select,.accounting-theme .acct-field textarea,.accounting-theme .acct-custom-range input { min-height:36px; padding:7px 10px; border:1px solid #dfe5ed; border-radius:8px; background:#fff; color:#273449; font-size:11.5px; }
+.accounting-theme .acct-select { max-width:210px; }
+.accounting-theme .acct-account-cell { display:flex; align-items:center; gap:9px; min-width:170px; }
+.accounting-theme .acct-account-cell strong { font-weight:650; color:#283447; }
+.accounting-theme .acct-code { direction:ltr; unicode-bidi:isolate; display:inline-flex; padding:3px 7px; border-radius:5px; color:#67748a; background:#f3f5f8; font-size:10.5px; }
+.accounting-theme .acct-status { display:inline-flex; align-items:center; border-radius:100px; padding:4px 9px; font-size:10px; font-weight:700; white-space:nowrap; }
+.accounting-theme .acct-status.is-active { color:#16804a; background:#eaf8f0; }
+.accounting-theme .acct-status.is-inactive { color:#697586; background:#f0f2f5; }
+.accounting-theme .acct-row-actions { display:flex; align-items:center; gap:8px; white-space:nowrap; }
+.accounting-theme .acct-table-action { display:inline-flex; align-items:center; justify-content:center; gap:5px; min-height:32px; padding:4px 8px; border:1px solid transparent; border-radius:6px; background:transparent; color:#55709c; cursor:pointer; touch-action:manipulation; font-size:11px; }
+.accounting-theme .acct-table-action:hover { color:var(--acct-primary); background:var(--acct-surface-muted, rgba(100,116,139,.10)); }
+.accounting-theme .acct-table-action:focus-visible { outline:2px solid var(--acct-primary); outline-offset:2px; }
+.accounting-theme .acct-table-action:disabled { cursor:not-allowed; opacity:.5; }
+.accounting-theme .acct-modal-overlay { position:fixed; z-index:120; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(15,23,42,.42); backdrop-filter:blur(2px); }
+.accounting-theme .acct-modal { width:min(540px,100%); max-height:calc(100vh - 32px); overflow-y:auto; border:1px solid #e3e8ef; border-radius:14px; background:#fff; box-shadow:0 24px 80px rgba(15,23,42,.18); }
+.accounting-theme .acct-modal-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:20px 22px 15px; border-bottom:1px solid #edf0f4; }
+.accounting-theme .acct-modal-heading h2 { margin:0; color:#202c3d; font-size:17px; font-weight:750; }
+.accounting-theme .acct-modal-heading p { margin:4px 0 0; color:#7e8998; font-size:10.5px; line-height:1.8; }
+.accounting-theme .acct-form { display:grid; gap:15px; padding:19px 22px 21px; }
+.accounting-theme .acct-field { display:grid; gap:6px; min-width:0; color:#4b586b; font-size:11.5px; }
+.accounting-theme .acct-field > span b { color:#dc3b4b; }
+.accounting-theme .acct-field input,.accounting-theme .acct-field select,.accounting-theme .acct-field textarea { width:100%; min-width:0; outline-offset:1px; }
+.accounting-theme .acct-field textarea { resize:vertical; }
+.accounting-theme .acct-checkbox { display:flex; align-items:center; gap:9px; color:#4c596b; font-size:11.5px; cursor:pointer; }
+.accounting-theme .acct-checkbox input { width:16px; height:16px; accent-color:var(--acct-primary); }
+.accounting-theme .acct-checkbox.is-disabled { opacity:.65; cursor:not-allowed; }
+.accounting-theme .acct-inline-note { margin:-2px 0 0; padding:10px 11px; color:#65738a; background:#f7f9fc; border:1px solid #e8edf3; border-radius:8px; font-size:10.5px; line-height:1.8; }
+.accounting-theme .acct-inline-note.is-warning { color:#8d5a12; border-color:#f2dfb7; background:#fffbeb; }
+.accounting-theme .acct-modal-actions { display:flex; justify-content:flex-start; gap:8px; padding-top:4px; }
+.accounting-theme .acct-history-drawer { display:flex; flex-direction:column; width:min(1180px,100%); max-height:calc(100vh - 32px); overflow:hidden; background:#fff; border:1px solid #e3e8ef; border-radius:14px; box-shadow:0 24px 80px rgba(15,23,42,.18); }
+.accounting-theme .acct-history-drawer .acct-modal-heading { flex-shrink:0; }
+.accounting-theme .acct-history-balance { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 22px; margin:14px 18px 0; border:1px solid #e0eaff; border-radius:9px; color:#566780; background:#f5f8ff; font-size:11.5px; }
+.accounting-theme .acct-history-balance strong { color:#215bd0; font-size:19px; font-variant-numeric:tabular-nums; }
+.accounting-theme .acct-history-filters { flex-shrink:0; }
+.accounting-theme .acct-history-section-title { padding:0 22px; margin:6px 0 10px; color:#293548; font-size:13px; font-weight:750; }
+.accounting-theme .acct-history-table-wrap { min-height:100px; overflow:auto; margin-bottom:10px; }
+.accounting-theme .acct-history-table-wrap .acct-table { min-width:850px; }
+.accounting-theme .acct-drawer-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-shrink:0; padding:12px 18px; border-top:1px solid #edf0f4; color:#8994a4; font-size:10px; background:#fbfcfe; }
+.accounting-theme .rounded-xl.border.border-border.bg-card { border-color:var(--acct-line); border-radius:12px; box-shadow:var(--acct-shadow); }
+.accounting-theme .text-muted-foreground { color:#758195; }
+.accounting-theme input:not([type="checkbox"]):not([type="radio"]),.accounting-theme select,.accounting-theme textarea { border-radius:8px; }
+@media (max-width:1190px) {
+  .accounting-theme .acct-navigation { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .accounting-theme .acct-kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .accounting-theme .acct-overview-columns { grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:680px) {
+  .accounting-theme .acct-navigation { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .accounting-theme .acct-nav-item { justify-content:flex-start; }
+  .accounting-theme .acct-page-title { font-size:21px; }
+  .accounting-theme .acct-kpi-grid,.accounting-theme .acct-kpi-grid-3 { grid-template-columns:minmax(0,1fr); }
+  .accounting-theme .acct-kpi-card { padding:14px; }
+  .accounting-theme .acct-modal-overlay { padding:8px; }
+  .accounting-theme .acct-modal-heading,.accounting-theme .acct-form { padding-inline:15px; }
+  .accounting-theme .acct-drawer-footer { align-items:flex-start; flex-direction:column; }
+}
+.dark .accounting-theme {
+  --acct-ink:#e6ebf2; --acct-muted:#9ba8bb; --acct-line:#334155; --acct-surface:#172033; --acct-shadow:none; color:var(--acct-ink);
+}
+.dark .accounting-theme .acct-panel,.dark .accounting-theme .acct-kpi-card,.dark .accounting-theme .acct-navigation,.dark .accounting-theme .acct-period-bar,.dark .accounting-theme .acct-shortcuts button { color:#e4eaf3; background:#172033; border-color:#334155; box-shadow:none; }
+.dark .accounting-theme .acct-page-title,.dark .accounting-theme .acct-panel-heading h2,.dark .accounting-theme .acct-kpi-value,.dark .accounting-theme .acct-account-meta strong,.dark .accounting-theme .acct-due-main strong,.dark .accounting-theme .acct-money,.dark .accounting-theme .acct-account-cell strong { color:#e4eaf3; }
+.dark .accounting-theme .acct-table thead { background:#1e293b; }
+.dark .accounting-theme .acct-table th,.dark .accounting-theme .acct-table td,.dark .accounting-theme .acct-modal-heading { border-color:#334155; }
+.dark .accounting-theme .acct-table td { color:#d4dbe6; }
+.dark .accounting-theme .acct-table tbody tr:hover td { background:#202c40; }
+.dark .accounting-theme .acct-search-field,.dark .accounting-theme .acct-select,.dark .accounting-theme .acct-field input,.dark .accounting-theme .acct-field select,.dark .accounting-theme .acct-field textarea,.dark .accounting-theme .acct-custom-range input,.dark .accounting-theme .acct-icon-button,.dark .accounting-theme .acct-button-secondary { color:#e4eaf3; background:#1e293b; border-color:#42506a; }
+.dark .accounting-theme .acct-modal,.dark .accounting-theme .acct-history-drawer { background:#172033; border-color:#334155; }
+.dark .accounting-theme .acct-modal-heading h2,.dark .accounting-theme .acct-history-section-title { color:#e4eaf3; }
+.dark .accounting-theme .acct-inline-note,.dark .accounting-theme .acct-drawer-footer { color:#a7b4c9; background:#1e293b; border-color:#334155; }
+.dark .accounting-theme .acct-account-row,.dark .accounting-theme .acct-due-row { border-color:#334155; }
+
+
+.accounting-theme .acct-attention-title { display:flex; align-items:center; gap:9px; color:#bd3545; }
+.accounting-theme .acct-attention-title h2 { margin:0; color:#293548; font-size:14px; font-weight:750; }
+.accounting-theme .acct-attention-list { display:grid; gap:7px; padding:0 16px 15px; }
+.accounting-theme .acct-attention-row { display:flex; align-items:center; gap:10px; min-width:0; padding:10px 12px; border:1px solid #f1e2e2; border-radius:9px; background:#fffafa; }
+.accounting-theme .acct-attention-marker { display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; flex:0 0 32px; color:#c13948; background:#fff0f0; border-radius:8px; }
+.accounting-theme .acct-attention-main { display:flex; min-width:0; flex:1; flex-direction:column; gap:2px; }
+.accounting-theme .acct-attention-main strong { color:#3b4656; font-size:11.5px; overflow-wrap:anywhere; font-weight:650; }
+.accounting-theme .acct-attention-main span { color:#8e7b80; font-size:10px; }
+.accounting-theme .acct-attention-amount { color:#b83243; white-space:nowrap; font-size:11.5px; font-variant-numeric:tabular-nums; }
+.accounting-theme .acct-trend-heading { flex-wrap:wrap; }
+.accounting-theme .acct-trend-controls { display:flex; flex-wrap:wrap; align-items:center; gap:3px; padding:3px; border:1px solid #edf0f4; border-radius:8px; background:#f8fafc; }
+.accounting-theme .acct-trend-controls .acct-period-button { padding:5px 9px; font-size:10.5px; }
+.accounting-theme .acct-trend-controls .acct-period-button:disabled { cursor:not-allowed; opacity:.45; }
+.accounting-theme .acct-chart-wrap { margin:0 16px 17px; padding:12px 10px 7px; border:1px solid #eff2f7; border-radius:10px; background:#fbfcfe; }
+.accounting-theme .acct-chart-legend { display:flex; align-items:center; flex-wrap:wrap; gap:16px; padding:0 9px 3px; color:#647187; font-size:10.5px; }
+.accounting-theme .acct-chart-legend span { display:inline-flex; align-items:center; gap:6px; }
+.accounting-theme .acct-chart-legend i { display:inline-block; width:9px; height:9px; border-radius:2px; }
+.accounting-theme .acct-chart-legend i.is-income { background:#2563eb; }
+.accounting-theme .acct-chart-legend i.is-expense { background:#586273; }
+.accounting-theme .acct-chart-unit { margin-inline-start:auto; color:#8994a4; font-size:10px; }
+.accounting-theme .acct-trend-chart { display:block; width:100%; height:auto; min-height:190px; overflow:visible; }
+.accounting-theme .acct-chart-gridline { stroke:#e5eaf1; stroke-width:1; stroke-dasharray:3 4; }
+.accounting-theme .acct-chart-axis { stroke:#d1d9e4; stroke-width:1; }
+.accounting-theme .acct-chart-tick { fill:#8b96a6; font-size:10px; }
+.accounting-theme .acct-chart-label { fill:#758195; font-size:10px; }
+.accounting-theme .acct-chart-income { fill:#2563eb; transition:opacity .15s ease; }
+.accounting-theme .acct-chart-expense { fill:#586273; transition:opacity .15s ease; }
+.accounting-theme .acct-chart-income:hover,.accounting-theme .acct-chart-expense:hover { opacity:.75; }
+.dark .accounting-theme .acct-attention-panel,
+.dark .accounting-theme .acct-attention-row { background:#211d28; border-color:#4d3440; }
+.dark .accounting-theme .acct-attention-title h2,
+.dark .accounting-theme .acct-attention-main strong { color:#e4eaf3; }
+.dark .accounting-theme .acct-attention-main span { color:#c4a4ac; }
+.dark .accounting-theme .acct-chart-wrap,
+.dark .accounting-theme .acct-trend-controls { background:#111c2e; border-color:#334155; }
+.dark .accounting-theme .acct-chart-gridline { stroke:#334155; }
+.dark .accounting-theme .acct-chart-axis { stroke:#536178; }
+.dark .accounting-theme .acct-chart-tick,
+.dark .accounting-theme .acct-chart-label { fill:#aab6c7; }
+@media (max-width:680px) {
+  .accounting-theme .acct-attention-row { align-items:flex-start; flex-wrap:wrap; }
+  .accounting-theme .acct-attention-main { flex-basis:calc(100% - 55px); }
+  .accounting-theme .acct-attention-amount { margin-inline-start:42px; }
+  .accounting-theme .acct-attention-row .acct-button { margin-inline-start:auto; }
+  .accounting-theme .acct-chart-wrap { margin-inline:8px; padding-inline:2px; }
+  .accounting-theme .acct-trend-chart { min-height:130px; }
+}

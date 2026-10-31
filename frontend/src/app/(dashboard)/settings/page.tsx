@@ -29,6 +29,7 @@ import { CurrencyResetDialog } from '@/components/settings/CurrencyResetDialog';
 import { WhatsAppEnableCard } from '@/components/settings/WhatsAppEnableCard';
 import { TaxConfigurationPanel } from '@/components/settings/TaxConfigurationPanel';
 import { PaymentMethodsSettings } from '@/components/settings/PaymentMethodsSettings';
+import { AccountingSettings } from '@/components/settings/AccountingSettings';
 import { GeneralSettingsTab, type BusinessForm, type InvoiceResetPeriod, type OrderNumberForm } from '@/components/settings/GeneralSettingsTab';
 import {
   PrintersSettingsTab,
@@ -51,7 +52,7 @@ import { Toggle } from '@/components/settings/Toggle';
 import { SettingsTabShell } from '@/components/settings/SettingsTabShell';
 import { WordPressBridgeSettings } from '@/components/settings/WordPressBridgeSettings';
 import type { HealthCheckReport } from '@/types/electron';
-import { useTranslations } from 'use-intl';
+import { useLocale, useTranslations } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { useUpdateStatus } from '@/hooks/useUpdateStatus';
@@ -251,6 +252,7 @@ function KdsDefaultViewCard() {
 
 
 export default function SettingsPage() {
+  const locale = useLocale();
   const router = useRouter();
   const { currentTenant, user, updateCurrentTenant } = useAuthStore();
   const posSettings = usePosSettingsStore();
@@ -2868,6 +2870,7 @@ export default function SettingsPage() {
             <SettingsNavItem label={t('storeDetails')} value="store" active={activeTab} onClick={handleSettingsTabChange} />
             <SettingsNavItem label={t('tabPrinters')} value="receipts-printers" active={activeTab} onClick={handleSettingsTabChange} />
             <SettingsNavItem label={t('paymentMethods')} value="payments" active={activeTab} onClick={handleSettingsTabChange} />
+            {isAdmin && <SettingsNavItem label={locale.toLowerCase().startsWith('fa') ? 'تنظیمات حسابداری' : 'Accounting setup'} value="accounting" active={activeTab} onClick={handleSettingsTabChange} />}
             {isAdmin && (
               <SettingsNavItem label={t('tabAppearance')} value="appearance" active={activeTab} onClick={handleSettingsTabChange} />
             )}
@@ -2937,6 +2940,8 @@ export default function SettingsPage() {
         <TabsContent value="payments">
           <PaymentMethodsSettings isAdmin={isAdmin} />
         </TabsContent>
+
+        {isAdmin && <TabsContent value="accounting"><AccountingSettings isAdmin={isAdmin} mode="settings" /></TabsContent>}
 
         {isAdmin && (
         <TabsContent value="appearance">

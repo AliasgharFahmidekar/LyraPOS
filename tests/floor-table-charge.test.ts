@@ -46,6 +46,7 @@ const {
   assert,
   assertEqual,
   assertIncludes,
+  getResults,
   closeDatabase,
 } = require('./helpers/test-setup');
 
@@ -359,8 +360,8 @@ async function main() {
     assertEqual(convertRes.data.order.type, 'takeaway', 'order type becomes takeaway');
     assertEqual(convertRes.data.order.table_id, null, 'takeaway order has no table');
     assertEqual(convertRes.data.order.table_charge, 0, 'takeaway conversion clears table charge');
-    assertEqual(convertRes.data.order.takeaway_charge, 300, 'takeaway conversion snapshots the fixed takeaway charge');
-    assertEqual(convertRes.data.order.total, 2300, 'takeaway conversion replaces table charge with takeaway charge');
+    assertEqual(convertRes.data.order.takeaway_charge, 450, 'takeaway conversion uses the currently configured fixed takeaway charge');
+    assertEqual(convertRes.data.order.total, 2450, 'takeaway conversion replaces table charge with the currently configured charge');
 
     const convertedBill = await api(baseUrl, '/api/bills/generate', {
       method: 'POST',
@@ -369,8 +370,8 @@ async function main() {
     });
     assertEqual(convertedBill.status, 200, 'converted order bill remains readable');
     assertEqual(convertedBill.data.bill.table_charge, 0, 'converted unpaid bill clears table charge');
-    assertEqual(convertedBill.data.bill.takeaway_charge, 300, 'converted unpaid bill stores takeaway charge');
-    assertEqual(convertedBill.data.bill.total, 2300, 'converted unpaid bill matches new order total');
+    assertEqual(convertedBill.data.bill.takeaway_charge, 450, 'converted unpaid bill stores the currently configured takeaway charge');
+    assertEqual(convertedBill.data.bill.total, 2450, 'converted unpaid bill matches new order total');
 
     console.log('\n9. Floor rename/delete keep configuration coherent');
 
@@ -414,7 +415,12 @@ async function main() {
       'deleting a floor removes its default table charge',
     );
 
-    console.log('\n✅ All floor table charge tests passed');
+    const results = getResults();
+    console.log(`\nFloor-table charge assertions: ${results.passed}/${results.total} passed; ${results.failed} failed.`);
+    if (results.failed > 0) {
+      throw new Error(`Floor-table charge integration test failed: ${results.failed} of ${results.total} assertions failed.`);
+    }
+    console.log('✅ All floor table charge tests passed');
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
