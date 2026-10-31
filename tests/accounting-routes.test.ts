@@ -59,6 +59,7 @@ async function main(): Promise<void> {
     const server = seedUser(db, 'accounting-api-server', 'server');
     const chef = seedUser(db, 'accounting-api-chef', 'chef');
     const app = createApp({ '/api/accounting': accountingRoutes });
+    db.prepare("DELETE FROM settings WHERE key='accounting_auto_post_sales'").run();
 
     equal((await request(app).get('/api/accounting/expenses')).status, 401, 'unauthenticated expense list is denied');
     equal((await request(app).get('/api/accounting/sales-auto-posting')).status, 401, 'unauthenticated users cannot read the sales auto-posting setting');
