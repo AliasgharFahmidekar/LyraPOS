@@ -48,7 +48,7 @@ This release uses a deliberately cash-received basis for POS revenue:
 - Built-in `cash` maps by default to Cash Drawer (asset).
 - Built-in `card` maps by default to Payment Clearing (asset).
 - Any active custom payment method maps by default to Payment Clearing (asset), and can be mapped to another active postable asset in Accounting Settings.
-- Each accepted cash/card/custom payment line is a separate source event and creates **Dr mapped asset / Cr Sales Revenue** for its applied amount. A payment event ID makes retries idempotent.
+- When automatic sales posting is enabled in Accounting Settings, each accepted cash/card/custom payment line is a separate source event and creates **Dr mapped asset / Cr Sales Revenue** for its applied amount. A payment event ID makes retries idempotent.
 - `wallet`/`loyalty` payment lines are intentionally ignored by accounting. They must not be mapped to a liability, cash, bank or revenue account and must not create journals.
 - Loyalty point accrual, redemption, expiry and balance changes remain entirely in the POS loyalty subsystem. Accounting must not read or post the loyalty ledger.
 - Discounts and cashback are outside the accounting subsystem. No separate discount/cashback journal is allowed. Only the actual money that the POS accepts through a real payment method is recorded.
@@ -57,11 +57,17 @@ This release uses a deliberately cash-received basis for POS revenue:
 ### 3.2 Defaults and overrides
 Payment methods are channels, not necessarily bank accounts. Keep the existing POS payment-method manager as the source of truth. The accounting mapping UI only chooses the destination asset account for real money received; it does not manage loyalty or discount behavior.
 
+### 3.3 Optional automatic sales posting
+- Owner/manager can enable or disable automatic sales posting from Accounting Settings. The persisted setting is `accounting_auto_post_sales`; a missing setting on an existing or new installation is treated as **disabled**.
+- Disabled is the default. POS sales, payments and refunds remain saved in their operational records, but new monetary receipts do not create accounting journals while the switch is off. Collection must not fail because an accounting mapping or cutover validation is unavailable in this mode.
+- Disabled receipt events are retained in the accounting audit log and shown in source-event reconciliation as intentionally skipped, not as missing journals. They do not block period close.
+- Enabling the switch affects future receipt events only. It does not backfill sales collected while automatic posting was disabled.
+- If a sale receipt was already posted before the switch was disabled, its later monetary refund still posts as the linked contra-revenue/payout movement. A refund for a sale that was never posted must not create a standalone negative-revenue journal.
 
 ## 4. Refund policy
 
 - Only a refund that actually pays money out through cash, card or an active custom payment method affects accounting.
-- Such a refund debits Sales Returns/contra-revenue and credits the mapped payout asset account for the actual refunded amount. The stored legacy `refunds.amount_cents` uses the POS currency fraction factor; convert it to the accounting ledger factor before posting. In IRR, the legacy x100 amount is normalized to whole-rial ledger units.
+- When the original sale receipt exists in the ledger, such a refund debits Sales Returns/contra-revenue and credits the mapped payout asset account for the actual refunded amount. The stored legacy `refunds.amount_cents` uses the POS currency fraction factor; convert it to the accounting ledger factor before posting. In IRR, the legacy x100 amount is normalized to whole-rial ledger units. If automatic sales posting was off and the original sale was never posted, do not create a standalone refund journal; retain an audit skip instead.
 - A wallet/store-credit refund is non-monetary and is intentionally ignored by accounting. Loyalty crediting/debiting never creates an accounting journal.
 - No tax allocation or tax-liability reversal is performed by this integration.
 - Refunds use their persisted refund-row ID as the idempotent source identity. A retry cannot duplicate the journal.
