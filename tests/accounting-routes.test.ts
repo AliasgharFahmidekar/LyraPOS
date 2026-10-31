@@ -61,10 +61,27 @@ async function main(): Promise<void> {
     const app = createApp({ '/api/accounting': accountingRoutes });
 
     equal((await request(app).get('/api/accounting/expenses')).status, 401, 'unauthenticated expense list is denied');
+    equal((await request(app).get('/api/accounting/sales-auto-posting')).status, 401, 'unauthenticated users cannot read the sales auto-posting setting');
     equal((await request(app).get('/api/accounting/future-items')).status, 401, 'unauthenticated future-item list is denied');
     equal((await request(app).post('/api/accounting/future-items').set(cashier).send({})).status, 403, 'cashier cannot create future items');
     equal((await request(app).get('/api/accounting/future-items').set(cashier)).status, 403, 'cashier cannot read future items');
+    equal((await request(app).get('/api/accounting/sales-auto-posting').set(cashier)).status, 403, 'cashier cannot read the sales auto-posting setting');
+    equal((await request(app).put('/api/accounting/sales-auto-posting').set(cashier).send({ enabled: true })).status, 403, 'cashier cannot change the sales auto-posting setting');
     equal((await request(app).get('/api/accounting/export')).status, 401, 'unauthenticated accounting export is denied');
+
+    const defaultSalesAutoPosting = await request(app).get('/api/accounting/sales-auto-posting').set(owner);
+    equal(defaultSalesAutoPosting.status, 200, 'owner can read the sales auto-posting setting');
+    equal(defaultSalesAutoPosting.body.enabled, false, 'missing sales auto-posting preference defaults to false');
+    equal((await request(app).put('/api/accounting/sales-auto-posting').set(owner).send({ enabled: 'true' })).status, 400,
+      'setting rejects non-boolean values');
+    const enabledSalesAutoPosting = await request(app).put('/api/accounting/sales-auto-posting').set(manager).send({ enabled: true });
+    equal(enabledSalesAutoPosting.status, 200, 'manager can enable automatic sales posting');
+    equal(enabledSalesAutoPosting.body.enabled, true, 'enabled preference is returned after save');
+    const disabledSalesAutoPosting = await request(app).put('/api/accounting/sales-auto-posting').set(owner).send({ enabled: false });
+    equal(disabledSalesAutoPosting.status, 200, 'owner can disable automatic sales posting');
+    equal(disabledSalesAutoPosting.body.enabled, false, 'disabled preference is returned after save');
+    equal((await request(app).get('/api/accounting/sales-auto-posting').set(owner)).body.enabled, false,
+      'disabled preference persists when read back');
     for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
       equal((await request(app).get('/api/accounting/accounts').set(headers)).status, 403, role + ' cannot read accounting accounts');
       equal((await request(app).get('/api/accounting/transfers').set(headers)).status, 403, role + ' cannot read accounting transfers');
