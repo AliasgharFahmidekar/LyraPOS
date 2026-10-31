@@ -129,15 +129,17 @@ jobs:
           RELEASE_TAG: ${{ steps.release-mode.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $release = gh release view $env:RELEASE_TAG --json tagName,isDraft,isPrerelease,assets,databaseId | ConvertFrom-Json
-          if ($release.tagName -ne $env:RELEASE_TAG) { throw 'Draft release tag mismatch.' }
-          if (-not $release.isDraft -or $release.isPrerelease) { throw 'Expected an unpublished stable draft release.' }
+          $releases = gh api "repos/$env:GH_REPO/releases?per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not list GitHub releases, including drafts.' }
+          $release = @($releases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG } | Select-Object -First 1)[0]
+          if (-not $release) { throw "Draft release '$($env:RELEASE_TAG)' was not found in the repository release list." }
+          if ($release.tag_name -ne $env:RELEASE_TAG) { throw 'Draft release tag mismatch.' }
+          if (-not $release.draft -or $release.prerelease) { throw 'Expected an unpublished stable draft release.' }
 
           $assets = @($release.assets)
           $assetNames = @($assets | ForEach-Object { $_.name })
-          foreach ($required in @('latest.yml')) {
-            if ($assetNames -notcontains $required) { throw "Release is missing required updater asset '$required'." }
-          }
+          $manifestAsset = $assets | Where-Object { $_.name -eq 'latest.yml' } | Select-Object -First 1
+          if (-not $manifestAsset -or $manifestAsset.size -le 0) { throw 'Release is missing a non-empty latest.yml updater manifest.' }
           $installer = $assets | Where-Object { $_.name -match '^lyrapos-.*-win-x64\.exe$' } | Select-Object -First 1
           if (-not $installer -or $installer.size -le 0) { throw 'Release is missing a non-empty x64 Windows installer.' }
           $blockmap = $assets | Where-Object { $_.name -eq ($installer.name + '.blockmap') } | Select-Object -First 1
@@ -145,21 +147,25 @@ jobs:
 
           $checkDir = Join-Path $env:RUNNER_TEMP 'lyrapos-release-verification'
           New-Item -ItemType Directory -Force -Path $checkDir | Out-Null
-          gh release download $env:RELEASE_TAG --pattern latest.yml --dir $checkDir
-          if ($LASTEXITCODE -ne 0) { throw 'Could not download latest.yml from the draft release.' }
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/octet-stream'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
           $manifestPath = Join-Path $checkDir 'latest.yml'
+          Invoke-WebRequest -Uri $manifestAsset.url -Headers $headers -OutFile $manifestPath
           $manifest = Get-Content $manifestPath -Raw
           $manifestVersion = [regex]::Match($manifest, '(?m)^version:\s*["'']?([^""''\s]+)').Groups[1].Value
-          $manifestAsset = [regex]::Match($manifest, '(?m)^\s*-\s*url:\s*["'']?([^""''\s]+)').Groups[1].Value
+          $manifestFile = [regex]::Match($manifest, '(?m)^\s*-\s*url:\s*["'']?([^""''\s]+)').Groups[1].Value
           $manifestHash = [regex]::Match($manifest, '(?m)^\s*sha512:\s*["'']?([^""''\s]+)').Groups[1].Value
           if ($manifestVersion -ne $env:RELEASE_TAG) { throw "latest.yml version '$manifestVersion' does not match release tag '$($env:RELEASE_TAG)'." }
-          if (-not $manifestAsset -or $assetNames -notcontains $manifestAsset) { throw "latest.yml references '$manifestAsset', which is not attached to this release." }
+          if (-not $manifestFile -or $assetNames -notcontains $manifestFile) { throw "latest.yml references '$manifestFile', which is not attached to this release." }
           if (-not $manifestHash) { throw 'latest.yml is missing the SHA-512 checksum.' }
-          if ($manifestAsset -ne $installer.name) { throw 'latest.yml does not point to the expected x64 Windows installer.' }
+          if ($manifestFile -ne $installer.name) { throw 'latest.yml does not point to the expected x64 Windows installer.' }
 
-          gh release download $env:RELEASE_TAG --pattern $manifestAsset --dir $checkDir
-          if ($LASTEXITCODE -ne 0) { throw 'Could not download the installer referenced by latest.yml.' }
-          $installerPath = Join-Path $checkDir $manifestAsset
+          $installerAsset = $assets | Where-Object { $_.name -eq $manifestFile } | Select-Object -First 1
+          $installerPath = Join-Path $checkDir $manifestFile
+          Invoke-WebRequest -Uri $installerAsset.url -Headers $headers -OutFile $installerPath
           $sha = [System.Security.Cryptography.SHA512]::Create()
           try {
             $actualHash = [Convert]::ToBase64String($sha.ComputeHash([System.IO.File]::ReadAllBytes($installerPath)))
@@ -167,7 +173,7 @@ jobs:
             $sha.Dispose()
           }
           if ($actualHash -ne $manifestHash) { throw 'Downloaded installer SHA-512 does not match latest.yml.' }
-          Write-Host "Verified published draft assets and latest.yml for $($env:RELEASE_TAG)."
+          Write-Host "Verified draft release assets and latest.yml for $($env:RELEASE_TAG)."
 
       - name: Publish verified Windows release as GitHub Latest
         if: steps.release-mode.outputs.publish == 'true'
@@ -178,9 +184,13 @@ jobs:
           RELEASE_TAG: ${{ steps.release-mode.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $release = gh release view $env:RELEASE_TAG --json databaseId,isDraft,isPrerelease | ConvertFrom-Json
-          if (-not $release.isDraft -or $release.isPrerelease) { throw 'Refusing to publish a non-draft or prerelease release.' }
-          gh api --method PATCH "repos/$env:GH_REPO/releases/$($release.databaseId)" -F draft=false -F make_latest=true | Out-Null
+          $releases = gh api "repos/$env:GH_REPO/releases?per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not locate the verified draft release for publication.' }
+          $release = @($releases | Where-Object { $_.tag_name -eq $env:RELEASE_TAG } | Select-Object -First 1)[0]
+          if (-not $release -or -not $release.draft -or $release.prerelease) {
+            throw 'Refusing to publish: the matching release is missing, already published, or marked prerelease.'
+          }
+          gh api --method PATCH "repos/$env:GH_REPO/releases/$($release.id)" -F draft=false -F make_latest=true | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'GitHub rejected publication of the verified release.' }
           $latestTag = gh api "repos/$env:GH_REPO/releases/latest" --jq .tag_name
           if ($LASTEXITCODE -ne 0 -or $latestTag.Trim() -ne $env:RELEASE_TAG) {
