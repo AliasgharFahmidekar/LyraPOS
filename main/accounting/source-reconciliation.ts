@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { accountingDate } from './sales';
 
 type DB = Database.Database;
-type ReconciliationStatus = 'posted_once' | 'missing_journal' | 'journal_not_posted' | 'duplicate_journals' | 'missing_source_identity' | 'skipped_pre_cutover' | 'excluded_non_monetary';
+type ReconciliationStatus = 'posted_once' | 'missing_journal' | 'journal_not_posted' | 'duplicate_journals' | 'missing_source_identity' | 'skipped_pre_cutover' | 'excluded_non_monetary' | 'skipped_auto_posting';
 
 type SourceEvent = {
   event_type: 'receipt' | 'refund' | 'expense';
@@ -25,6 +25,12 @@ function validDate(value: unknown, field: string): string | undefined {
     throw Object.assign(new Error(field + ' must be a real calendar date.'), { code: 'invalid_date', statusCode: 400 });
   }
   return value;
+}
+
+function wasSkippedBecauseAutoPostingDisabled(db: DB, entityId: string, action: string): boolean {
+  return Boolean(db.prepare(
+    "SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action=? LIMIT 1",
+  ).get(entityId, action));
 }
 
 function journalMatches(db: DB, sourceType: string, sourceId: string, sourceEvent: string): Array<{ id: string; entry_number: string; status: string }> {
@@ -133,6 +139,20 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       const eventId = typeof payment?.payment_event_id === 'string' ? payment.payment_event_id.trim() : '';
       const sourceId = eventId ? String(bill.id) + ':' + eventId : 'bill:' + String(bill.id);
       const eventDate = typeof payment?.timestamp === 'string' && payment.timestamp.trim() ? payment.timestamp.trim() : null;
+      if (eventId && wasSkippedBecauseAutoPostingDisabled(db, 'payment:' + eventId, 'skipped_auto_sales_posting')) {
+        if (!inAccountingDateRange(db, eventDate, from, to)) continue;
+        events.push({
+          event_type: 'receipt',
+          source_id: sourceId,
+          event_date: eventDate,
+          amount,
+          method,
+          status: 'skipped_auto_posting',
+          journal_entry_ids: [],
+          reason: 'Automatic sales posting was disabled in accounting settings; no journal was expected.',
+        });
+        continue;
+      }
       if (!eventDate) {
         // A pre-cutover bill plus a legacy payment-details line with neither immutable
         // event ID nor timestamp is the one case covered by the explicit no-backfill
@@ -184,6 +204,20 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
   ).all() as Array<{ id: number; bill_id: number; amount_cents: number; method: string; created_at: string | null; bill_created_at: string | null }>;
   for (const refund of refunds) {
     if (isWallet(refund.method)) continue;
+    if (wasSkippedBecauseAutoPostingDisabled(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting')) {
+      if (!inAccountingDateRange(db, refund.created_at, from, to)) continue;
+      events.push({
+        event_type: 'refund',
+        source_id: String(refund.id),
+        event_date: refund.created_at,
+        amount: Number(refund.amount_cents),
+        method: refund.method,
+        status: 'skipped_auto_posting',
+        journal_entry_ids: [],
+        reason: 'Automatic sales posting was disabled and the original sale had no posted receipt; no refund journal was expected.',
+      });
+      continue;
+    }
     const refundAccountingDay = accountingEventDate(db, refund.created_at);
     if (!inAccountingDateRange(db, refund.created_at, from, to)) continue;
     if (!refundAccountingDay) {

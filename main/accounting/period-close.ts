@@ -68,7 +68,7 @@ export function closeAccountingPeriod(db: DB, input: any, actorId: string | null
     }
 
     const reconciliation = getAccountingSourceEventReconciliation(db, { from: start, to: end, limit: 2000 });
-    const allowedStatuses = new Set(['posted_once', 'skipped_pre_cutover', 'excluded_non_monetary']);
+    const allowedStatuses = new Set(['posted_once', 'skipped_pre_cutover', 'excluded_non_monetary', 'skipped_auto_posting']);
     const unresolvedCount = Object.entries(reconciliation.summary)
       .filter(([status, count]) => !allowedStatuses.has(status) && count > 0)
       .reduce((total, [, count]) => total + count, 0);

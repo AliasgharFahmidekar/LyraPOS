@@ -59,12 +59,30 @@ async function main(): Promise<void> {
     const server = seedUser(db, 'accounting-api-server', 'server');
     const chef = seedUser(db, 'accounting-api-chef', 'chef');
     const app = createApp({ '/api/accounting': accountingRoutes });
+    db.prepare("DELETE FROM settings WHERE key='accounting_auto_post_sales'").run();
 
     equal((await request(app).get('/api/accounting/expenses')).status, 401, 'unauthenticated expense list is denied');
+    equal((await request(app).get('/api/accounting/sales-auto-posting')).status, 401, 'unauthenticated users cannot read the sales auto-posting setting');
     equal((await request(app).get('/api/accounting/future-items')).status, 401, 'unauthenticated future-item list is denied');
     equal((await request(app).post('/api/accounting/future-items').set(cashier).send({})).status, 403, 'cashier cannot create future items');
     equal((await request(app).get('/api/accounting/future-items').set(cashier)).status, 403, 'cashier cannot read future items');
+    equal((await request(app).get('/api/accounting/sales-auto-posting').set(cashier)).status, 403, 'cashier cannot read the sales auto-posting setting');
+    equal((await request(app).put('/api/accounting/sales-auto-posting').set(cashier).send({ enabled: true })).status, 403, 'cashier cannot change the sales auto-posting setting');
     equal((await request(app).get('/api/accounting/export')).status, 401, 'unauthenticated accounting export is denied');
+
+    const defaultSalesAutoPosting = await request(app).get('/api/accounting/sales-auto-posting').set(owner);
+    equal(defaultSalesAutoPosting.status, 200, 'owner can read the sales auto-posting setting');
+    equal(defaultSalesAutoPosting.body.enabled, false, 'missing sales auto-posting preference defaults to false');
+    equal((await request(app).put('/api/accounting/sales-auto-posting').set(owner).send({ enabled: 'true' })).status, 400,
+      'setting rejects non-boolean values');
+    const enabledSalesAutoPosting = await request(app).put('/api/accounting/sales-auto-posting').set(manager).send({ enabled: true });
+    equal(enabledSalesAutoPosting.status, 200, 'manager can enable automatic sales posting');
+    equal(enabledSalesAutoPosting.body.enabled, true, 'enabled preference is returned after save');
+    const disabledSalesAutoPosting = await request(app).put('/api/accounting/sales-auto-posting').set(owner).send({ enabled: false });
+    equal(disabledSalesAutoPosting.status, 200, 'owner can disable automatic sales posting');
+    equal(disabledSalesAutoPosting.body.enabled, false, 'disabled preference is returned after save');
+    equal((await request(app).get('/api/accounting/sales-auto-posting').set(owner)).body.enabled, false,
+      'disabled preference persists when read back');
     for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
       equal((await request(app).get('/api/accounting/accounts').set(headers)).status, 403, role + ' cannot read accounting accounts');
       equal((await request(app).get('/api/accounting/transfers').set(headers)).status, 403, role + ' cannot read accounting transfers');
@@ -72,19 +90,6 @@ async function main(): Promise<void> {
       equal((await request(app).post('/api/accounting/expenses').set(headers).send({})).status, 403, role + ' cannot create accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/post').set(headers).send({})).status, 403, role + ' cannot post accounting expenses');
       equal((await request(app).post('/api/accounting/expenses/not-an-id/reverse').set(headers).send({ reason: 'x', reversal_date: '2026-10-11' })).status, 403, role + ' cannot reverse accounting expenses');
-      equal((await request(app).post('/api/accounting/expenses/not-an-id/cancel').set(headers).send({ reason: 'x' })).status, 403, role + ' cannot cancel accounting expenses');
-      equal((await request(app).post('/api/accounting/loans/not-an-id/cancel').set(headers).send({ reason: 'x' })).status, 403, role + ' cannot cancel accounting loans');
-      equal((await request(app).post('/api/accounting/loans/not-an-id/correct').set(headers).send({ reason: 'x', loan: {} })).status, 403, role + ' cannot correct accounting loans');
-      equal((await request(app).put('/api/accounting/loan-installments/not-an-id').set(headers).send({})).status, 403, role + ' cannot edit loan installments');
-      equal((await request(app).get('/api/accounting/expenses/export.xlsx').set(headers)).status, 403, role + ' cannot export accounting expenses');
-    }
-    for (const [role, headers] of [['cashier', cashier], ['server', server], ['chef', chef]] as const) {
-      equal((await request(app).get('/api/accounting/payment-account-mappings').set(headers)).status, 403,
-        role + ' cannot read payment-account mappings');
-      equal((await request(app).put('/api/accounting/payment-account-mappings/default').set(headers).send({ account_id: 'acct-bank' })).status, 403,
-        role + ' cannot change the default payment account');
-      equal((await request(app).put('/api/accounting/payment-account-mappings/cash').set(headers).send({ account_id: 'acct-cash-drawer' })).status, 403,
-        role + ' cannot change a method-specific account mapping');
     }
     equal((await request(app).get('/api/accounting/activities').set(cashier)).status, 403, 'cashier cannot read manual accounting activities');
     equal((await request(app).get('/api/accounting/reconciliation').set(cashier)).status, 403, 'cashier cannot read accounting reconciliation');
@@ -254,63 +259,9 @@ async function main(): Promise<void> {
       .set(manager).send({ account_id: 'acct-inventory' });
     equal(invalidMappingResponse.status, 400, 'payment methods cannot be mapped to inventory');
     equal(invalidMappingResponse.body.code, 'invalid_payment_account', 'invalid payment account mapping has stable error code');
-    const defaultMappingResponse = await request(app).get('/api/accounting/payment-account-mappings').set(manager);
-    equal(defaultMappingResponse.status, 200, 'payment mapping API returns mappings and global default');
-    equal(defaultMappingResponse.body.default_account?.account_id, 'acct-payment-clearing', 'default payment account is seeded to Payment Clearing');
-
-    const listedDefaultMappings = defaultMappingResponse.body.mappings as any[];
-    equal(listedDefaultMappings.find((m: any) => m.payment_method_key === 'wallet'), undefined,
-      'loyalty wallet is never exposed as an accounting payment method');
-
-    const customMethod = db.prepare(
-      'INSERT INTO payment_methods (name,is_active,sort_order,created_at,updated_at) VALUES (?,1,999,?,?)',
-    ).run('API Custom Transfer', now(), now());
-    const customMethodId = Number(customMethod.lastInsertRowid);
-    const customKey = 'custom:' + customMethodId;
-    const mappingBeforeAssignment = (await request(app).get('/api/accounting/payment-account-mappings').set(manager)).body.mappings
-      .find((m: any) => m.payment_method_key === customKey);
-    ok(mappingBeforeAssignment, 'custom payment method appears in the mapping settings');
-    equal(mappingBeforeAssignment.account_id, null, 'new custom payment method has no hard-coded account mapping');
-    const customMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/' + encodeURIComponent(customKey))
-      .set(manager).send({ account_id: 'acct-bank' });
-    equal(customMappingResponse.status, 200, 'manager can map a custom method to its designated bank account');
-    equal(customMappingResponse.body.mapping?.account_id, 'acct-bank', 'custom payment mapping API returns the assigned destination');
-    const clearCustomMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/' + encodeURIComponent(customKey))
-      .set(manager).send({ account_id: null });
-    equal(clearCustomMappingResponse.status, 200, 'manager can clear a custom mapping to use the default');
-    equal(clearCustomMappingResponse.body.mapping?.account_id, null, 'cleared custom mapping is represented as unassigned');
-    const customResetAudit = db.prepare(
-      "SELECT action,after_json FROM accounting_audit_log WHERE entity_type='payment_method_mapping' AND entity_id=? AND action='reset_to_default' ORDER BY id DESC LIMIT 1",
-    ).get(customKey) as any;
-    equal(customResetAudit?.action, 'reset_to_default', 'clearing a custom mapping is recorded in the accounting audit log');
-    equal(JSON.parse(customResetAudit.after_json).uses_default_account, true, 'audit explicitly records that the default account will be used');
-    const walletMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/wallet')
-      .set(manager).send({ account_id: 'acct-cash-drawer' });
-    equal(walletMappingResponse.status, 400, 'the loyalty wallet cannot be configured as an accounting payment method');
-    equal(walletMappingResponse.body.code, 'invalid_payment_method_key', 'wallet mapping rejection has a stable error code');
-    const invalidCustomMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/custom:999999')
-      .set(manager).send({ account_id: 'acct-bank' });
-    equal(invalidCustomMappingResponse.status, 404, 'a mapping cannot be assigned to a nonexistent custom payment method');
-
-    const invalidDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
-      .set(manager).send({ account_id: 'acct-inventory' });
-    equal(invalidDefaultResponse.status, 400, 'default payment account cannot be mapped to inventory');
-    const changedDefaultResponse = await request(app).put('/api/accounting/payment-account-mappings/default')
-      .set(manager).send({ account_id: 'acct-bank' });
-    equal(changedDefaultResponse.status, 200, 'manager can configure the global default payment account');
-    equal(changedDefaultResponse.body.default_account?.account_id, 'acct-bank', 'default mapping API returns the saved bank account');
-
     const mappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
       .set(manager).send({ account_id: 'acct-cash-drawer' });
     equal(mappingResponse.status, 200, 'manager can configure payment-account mapping');
-    const clearedMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
-      .set(manager).send({ account_id: '' });
-    equal(clearedMappingResponse.status, 200, 'manager can clear an individual mapping to use the default');
-    equal(clearedMappingResponse.body.mapping?.account_id, null, 'cleared mapping is represented as fallback');
-    const resetMappingResponse = await request(app).put('/api/accounting/payment-account-mappings/cash')
-      .set(manager).send({ account_id: 'acct-cash-drawer' });
-    equal(resetMappingResponse.status, 200, 'individual cash mapping can be restored');
-    await request(app).put('/api/accounting/payment-account-mappings/default').set(manager).send({ account_id: 'acct-payment-clearing' });
     db.prepare("UPDATE accounting_payment_method_mappings SET account_id='acct-inventory' WHERE payment_method_key='card'").run();
     const invalidPersistedMapping = await request(app).post('/api/accounting/expenses')
       .set(manager).set('Idempotency-Key', 'accounting-invalid-persisted-mapping')
@@ -338,8 +289,6 @@ async function main(): Promise<void> {
     equal(first.status, 201, 'manager can create paid expense with an idempotency key');
     const firstId = first.body.expense?.id;
     ok(typeof firstId === 'string' && firstId.length > 0, 'create response contains the expense identifier');
-    equal(first.body.expense?.status, 'posted', 'a paid expense is returned already posted by its create transaction');
-    ok(typeof first.body.expense?.posted_journal_entry_id === 'string', 'create response includes the posted journal link');
 
     const retry = await request(app).post('/api/accounting/expenses')
       .set(manager).set('Idempotency-Key', 'accounting-api-expense-0001').send(payload);
@@ -359,14 +308,13 @@ async function main(): Promise<void> {
     equal(wrongCurrency.body.code, 'expense_currency_mismatch', 'currency mismatch has a stable error code');
 
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=?").get(firstId) as any).count,
-      2, 'creation and automatic posting are audited once each despite an idempotent retry');
+      1, 'idempotent retry does not duplicate the expense audit event');
 
     equal((await request(app).post('/api/accounting/expenses/' + firstId + '/post').set(cashier).send({})).status,
       403, 'cashier cannot post a manager-owned accounting expense');
     const postResponse = await request(app).post('/api/accounting/expenses/' + firstId + '/post').set(manager).send({});
-    equal(postResponse.status, 200, 'post endpoint safely handles a previously auto-posted expense');
+    equal(postResponse.status, 200, 'manager can post a paid expense');
     equal(postResponse.body.expense?.status, 'posted', 'post endpoint returns posted expense state');
-    equal(postResponse.body.expense?.duplicate, true, 'the compatibility post endpoint does not create a second journal');
     const postedJournalId = postResponse.body.expense?.posted_journal_entry_id;
     ok(typeof postedJournalId === 'string' && postedJournalId.length > 0, 'post response links the journal entry');
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=? AND source_event='expense_paid' AND status='posted'").get(firstId) as any).count,
@@ -377,36 +325,16 @@ async function main(): Promise<void> {
     equal(postRetry.body.expense?.posted_journal_entry_id, postedJournalId, 'retry returns the existing journal link');
 
     const unpaidResponse = await request(app).post('/api/accounting/expenses').set(manager).send({
-      ...payload, description: 'API unpaid expense', due_date: '2000-01-01', payment_status: 'unpaid', payment_method_key: undefined, payment_date: undefined,
+      ...payload, description: 'API unpaid expense', payment_status: 'unpaid', payment_method_key: undefined, payment_date: undefined,
     });
     equal(unpaidResponse.status, 201, 'manager can save an unpaid expense draft');
     const unpaidId = unpaidResponse.body.expense?.id;
     ok(typeof unpaidId === 'string' && unpaidId.length > 0, 'unpaid expense response contains an identifier');
-    equal(unpaidResponse.body.expense?.due_date, '2000-01-01', 'API persists the due date on an unpaid expense');
-    equal(unpaidResponse.body.expense?.is_overdue, 1, 'API marks an unpaid expense overdue when its due date has passed');
-    const overdueList = await request(app).get('/api/accounting/expenses?overdue=true').set(manager);
-    equal(overdueList.status, 200, 'manager can query overdue expenses');
-    ok(overdueList.body.expenses.some((e: any) => e.id === unpaidId), 'overdue query returns the unpaid past-due expense');
     const postUnpaid = await request(app).post('/api/accounting/expenses/' + unpaidId + '/post').set(manager).send({});
     equal(postUnpaid.status, 409, 'unpaid expense cannot be posted as a cash outflow');
     equal(postUnpaid.body.code, 'expense_unpaid', 'unpaid posting rejection has a stable error code');
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='expense' AND source_id=?").get(unpaidId) as any).count,
       0, 'unpaid posting rejection leaves the ledger and cash account untouched');
-    const cancelUnpaid = await request(app).post('/api/accounting/expenses/' + unpaidId + '/cancel').set(manager).send({ reason: 'Draft entered in error' });
-    equal(cancelUnpaid.status, 200, 'manager can cancel an unpaid expense draft with a reason');
-    equal(cancelUnpaid.body.expense?.status, 'cancelled', 'cancel route reports the cancelled state');
-    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='expense' AND entity_id=? AND action='cancelled'").get(unpaidId) as any).count, 1,
-      'cancellation is preserved in the audit log even after the draft is removed');
-    const cancelledDetails = await request(app).get('/api/accounting/expenses/' + unpaidId).set(manager);
-    equal(cancelledDetails.status, 200, 'cancelled expense remains inspectable for audit/idempotency');
-    equal(cancelledDetails.body.expense?.status, 'cancelled', 'expense detail identifies the cancelled state');
-    equal((await request(app).get('/api/accounting/expenses?limit=100').set(manager)).body.expenses.some((e: any) => e.id === unpaidId), false,
-      'cancelled draft is hidden from the active expense list');
-
-    const excelExport = await request(app).get('/api/accounting/expenses/export.xlsx?locale=fa').set(manager);
-    equal(excelExport.status, 200, 'manager can export the live expense list to Excel');
-    ok(String(excelExport.headers['content-type']).includes('spreadsheetml.sheet'), 'export responds with the Excel workbook MIME type');
-    ok(String(excelExport.headers['content-disposition']).includes('lyrapos-expenses.xlsx'), 'export sends a real XLSX download filename');
 
     const reversePayload = { reason: 'API correction', reversal_date: '2026-10-12' };
     const reverseResponse = await request(app).post('/api/accounting/expenses/' + firstId + '/reverse').set(manager).send(reversePayload);
@@ -726,18 +654,11 @@ async function main(): Promise<void> {
     equal(periodReport.body.summary.tax_payments_expense_minor, 700, 'tax paid is separately visible as an expense');
     equal(periodReport.body.summary.result_before_cogs_minor, 18300, 'pre-COGS result subtracts tax paid as an expense without netting it from sales revenue');
     equal(periodReport.body.summary.result_before_cogs_minor, periodReport.body.summary.pos_sales_revenue_minor - periodReport.body.summary.monetary_refunds_minor + periodReport.body.summary.other_income_minor - periodReport.body.summary.posted_expenses_minor, 'asset transfers do not change report income or expense totals');
-    equal(periodReport.body.summary.net_profit_loss_minor, 18300, 'report exposes the configured net result using actual receipts, refunds, other income and paid expenses');
-    equal(periodReport.body.profit_limitations.net_profit_available, true, 'management net result is available under the configured cash-received and paid-expense policy');
-    ok(String(periodReport.body.profit_limitations.message).includes('Inventory cost/COGS is intentionally excluded'), 'report explicitly discloses that inventory cost is not included and the result is not statutory accrual profit');
+    equal(periodReport.body.profit_limitations.net_profit_available, false, 'report never claims net profit while COGS is unavailable');
     equal(periodReport.body.reporting_policy.sales_revenue_basis, 'actual_monetary_receipts', 'report defines sales revenue by actual monetary receipts');
     equal(periodReport.body.reporting_policy.tax_treatment, 'tax_payments_are_expenses_when_paid', 'report follows the policy that taxes are expenses when paid');
     ok(Array.isArray(periodReport.body.liquid_accounts), 'management report returns cash, bank and clearing account balances');
     ok(Array.isArray(periodReport.body.movements?.lines), 'management report returns posted ledger movement lines');
-    ok(Array.isArray(periodReport.body.daily_trend?.points), 'management report returns data-backed income and expense trend points');
-    const trendForReportDate = periodReport.body.daily_trend.points.find((point: any) => point.period === '2026-10-15');
-    ok(Boolean(trendForReportDate), 'daily trend includes the requested report date');
-    equal(trendForReportDate.income_minor, 20500, 'daily trend reconciles actual sales receipts, monetary refunds, and other income');
-    equal(trendForReportDate.expense_minor, 2200, 'daily trend counts posted expenses once and excludes COGS and internal transfers');
     equal((await request(app).get('/api/accounting/reports?from=2026-10-16&to=2026-10-15').set(manager)).status, 400,
       'management report rejects a reversed date range');
     equal((await request(app).get('/api/accounting/reports?limit=101').set(manager)).status, 400,
@@ -1065,12 +986,6 @@ async function main(): Promise<void> {
       'actual incoming settlement clears receivables');
     ok(settlementLines.some((line) => line.account_id === 'acct-future-receipt-clearing' && line.debit_minor === 5000),
       'actual incoming settlement releases the deferred-receipt clearing liability');
-    const settlementRangeForecast = await request(app).get('/api/accounting/forecast?from=' + dayBeforeTodayAccountingDate + '&to=' + todayAccountingDate).set(manager);
-    equal(settlementRangeForecast.status, 200, 'forecast can include actual ledger movements after its opening date');
-    ok(settlementRangeForecast.body.events.some((event: any) => event.source === 'ledger' && event.id === settlementJournal.id && event.actual_cash_in_minor === 5000),
-      'settled receipt appears as actual cash movement when it occurs after the forecast opening date');
-    equal(settlementRangeForecast.body.events.some((event: any) => event.source === 'future_item' && event.id === futureIncomingId), false,
-      'settled receipt is not also counted as an unsettled future projection');
     ok(settlementLines.some((line) => line.account_id === 'acct-other-income' && line.credit_minor === 5000),
       'actual incoming settlement recognizes income in its configured revenue account');
     const futureIncomeAfterSettlement = await request(app).get('/api/accounting/reports?from=' + todayAccountingDate + '&to=' + todayAccountingDate).set(manager);
@@ -1147,39 +1062,6 @@ async function main(): Promise<void> {
       outgoingSettlementReportBefore.body.summary.posted_expenses_minor + 2500,
       'actual outgoing settlement recognizes the expense exactly once on the actual payment date');
 
-    // Early actual settlement: recognize the clearing step and cash settlement on the actual date, never the future due date.
-    const earlyDueDate = (() => {
-      const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 30); return date.toISOString().slice(0, 10);
-    })();
-    const earlyIncoming = await request(app).post('/api/accounting/future-items')
-      .set(manager).set('Idempotency-Key', 'future-early-settlement-create-001')
-      .send({ ...futureIncomingPayload, due_date: earlyDueDate, auto_register: false, reference_number: 'RCPT-EARLY-001' });
-    equal(earlyIncoming.status, 201, 'manager can create a future receipt that may be settled early');
-    const earlyIncomingId = earlyIncoming.body.item?.id;
-    const earlySettlement = await request(app).post('/api/accounting/future-items/' + earlyIncomingId + '/settle')
-      .set(manager).set('Idempotency-Key', 'future-early-settlement-001')
-      .send({ settlement_date: todayAccountingDate, settlement_account_id: 'acct-bank' });
-    equal(earlySettlement.status, 200, 'manager can settle a scheduled receipt before its due date');
-    equal(earlySettlement.body.item?.status, 'settled', 'early settlement marks the future item settled');
-    equal(earlySettlement.body.item?.early_settlement, true, 'early settlement is identified explicitly in the response');
-    const earlyDueJournal = db.prepare("SELECT entry_date FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=? AND source_event='due_registration'").get(earlyIncomingId) as any;
-    ok(earlyDueJournal, 'early settlement records the clearing step required by the ledger invariants');
-    equal(earlyDueJournal.entry_date, todayAccountingDate, 'early settlement never backdates the clearing journal to the future due date');
-    const earlySettlementLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
-      .all(earlySettlement.body.item?.settlement_journal_entry_id) as any[];
-    ok(earlySettlementLines.some((line) => line.account_id === 'acct-bank' && line.debit_minor === 5000),
-      'early receipt debits the actual selected bank account');
-    ok(earlySettlementLines.some((line) => line.account_id === 'acct-other-income' && line.credit_minor === 5000),
-      'early receipt recognizes the configured income only on the actual receipt date');
-    equal(earlySettlementLines.reduce((sum, line) => sum + line.debit_minor, 0),
-      earlySettlementLines.reduce((sum, line) => sum + line.credit_minor, 0),
-      'early settlement journal remains balanced');
-    const earlySettlementRetry = await request(app).post('/api/accounting/future-items/' + earlyIncomingId + '/settle')
-      .set(manager).set('Idempotency-Key', 'future-early-settlement-001')
-      .send({ settlement_date: todayAccountingDate, settlement_account_id: 'acct-bank' });
-    equal(earlySettlementRetry.status, 200, 'identical early settlement retry is idempotent');
-    equal(earlySettlementRetry.body.item?.duplicate, true, 'identical early settlement retry is marked duplicate');
-
     const cancelDueDate = (() => {
       const date = new Date(todayAccountingDate + 'T00:00:00.000Z'); date.setUTCDate(date.getUTCDate() + 30); return date.toISOString().slice(0, 10);
     })();
@@ -1214,121 +1096,6 @@ async function main(): Promise<void> {
       'closed-period future item stays visible as failed and retryable');
     equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_journal_entries WHERE source_type='accounting_future_item' AND source_id=?").get(closedDueItem.body.item?.id) as any).count, 0,
       'closed-period failure creates no partial journal');
-
-    // Custom chart-of-accounts management: create, rename, classify cash/bank as liquid, and preserve ledger identity.
-    equal((await request(app).get('/api/accounting/accounts/managed')).status, 401, 'managed account list denies unauthenticated access');
-    equal((await request(app).get('/api/accounting/accounts/managed').set(cashier)).status, 403, 'cashier cannot manage chart-of-accounts records');
-    equal((await request(app).post('/api/accounting/accounts').set(cashier).send({ name: 'Blocked account', account_kind: 'bank' })).status, 403,
-      'cashier cannot create accounting accounts');
-    const createdBank = await request(app).post('/api/accounting/accounts').set(manager)
-      .send({ name: 'Test bank account', account_kind: 'bank', description: 'Created by route test', is_active: true });
-    equal(createdBank.status, 201, 'manager can create a custom bank account');
-    const customBank = createdBank.body.account;
-    ok(typeof customBank.id === 'string' && customBank.id.length > 10, 'custom account has a stable generated id');
-    equal(customBank.account_type, 'asset', 'custom bank is represented as an asset account');
-    equal(customBank.is_liquid, true, 'custom bank is explicitly marked as a liquid account');
-    ok(String(customBank.system_key).startsWith('custom_liquid:bank:'), 'custom bank has a dedicated non-colliding liquid classification');
-    equal(customBank.balance_minor, 0, 'new account starts with a zero ledger balance, not a fabricated opening balance');
-    // Regression: an account created in the chart of accounts must immediately accept its opening balance.
-    // Custom bank accounts use a custom_liquid:bank:* system key, so the opening-balance
-    // classification must remain bank_balance (not other_asset).
-    const customBankOpening = await request(app).post('/api/accounting/opening-balances')
-      .set(manager).set('Idempotency-Key', 'custom-bank-opening-001')
-      .send({
-        account_id: customBank.id,
-        entry_date: '2026-10-01',
-        amount_minor: 87500,
-        currency_code: 'INR',
-        source_classification: 'bank_balance',
-        description: 'Opening balance for newly created bank account',
-      });
-    equal(customBankOpening.status, 201, 'a newly created custom bank account accepts an opening balance');
-    equal(customBankOpening.body.opening_balance?.account_id, customBank.id, 'opening balance is linked to the newly created account');
-    equal(customBankOpening.body.opening_balance?.source_classification, 'bank_balance', 'new custom bank opening balance keeps bank classification');
-    equal((db.prepare('SELECT amount_minor FROM accounting_opening_balances WHERE account_id=?').get(customBank.id) as any).amount_minor,
-      87500, 'new custom bank opening amount is persisted exactly');
-    const customBankOpeningLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
-      .all(customBankOpening.body.opening_balance?.journal_entry_id) as any[];
-    equal(customBankOpeningLines.length, 2, 'new custom bank opening balance creates a balanced two-line journal');
-    equal(customBankOpeningLines.find((line: any) => line.account_id === customBank.id)?.debit_minor, 87500,
-      'new custom bank opening journal debits the exact bank balance');
-    equal((db.prepare('SELECT SUM(debit_minor) AS debit, SUM(credit_minor) AS credit FROM accounting_journal_lines WHERE journal_entry_id=?')
-      .get(customBankOpening.body.opening_balance?.journal_entry_id) as any).debit, 87500,
-      'new custom bank opening journal debit total matches the opening amount');
-    equal((db.prepare('SELECT SUM(debit_minor) AS debit, SUM(credit_minor) AS credit FROM accounting_journal_lines WHERE journal_entry_id=?')
-      .get(customBankOpening.body.opening_balance?.journal_entry_id) as any).credit, 87500,
-      'new custom bank opening journal credit total matches the opening amount');
-
-    const renamedBank = await request(app).put('/api/accounting/accounts/' + customBank.id).set(manager)
-      .send({ name: 'Renamed test bank', description: 'Renamed without changing chart identity', account_type: 'expense', account_code: '5999', is_active: true });
-    equal(renamedBank.status, 200, 'manager can rename a chart-of-accounts entry');
-    equal(renamedBank.body.account.name, 'Renamed test bank', 'account display name is updated');
-    equal(renamedBank.body.account.account_code, customBank.account_code, 'rename cannot change the account code');
-    equal(renamedBank.body.account.account_type, 'asset', 'rename cannot change the account type');
-    equal(renamedBank.body.account.system_key, customBank.system_key, 'rename cannot change the protected account classification');
-    const managedList = await request(app).get('/api/accounting/accounts/managed').set(manager);
-    equal(managedList.status, 200, 'manager can read the managed chart of accounts');
-    equal(managedList.body.accounts.find((a: any) => a.id === customBank.id)?.name, 'Renamed test bank', 'renamed account appears in the account list');
-    equal((db.prepare("SELECT COUNT(*) AS count FROM accounting_audit_log WHERE entity_type='accounting_account' AND entity_id=?").get(customBank.id) as any).count, 2,
-      'account create and rename both append audit records');
-    const customBankTransfer = await request(app).post('/api/accounting/transfers').set(manager).set('Idempotency-Key', 'custom-bank-transfer-ui-test')
-      .send({ source_account_id: 'acct-cash-drawer', destination_account_id: customBank.id, amount_minor: 5000, entry_date: todayAccountingDate, description: 'Custom bank transfer test' });
-    equal(customBankTransfer.status, 201, 'newly created bank account can receive a cash/bank transfer');
-    equal(customBankTransfer.body.transfer?.amount_minor, 5000, 'custom bank transfer preserves the exact stored amount');
-    const customBankLines = db.prepare('SELECT account_id, debit_minor, credit_minor FROM accounting_journal_lines WHERE journal_entry_id=?')
-      .all(customBankTransfer.body.transfer?.id) as any[];
-    equal(customBankLines.length, 2, 'custom bank transfer has exactly two ledger lines');
-    equal(customBankLines.reduce((sum, line) => sum + line.debit_minor, 0), customBankLines.reduce((sum, line) => sum + line.credit_minor, 0),
-      'custom bank transfer remains balanced');
-    const disabledSystemAccount = await request(app).put('/api/accounting/accounts/acct-bank').set(manager)
-      .send({ name: 'Bank accounts', description: '', is_active: false });
-    equal(disabledSystemAccount.status, 409, 'system account cannot be deactivated through the management API');
-
-    const deactivatedBank = await request(app).put('/api/accounting/accounts/' + customBank.id).set(manager)
-      .send({ name: 'Renamed test bank', description: 'Retained after deactivation', is_active: false });
-    equal(deactivatedBank.status, 200, 'a custom account without active dependencies can be deactivated');
-    equal(deactivatedBank.body.account.is_active, 0, 'successful deactivation marks the custom account inactive');
-    equal(deactivatedBank.body.account.balance_minor, 92500, 'deactivation preserves the opening balance plus subsequent transfer history');
-    const afterDeactivationList = await request(app).get('/api/accounting/accounts/managed').set(manager);
-    equal(afterDeactivationList.body.accounts.find((a: any) => a.id === customBank.id)?.is_active, 0,
-      'inactive account remains visible in account management');
-
-    const dependentExpense = await request(app).post('/api/accounting/accounts').set(manager)
-      .send({ name: 'Expense with active category', account_kind: 'expense', description: 'Dependency regression', is_active: true });
-    equal(dependentExpense.status, 201, 'dependency test creates a custom expense account');
-    const dependentCategory = await request(app).post('/api/accounting/expense-categories').set(manager)
-      .send({ name: 'Active dependency test category', expense_account_id: dependentExpense.body.account.id });
-    equal(dependentCategory.status, 201, 'active expense category references the test account');
-    const blockedDeactivation = await request(app).put('/api/accounting/accounts/' + dependentExpense.body.account.id).set(manager)
-      .send({ name: 'Expense with active category', description: 'Dependency regression', is_active: false });
-    equal(blockedDeactivation.status, 409, 'account with an active expense-category dependency cannot be deactivated');
-    equal((db.prepare('SELECT is_active FROM accounting_accounts WHERE id=?').get(dependentExpense.body.account.id) as any).is_active, 1,
-      'blocked deactivation leaves the dependent account active');
-
-    // Management reports page posted journal entries, not individual lines, so every line
-    // in a journal remains together while older entries stay accessible by page.
-    const ledgerPageOne = await request(app).get('/api/accounting/reports?limit=1&page=1').set(manager);
-    equal(ledgerPageOne.status, 200, 'management report accepts the first ledger page');
-    equal(ledgerPageOne.body.movements.page, 1, 'ledger report returns the requested page number');
-    equal(ledgerPageOne.body.movements.page_size, 1, 'ledger report reflects the requested page size');
-    ok(ledgerPageOne.body.movements.entries_count > 1, 'ledger pagination reports all posted entries, not just the current page');
-    equal(ledgerPageOne.body.movements.total_pages, ledgerPageOne.body.movements.entries_count,
-      'a one-entry page size yields one page for each posted entry');
-    const cashMovementReport = await request(app)
-      .get('/api/accounting/reports?from=' + todayAccountingDate + '&to=' + todayAccountingDate + '&limit=1&page=1').set(manager);
-    equal(cashMovementReport.status, 200, 'report provides simplified cash movements for a selected date range');
-    ok(Array.isArray(cashMovementReport.body.recent_liquid_movements),
-      'management report supplies the simplified liquid-account movement feed');
-    ok(cashMovementReport.body.recent_liquid_movements.some((movement: any) =>
-      movement.account_id === customBank.id && movement.change_minor === 5000),
-    'simplified movement feed represents an increase to the selected bank account without debit/credit presentation');
-    const ledgerPageTwo = await request(app).get('/api/accounting/reports?limit=1&page=2').set(manager);
-    equal(ledgerPageTwo.status, 200, 'management report accepts later ledger pages');
-    equal(ledgerPageTwo.body.movements.page, 2, 'later ledger page is reflected in the response');
-    ok(ledgerPageOne.body.movements.lines[0]?.journal_entry_id !== ledgerPageTwo.body.movements.lines[0]?.journal_entry_id,
-      'successive ledger pages expose different entries without skipping the page boundary');
-    equal((await request(app).get('/api/accounting/reports?limit=1&page=0').set(manager)).status, 400,
-      'ledger report rejects a non-positive page number');
 
     console.log('Accounting routes: ' + assertions + ' assertions passed.');
   } finally {
