@@ -396,7 +396,7 @@ exit 0
   const workflowFiles = fs.readdirSync(workflowDir).filter((name) => name.endsWith('.yml')).sort();
   assert.deepStrictEqual(
     workflowFiles,
-    ['bootstrap-extract.yml', 'lyrapos-regression.yml', 'lyrapos-unix.yml', 'lyrapos-windows.yml'],
+    ['bootstrap-extract.yml', 'lyrapos-regression.yml', 'lyrapos-unix.yml', 'lyrapos-windows-release.yml', 'lyrapos-windows.yml'],
     'current workflow inventory must match the LyraPOS packaging/test split',
   );
 
