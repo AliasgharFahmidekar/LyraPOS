@@ -82,6 +82,29 @@ function testCurrentWorkflows() {
   assert.equal(winUpload.with.name, 'lyrapos-windows');
   assert.match(winUpload.with.path, /release\/lyrapos-\*\.exe/);
 
+  const windowsRelease = loadWorkflow('.github/workflows/lyrapos-windows-release.yml');
+  const releaseTriggers = windowsRelease.on || windowsRelease.true;
+  assert.deepEqual(releaseTriggers.push.tags, ['[0-9]*.[0-9]*.[0-9]*']);
+  assert.equal(releaseTriggers.workflow_dispatch.inputs.publish_release.default, false);
+  assert.equal(windowsRelease.permissions.contents, 'write');
+  const releaseSteps = windowsRelease.jobs['build-windows-release'].steps;
+  assert.equal(releaseSteps.find((s: any) => s.name === 'Build Windows installer').run, 'npm run release:win');
+  assert.equal(releaseSteps.find((s: any) => s.name === 'Verify release artifact names').run, 'npm run verify:release-artifacts');
+  assert.equal(releaseSteps.find((s: any) => s.name === 'Run Windows packaging identity guard').run, 'npm run test:windows-packaging-identity');
+  const releaseMode = releaseSteps.find((s: any) => s.name === 'Validate release mode and version');
+  assert.match(releaseMode.run, /refs\\/heads\\/main/);
+  assert.match(releaseMode.run, /main history/);
+  const draftRelease = releaseSteps.find((s: any) => s.uses === 'softprops/action-gh-release@v2');
+  assert.equal(draftRelease.with.draft, true);
+  assert.equal(draftRelease.with.make_latest, false);
+  assert.match(draftRelease.with.files, /release\\/latest\\.yml/);
+  const verifyDraft = releaseSteps.find((s: any) => s.name === 'Verify draft release and updater manifest');
+  assert.match(verifyDraft.run, /latest.yml/);
+  assert.match(verifyDraft.run, /SHA-512/);
+  const publishRelease = releaseSteps.find((s: any) => s.name === 'Publish verified Windows release as GitHub Latest');
+  assert.match(publishRelease.run, /make_latest=true/);
+  assert.ok(releaseSteps.every((s: any) => !s.name || !/Create draft|Verify draft|Publish verified/.test(s.name) || s.if === "steps.release-mode.outputs.publish == 'true'"));
+
   const unix = loadWorkflow('.github/workflows/lyrapos-unix.yml');
   assert.ok(unix.jobs['validate-unix-identity']);
   assert.ok(unix.jobs['build-linux']);
