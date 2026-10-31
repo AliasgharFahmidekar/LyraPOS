@@ -92,12 +92,12 @@ function testCurrentWorkflows() {
   assert.equal(releaseSteps.find((s: any) => s.name === 'Verify release artifact names').run, 'npm run verify:release-artifacts');
   assert.equal(releaseSteps.find((s: any) => s.name === 'Run Windows packaging identity guard').run, 'npm run test:windows-packaging-identity');
   const releaseMode = releaseSteps.find((s: any) => s.name === 'Validate release mode and version');
-  assert.match(releaseMode.run, /refs\\/heads\\/main/);
+  assert.match(releaseMode.run, /refs\/heads\/main/);
   assert.match(releaseMode.run, /main history/);
   const draftRelease = releaseSteps.find((s: any) => s.uses === 'softprops/action-gh-release@v2');
   assert.equal(draftRelease.with.draft, true);
   assert.equal(draftRelease.with.make_latest, false);
-  assert.match(draftRelease.with.files, /release\\/latest\\.yml/);
+  assert.match(draftRelease.with.files, /release\/latest\.yml/);
   const verifyDraft = releaseSteps.find((s: any) => s.name === 'Verify draft release and updater manifest');
   assert.match(verifyDraft.run, /latest.yml/);
   assert.match(verifyDraft.run, /SHA-512/);
