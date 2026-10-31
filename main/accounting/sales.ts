@@ -338,6 +338,12 @@ export function postCollectionPaymentLines(db: DB, billId: string | number, paym
           : 'Automatic sales posting was disabled in accounting settings; no journal was created.',
       });
     });
+    // The setting controls journal creation, not the immutable commercial snapshot.
+    // A fully paid post-cutover bill still needs its accounting snapshot even when
+    // its actual money receipt is intentionally omitted from the ledger.
+    if (bill.payment_status === 'paid' && canFinalizeBillSnapshot(db, bill)) {
+      finalizeBillSale(db, billId, actorId);
+    }
     return;
   }
   if (!paymentLines.length) {

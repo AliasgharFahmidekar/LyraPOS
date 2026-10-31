@@ -574,10 +574,15 @@ try {
       'pre-cutover receipt is never backfilled while automatic posting is disabled');
 
     const { billId: skippedBillId } = makeBill(db, 'AUTO-POST-OFF');
+    db.prepare("UPDATE bills SET paid_amount=30,balance=0,payment_status='paid' WHERE id=?").run(skippedBillId);
     const skippedPayment = { payment_event_id: 'auto-off-payment-001', method: 'cash', amount: 30, timestamp: now() };
     db.transaction(() => sales.postCollectionPaymentLines(db, skippedBillId, [skippedPayment], 'test-owner-accounting'))();
     equal(journalForSource(db, 'bill_payment', String(skippedBillId) + ':' + skippedPayment.payment_event_id, 'money_received'), undefined,
       'disabled automatic sales posting creates no receipt journal');
+    const skippedSnapshot = db.prepare('SELECT accounting_finalized_at,accounting_snapshot_json FROM bills WHERE id=?').get(skippedBillId) as any;
+    ok(skippedSnapshot.accounting_finalized_at, 'paid bill still receives an immutable snapshot while automatic journal posting is disabled');
+    equal(JSON.parse(skippedSnapshot.accounting_snapshot_json).journalEntryId, null,
+      'disabled posting snapshot explicitly contains no sales journal');
     ok(db.prepare("SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action='skipped_auto_sales_posting'")
       .get('payment:' + skippedPayment.payment_event_id), 'disabled receipt is retained in the accounting audit log');
 
