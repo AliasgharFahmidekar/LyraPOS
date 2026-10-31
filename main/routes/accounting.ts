@@ -211,8 +211,19 @@ router.put('/sales-auto-posting', managerOnly, (req, res) => {
   }
   try {
     const db = getDatabase();
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('accounting_auto_post_sales', ?, CURRENT_TIMESTAMP)")
-      .run(req.body.enabled ? 'true' : 'false');
+    const before = isAutomaticSalesPostingEnabled(db);
+    const after = req.body.enabled;
+    db.transaction(() => {
+      if (before !== after) {
+        db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('accounting_auto_post_sales', ?, CURRENT_TIMESTAMP)")
+          .run(after ? 'true' : 'false');
+        db.prepare(`
+          INSERT INTO accounting_audit_log
+            (entity_type, entity_id, action, actor_user_id, before_json, after_json)
+          VALUES ('accounting_setting', 'accounting_auto_post_sales', 'updated', ?, ?, ?)
+        `).run(actorId(req), JSON.stringify({ enabled: before }), JSON.stringify({ enabled: after }));
+      }
+    })();
     res.json({ enabled: isAutomaticSalesPostingEnabled(db) });
   } catch (error) { respondError(res, error); }
 });

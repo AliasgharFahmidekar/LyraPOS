@@ -59,12 +59,38 @@ async function main(): Promise<void> {
     const enabled = await request(app).put('/api/accounting/sales-auto-posting').set(manager).send({ enabled: true });
     equal(enabled.status, 200, 'manager can enable automatic sales posting');
     equal(enabled.body.enabled, true, 'enabled preference is persisted');
+    const enabledAudit = db.prepare(`
+      SELECT actor_user_id, before_json, after_json FROM accounting_audit_log
+      WHERE entity_type='accounting_setting' AND entity_id='accounting_auto_post_sales' AND action='updated'
+      ORDER BY id DESC LIMIT 1
+    `).get() as any;
+    equal(enabledAudit.actor_user_id, 'accounting-auto-post-manager', 'preference change records the manager actor');
+    equal(JSON.parse(enabledAudit.before_json).enabled, false, 'preference audit preserves the previous setting');
+    equal(JSON.parse(enabledAudit.after_json).enabled, true, 'preference audit preserves the new setting');
+    const auditCountAfterEnable = Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM accounting_audit_log
+      WHERE entity_type='accounting_setting' AND entity_id='accounting_auto_post_sales' AND action='updated'
+    `).get() as any).count);
+    const sameValue = await request(app).put('/api/accounting/sales-auto-posting').set(manager).send({ enabled: true });
+    equal(sameValue.status, 200, 'saving the current preference again is idempotent');
+    equal(Number((db.prepare(`
+      SELECT COUNT(*) AS count FROM accounting_audit_log
+      WHERE entity_type='accounting_setting' AND entity_id='accounting_auto_post_sales' AND action='updated'
+    `).get() as any).count), auditCountAfterEnable, 'saving the same preference does not create duplicate audit events');
     equal((await request(app).get('/api/accounting/sales-auto-posting').set(owner)).body.enabled, true,
       'owner reads the persisted enabled preference');
 
     const disabled = await request(app).put('/api/accounting/sales-auto-posting').set(owner).send({ enabled: false });
     equal(disabled.status, 200, 'owner can disable automatic sales posting');
     equal(disabled.body.enabled, false, 'disabled preference is persisted');
+    const disabledAudit = db.prepare(`
+      SELECT actor_user_id, before_json, after_json FROM accounting_audit_log
+      WHERE entity_type='accounting_setting' AND entity_id='accounting_auto_post_sales' AND action='updated'
+      ORDER BY id DESC LIMIT 1
+    `).get() as any;
+    equal(disabledAudit.actor_user_id, 'accounting-auto-post-owner', 'disabling the preference records the owner actor');
+    equal(JSON.parse(disabledAudit.before_json).enabled, true, 'disable audit preserves the old enabled state');
+    equal(JSON.parse(disabledAudit.after_json).enabled, false, 'disable audit preserves the new disabled state');
     process.stdout.write('PASS accounting sales auto-posting routes: ' + assertions + ' assertions\n');
   } finally {
     closeDatabase();
