@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { accountingDate } from './sales';
 
 type DB = Database.Database;
-type ReconciliationStatus = 'posted_once' | 'missing_journal' | 'journal_not_posted' | 'duplicate_journals' | 'missing_source_identity' | 'skipped_pre_cutover' | 'excluded_non_monetary';
+type ReconciliationStatus = 'posted_once' | 'missing_journal' | 'journal_not_posted' | 'duplicate_journals' | 'missing_source_identity' | 'skipped_pre_cutover' | 'excluded_non_monetary' | 'skipped_auto_posting';
 
 type SourceEvent = {
   event_type: 'receipt' | 'refund' | 'expense';
@@ -25,6 +25,12 @@ function validDate(value: unknown, field: string): string | undefined {
     throw Object.assign(new Error(field + ' must be a real calendar date.'), { code: 'invalid_date', statusCode: 400 });
   }
   return value;
+}
+
+function wasSkippedBecauseAutoPostingDisabled(db: DB, entityId: string, action: string): boolean {
+  return Boolean(db.prepare(
+    "SELECT 1 FROM accounting_audit_log WHERE entity_type='accounting_source_event' AND entity_id=? AND action=? LIMIT 1",
+  ).get(entityId, action));
 }
 
 function journalMatches(db: DB, sourceType: string, sourceId: string, sourceEvent: string): Array<{ id: string; entry_number: string; status: string }> {
@@ -175,7 +181,18 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
         continue;
       }
       const match = statusFor(journalMatches(db, 'bill_payment', String(bill.id) + ':' + eventId, 'money_received'));
-      events.push({ event_type: 'receipt', source_id: String(bill.id) + ':' + eventId, event_date: eventDate, amount, method, ...match });
+      const skipped = match.status === 'missing_journal'
+        && wasSkippedBecauseAutoPostingDisabled(db, 'payment:' + eventId, 'skipped_auto_sales_posting');
+      events.push({
+        event_type: 'receipt',
+        source_id: String(bill.id) + ':' + eventId,
+        event_date: eventDate,
+        amount,
+        method,
+        ...(skipped
+          ? { status: 'skipped_auto_posting' as const, journal_entry_ids: [], reason: 'Automatic sales posting was disabled in accounting settings; no journal was expected.' }
+          : match),
+      });
     }
   }
 
@@ -199,7 +216,18 @@ export function getAccountingSourceEventReconciliation(db: DB, filters: { from?:
       continue;
     }
     const match = statusFor(journalMatches(db, 'refund', String(refund.id), 'money_refunded'));
-    events.push({ event_type: 'refund', source_id: String(refund.id), event_date: refund.created_at, amount: Number(refund.amount_cents), method: refund.method, ...match });
+    const skipped = match.status === 'missing_journal'
+      && wasSkippedBecauseAutoPostingDisabled(db, 'refund:' + String(refund.id), 'skipped_auto_refund_posting');
+    events.push({
+      event_type: 'refund',
+      source_id: String(refund.id),
+      event_date: refund.created_at,
+      amount: Number(refund.amount_cents),
+      method: refund.method,
+      ...(skipped
+        ? { status: 'skipped_auto_posting' as const, journal_entry_ids: [], reason: 'Automatic sales posting was disabled and the original sale had no posted receipt; no refund journal was expected.' }
+        : match),
+    });
   }
 
   const expenses = db.prepare(
