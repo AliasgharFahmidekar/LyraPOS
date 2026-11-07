@@ -199,6 +199,70 @@ function main() {
     'held_orders is NOT left behind when a later fix fails (batch rolled back)',
   );
   console.log('   ✓ applySafeFixes() rolls back the whole batch when any fix fails');
+
+  // ── Startup repairs integration counters that trail their persisted change logs ──
+  const revisionTestUserId = 'revision-repair-test-user';
+  db.prepare('INSERT INTO users (id, name, password, role) VALUES (?, ?, ?, ?)').run(
+    revisionTestUserId, 'Revision Repair Test', 'not-a-login-credential', 'owner',
+  );
+  db.prepare('INSERT INTO orders (order_number, user_id, type, status) VALUES (?, ?, ?, ?)').run(
+    'ORD-20990101-0001', revisionTestUserId, 'takeaway', 'pending',
+  );
+  db.prepare('INSERT INTO categories (id, name) VALUES (?, ?)').run(
+    'revision-repair-category-1', 'Revision Repair Category 1',
+  );
+
+  const orderChangeMax = (db.prepare('SELECT COALESCE(MAX(revision), 0) AS revision FROM integration_order_changes').get() as { revision: number }).revision;
+  const catalogChangeMax = (db.prepare('SELECT COALESCE(MAX(revision), 0) AS revision FROM integration_catalog_changes').get() as { revision: number }).revision;
+  assert.ok(orderChangeMax > 0, 'the seed order created a persisted integration change');
+  assert.ok(catalogChangeMax > 0, 'the seed category created a persisted catalog change');
+
+  db.prepare('UPDATE integration_order_state SET revision = ? WHERE id = 1').run(orderChangeMax - 1);
+  db.prepare('UPDATE integration_catalog_state SET revision = ? WHERE id = 1').run(catalogChangeMax - 1);
+
+  const insertOrder = db.transaction((orderNumber: string) => db.prepare(
+    'INSERT INTO orders (order_number, user_id, type, status) VALUES (?, ?, ?, ?)',
+  ).run(orderNumber, revisionTestUserId, 'takeaway', 'pending'));
+  assert.throws(
+    () => insertOrder('ORD-20990101-0002'),
+    /UNIQUE constraint failed: integration_order_changes\.revision/,
+    'a stale order integration counter reproduces the order creation failure',
+  );
+
+  const insertCategory = db.prepare('INSERT INTO categories (id, name) VALUES (?, ?)');
+  assert.throws(
+    () => insertCategory.run('revision-repair-category-2', 'Revision Repair Category 2'),
+    /UNIQUE constraint failed: integration_catalog_changes\.revision/,
+    'a stale catalog integration counter also reproduces its trigger collision',
+  );
+
+  closeDatabase();
+  initDatabase();
+  const reopenedDb = getDatabase();
+  assert.equal(
+    (reopenedDb.prepare('SELECT revision FROM integration_order_state WHERE id = 1').get() as { revision: number }).revision,
+    orderChangeMax,
+    'startup repairs the order revision counter to the maximum persisted change',
+  );
+  assert.equal(
+    (reopenedDb.prepare('SELECT revision FROM integration_catalog_state WHERE id = 1').get() as { revision: number }).revision,
+    catalogChangeMax,
+    'startup repairs the catalog revision counter to the maximum persisted change',
+  );
+
+  assert.doesNotThrow(
+    () => reopenedDb.prepare('INSERT INTO orders (order_number, user_id, type, status) VALUES (?, ?, ?, ?)').run(
+      'ORD-20990101-0002', revisionTestUserId, 'takeaway', 'pending',
+    ),
+    'order creation succeeds after startup repairs the stale integration counter',
+  );
+  assert.doesNotThrow(
+    () => reopenedDb.prepare('INSERT INTO categories (id, name) VALUES (?, ?)').run(
+      'revision-repair-category-2', 'Revision Repair Category 2',
+    ),
+    'catalog writes succeed after startup repairs the stale integration counter',
+  );
+  console.log('   ✓ startup reconciles stale order and catalog revision counters before writes');
 }
 
 try {
