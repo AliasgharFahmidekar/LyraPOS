@@ -30,6 +30,6 @@ Review the ZIP before sharing it. The script redacts common token and password p
 
 ## Shutdown diagnostics
 
-The local lifecycle log records the shutdown trigger (before-quit, will-quit, SIGTERM, SIGINT, or direct cleanup), each cleanup step's duration, and detailed Main Server HTTP/WebSocket shutdown state. HTTP summaries include active-request counts, age, method, a sanitized path, and tracked-work counts; query strings are excluded. WebSocket summaries include client counts by ready state.
+The local lifecycle log records the first observed shutdown trigger (before-quit, will-quit, SIGTERM, SIGINT, or direct cleanup), each cleanup step's duration, and detailed HTTP/WebSocket shutdown state for the Server App, Main Server, and KDS. HTTP summaries include active-request counts, age, method, a sanitized path, and tracked-work counts; query strings are excluded. WebSocket summaries include client counts by ready state.
 
-The graceful shutdown timeout is 30 seconds. The Main Server step relies on its resource-level HTTP/WebSocket timeout rather than a competing outer timer, so the log can preserve the specific failing layer. If HTTP work still has not drained after the timeout, database closure remains blocked.
+The graceful shutdown timeout is 30 seconds. These local server steps rely on their resource-level HTTP/WebSocket timeout rather than a competing outer timer, so the log can preserve the specific failing layer. If HTTP work still has not drained after the timeout, database closure remains blocked.
