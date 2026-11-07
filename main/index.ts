@@ -1429,7 +1429,7 @@ const cleanupCoordinator = createShutdownCoordinator(() => [
   { name: 'WordPress Bridge', run: () => wordpressBridge.stop(), blocksDatabase: true },
   // Drain Server App before shutting down main API.
   { name: 'Server App', run: () => stopServerApp(), blocksDatabase: true },
-  { name: 'Main server', run: () => stopServer(), blocksDatabase: true },
+  { name: 'Main server', run: () => stopServer(), blocksDatabase: true, timeoutManaged: true },
   { name: 'KDS server', run: () => stopKdsServer(), blocksDatabase: true },
   { name: 'cloud sync', run: () => cloudSync.shutdown(), blocksDatabase: true },
   { name: 'telemetry', run: () => telemetry.stop(), blocksDatabase: true },
