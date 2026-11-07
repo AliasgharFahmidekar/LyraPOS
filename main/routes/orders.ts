@@ -23,6 +23,7 @@ import { getCurrencyFractionDigits, getCurrencyMinorUnitFactor } from '../countr
 import { getTenantCurrency } from './bills';
 import expressRateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
+import { recordApiDiagnosticError } from '../services/api-diagnostics';
 
 const router = Router();
 const orderReadRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
@@ -738,15 +739,21 @@ router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: R
 
     res.status(result.idempotentReplay ? 200 : 201).json({ order: Object.assign({}, result.order, { items: result.orderItems }) });
   } catch (error: any) {
+    const statusCode = error.statusCode || 500;
+    if (statusCode >= 500) recordApiDiagnosticError(req, res, 'orders.create.transaction_or_postprocess', error, {
+      item_count: Array.isArray(req.body?.items) ? req.body.items.length : 0,
+    });
     console.error('[Orders] Create error:', error);
     console.error("[API] Internal error:", error);
-    const statusCode = error.statusCode || 500;
     reportOrderCreateFailure(
       statusCode,
       Array.isArray(req.body?.items) ? req.body.items.length : 0,
       error.message === 'Insufficient stock' ? 'inventory_validation' : 'order_insert',
     );
-    res.status(statusCode).json({ error: error.statusCode ? error.message : "Internal server error" });
+    res.status(statusCode).json({
+      error: error.statusCode ? error.message : "Internal server error",
+      ...(statusCode >= 500 && res.locals?.apiRequestId ? { request_id: res.locals.apiRequestId } : {}),
+    });
   }
 });
 
