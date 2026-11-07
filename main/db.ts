@@ -966,6 +966,7 @@ export function initDatabase(recoverInterruptedReplacement = true, allowDuringSh
 
   runStartupIntegrityCheck();
   repairSequences();
+  repairIntegrationSyncRevisions();
   autoRepairPaymentDetails();
   autoRepairDefaultPrinter();
 
@@ -1159,6 +1160,77 @@ function repairSequences(): void {
     }
   } catch (err) {
     console.error('[DB] repairSequences failed:', err);
+  }
+}
+
+/**
+ * Repairs integration high-water marks that have fallen behind their change logs.
+ *
+ * These counters are consumed by SQLite triggers. If a counter is lower than the
+ * largest persisted revision, the next order/catalog write reuses an existing
+ * primary key and the entire business transaction fails with a UNIQUE constraint.
+ * Never move a counter backwards: a higher value can be a valid retained cursor.
+ */
+function repairIntegrationSyncRevisions(): void {
+  const revisionPairs = [
+    {
+      stateTable: 'integration_order_state',
+      changesTable: 'integration_order_changes',
+      label: 'orders',
+    },
+    {
+      stateTable: 'integration_catalog_state',
+      changesTable: 'integration_catalog_changes',
+      label: 'catalog',
+    },
+  ] as const;
+
+  try {
+    const repair = db.transaction(() => {
+      for (const pair of revisionPairs) {
+        const stateTableExists = db.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ).get(pair.stateTable);
+        const changesTableExists = db.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ).get(pair.changesTable);
+        if (!stateTableExists || !changesTableExists) continue;
+
+        const maxRow = db.prepare(
+          `SELECT COALESCE(MAX(revision), 0) AS revision FROM ${pair.changesTable}`,
+        ).get() as { revision: number };
+        const maxRevision = Number(maxRow.revision);
+        if (!Number.isSafeInteger(maxRevision) || maxRevision < 0) {
+          throw new Error(`Invalid ${pair.label} integration change revision: ${String(maxRow.revision)}`);
+        }
+
+        const state = db.prepare(
+          `SELECT revision FROM ${pair.stateTable} WHERE id = 1`,
+        ).get() as { revision: number } | undefined;
+
+        if (!state) {
+          db.prepare(
+            `INSERT INTO ${pair.stateTable} (id, revision, updated_at) VALUES (1, ?, CURRENT_TIMESTAMP)`,
+          ).run(maxRevision);
+          console.warn(`[DB] Recreated missing ${pair.label} integration revision state at ${maxRevision}`);
+          continue;
+        }
+
+        const currentRevision = Number(state.revision);
+        if (Number.isSafeInteger(currentRevision) && currentRevision >= maxRevision) continue;
+
+        db.prepare(
+          `UPDATE ${pair.stateTable} SET revision = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+        ).run(maxRevision);
+        console.warn(
+          `[DB] Repaired stale ${pair.label} integration revision state: ${String(state.revision)} → ${maxRevision}`,
+        );
+      }
+    });
+
+    repair();
+  } catch (error) {
+    console.error('[DB] repairIntegrationSyncRevisions failed:', error);
   }
 }
 
