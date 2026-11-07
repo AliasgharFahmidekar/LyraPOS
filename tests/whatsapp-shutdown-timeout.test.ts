@@ -70,7 +70,7 @@ async function main(): Promise<void> {
     });
     await presenceStartedPromise;
     (globalThis as any).setTimeout = ((handler: (...args: any[]) => void, delay?: number, ...args: any[]) =>
-      originalSetTimeout(handler, delay === 10_000 ? 1 : delay, ...args)) as typeof setTimeout;
+      originalSetTimeout(handler, delay === 30_000 ? 1 : delay, ...args)) as typeof setTimeout;
 
     let databaseClosed = false;
     let fatalTimeoutObserved = false;
