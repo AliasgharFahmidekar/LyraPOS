@@ -4,6 +4,7 @@ import expressRateLimit from 'express-rate-limit';
 import { requireRole } from '../middleware/security';
 import { cloudSync, DiagnosticEventInput, isAllowedDiagnosticEventCode } from '../services/cloud-sync';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
+import { readApiDiagnosticLog } from '../services/api-diagnostics';
 
 const router = Router();
 
@@ -84,6 +85,12 @@ export function buildDiagnosticEvent(body: unknown): DiagnosticEventInput | null
     occurred_at: new Date().toISOString(),
   };
 }
+
+router.get('/local-error-log', requireRole(...ROLE_ACCESS.ownerManager), (_req: Request, res: Response) => {
+  const contents = readApiDiagnosticLog();
+  res.setHeader('Content-Disposition', 'attachment; filename="lyrapos-api-errors.log"');
+  res.type('text/plain; charset=utf-8').send(contents || 'No local API errors have been recorded yet.');
+});
 
 router.post('/event', requireRole(...ROLE_ACCESS.allStaff), diagnosticsWriteRateLimit, (req: Request, res: Response) => {
   const event = buildDiagnosticEvent(req.body);
