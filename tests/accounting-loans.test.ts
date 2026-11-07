@@ -218,10 +218,13 @@ function main(): void {
     const reversedAccrualLines=journalLines(db,cancelledRegistered.cancellation_reversal_journal_entry_id);
     equal(reversedAccrualLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0),originalAccrualLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0),'cancellation reversal debit equals original accrual credits');
     equal(reversedAccrualLines.reduce((sum:number,line:any)=>sum+line.credit_minor,0),originalAccrualLines.reduce((sum:number,line:any)=>sum+line.debit_minor,0),'cancellation reversal credit equals original accrual debits');
-    const afterDueCancellationReport=getAccountingManagementReport(db,{from:'2026-10-01',to:'2026-10-31'});
+    // The reversal is posted on the actual cancellation date, which may be
+    // later than the historical October test window. Include that date in the
+    // report range before asserting its zero cash-basis expense impact.
+    const accrualReversalDate=(db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(cancelledRegistered.cancellation_reversal_journal_entry_id) as any).entry_date;
+    const afterDueCancellationReport=getAccountingManagementReport(db,{from:'2026-10-01',to:accrualReversalDate});
     equal(afterDueCancellationReport.summary.posted_expenses_minor,75,'cancelled unpaid interest accrual is excluded from paid expense totals');
     equal(afterDueCancellationReport.daily_trend.points.find((point:any)=>point.period==='2026-10-22')?.expense_minor,75,'daily trend includes the two actually settled installment costs exactly once');
-    const accrualReversalDate=(db.prepare('SELECT entry_date FROM accounting_journal_entries WHERE id=?').get(cancelledRegistered.cancellation_reversal_journal_entry_id) as any).entry_date;
     equal(afterDueCancellationReport.daily_trend.points.find((point:any)=>point.period===accrualReversalDate)?.expense_minor,0,'cancellation reversal does not create a false daily expense movement');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'loan-settle-001'), 'idempotency_conflict', 'changed settlement payload under the same key conflicts');
     throws(() => loans.settleLoanInstallment(db, installment.id, {settlement_date:'2026-10-22',settlement_account_id:'acct-cash-drawer'}, 'test-owner', 'different-key'), 'installment_already_settled', 'settled installment cannot be paid twice');
