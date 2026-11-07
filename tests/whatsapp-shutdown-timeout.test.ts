@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     let fatalTimeoutObserved = false;
     await assert.rejects(
       runShutdownSteps([
-        { name: 'WhatsApp', blocksDatabase: true, run: () => whatsapp.shutdown() },
+        { name: 'WhatsApp', blocksDatabase: true, timeoutManaged: true, run: () => whatsapp.shutdown() },
         { name: 'database', databaseClose: true, run: () => { databaseClosed = true; } },
       ], { onFatalTimeout: () => { fatalTimeoutObserved = true; } }),
       (error: any) => error?.code === 'ERR_SHUTDOWN_TIMEOUT',
