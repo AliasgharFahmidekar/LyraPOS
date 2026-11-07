@@ -132,27 +132,40 @@ async function testCoordinatorOrderingAndIdempotency(): Promise<void> {
 async function testShutdownTimeoutConfigurationAndManagedSteps(): Promise<void> {
   assert.equal(SHUTDOWN_TIMEOUT_MS, 30_000, "shutdown timeout is configured to 30 seconds");
 
-  let releaseManagedStep: (() => void) | null = null;
-  const heldStep = new Promise<void>((resolve) => { releaseManagedStep = resolve; });
-  const events: string[] = [];
-  const shutdown = runShutdownSteps([
-    {
-      name: "resource-managed shutdown",
-      timeoutManaged: true,
-      run: async () => {
-        events.push("managed:start");
-        await heldStep;
-        events.push("managed:end");
+  const originalSetTimeout = globalThis.setTimeout;
+  let outerTimeoutScheduled = 0;
+  (globalThis as any).setTimeout = ((handler: (...args: any[]) => void, milliseconds?: number, ...args: any[]) => {
+    if (milliseconds === SHUTDOWN_TIMEOUT_MS) {
+      outerTimeoutScheduled++;
+      return originalSetTimeout(handler, 1, ...args);
+    }
+    return originalSetTimeout(handler, milliseconds, ...args);
+  }) as typeof setTimeout;
+  try {
+    let releaseManagedStep: (() => void) | null = null;
+    const heldStep = new Promise<void>((resolve) => { releaseManagedStep = resolve; });
+    const events: string[] = [];
+    const shutdown = runShutdownSteps([
+      {
+        name: "resource-managed shutdown",
+        timeoutManaged: true,
+        run: async () => {
+          events.push("managed:start");
+          await heldStep;
+          events.push("managed:end");
+        },
       },
-    },
-    { name: "next step", run: () => { events.push("next"); } },
-  ]);
+      { name: "next step", run: () => { events.push("next"); } },
+    ]);
 
-  await delay(10);
-  releaseManagedStep?.();
-  await shutdown;
-  assert.deepEqual(events, ["managed:start", "managed:end", "next"],
-    "resource-managed steps complete under their own timeout without an equal outer timer racing them");
+    await delay(10);
+    assert.equal(outerTimeoutScheduled, 0, "the coordinator does not schedule a duplicate timer for resource-managed steps");
+    releaseManagedStep?.();
+    await shutdown;
+    assert.deepEqual(events, ["managed:start", "managed:end", "next"]);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
 }
 
 async function testDatabaseCloseRequiresSuccessfulDrains(): Promise<void> {
