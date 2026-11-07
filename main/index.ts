@@ -1431,7 +1431,7 @@ const cleanupCoordinator = createShutdownCoordinator(() => [
   // These server helpers enforce their own HTTP/WebSocket resource-level 30-second shutdown deadline.
   { name: 'Server App', run: () => stopServerApp(), blocksDatabase: true, timeoutManaged: true },
   { name: 'Main server', run: () => stopServer(), blocksDatabase: true, timeoutManaged: true },
-  { name: 'KDS server', run: () => stopKdsServer(), blocksDatabase: true, timeoutManaged: true }
+  { name: 'KDS server', run: () => stopKdsServer(), blocksDatabase: true, timeoutManaged: true },
   { name: 'cloud sync', run: () => cloudSync.shutdown(), blocksDatabase: true },
   { name: 'telemetry', run: () => telemetry.stop(), blocksDatabase: true },
   { name: 'Google Drive', run: () => googleDrive.stop(), blocksDatabase: true },
