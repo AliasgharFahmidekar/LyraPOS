@@ -17,6 +17,7 @@ import { asyncHandler } from '../middleware/async-handler';
 import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
 import { printReceipt } from '../services/receipt';
 import { cloudSync } from '../services/cloud-sync';
+import { recordApiDiagnosticError } from '../services/api-diagnostics';
 import { requireRole } from '../middleware/security';
 import { getOpenSession, isCashTender, NO_CASH_SESSION_ID, requireOpenSessionForCashTender } from '../services/shift-session-gate';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
@@ -2086,8 +2087,13 @@ router.post('/:id/finalize', requireRole(...ROLE_ACCESS.ownerManagerCashier), (r
     res.json({ finalization: result });
   } catch (error: any) {
     const statusCode = error.statusCode || 500;
+    if (statusCode >= 500) recordApiDiagnosticError(req, res, 'bills.finalize', error);
     console.error('[API] Bill accounting finalization failed:', error);
-    res.status(statusCode).json({ error: statusCode >= 500 ? 'Bill accounting finalization failed' : error.message, code: error.code });
+    res.status(statusCode).json({
+      error: statusCode >= 500 ? 'Bill accounting finalization failed' : error.message,
+      code: error.code,
+      ...(statusCode >= 500 && res.locals?.apiRequestId ? { request_id: res.locals.apiRequestId } : {}),
+    });
   }
 });
 
@@ -2111,8 +2117,12 @@ router.post('/:id/payment', requireRole(...ROLE_ACCESS.ownerManagerCashier), (re
     res.json(result);
   } catch (error: any) {
     const statusCode = error.statusCode || 500;
+    if (statusCode >= 500) recordApiDiagnosticError(req, res, 'bills.payment', error);
     console.error('[API] Bill payment failed:', error);
-    res.status(statusCode).json({ error: statusCode >= 500 ? 'Bill payment failed' : error.message });
+    res.status(statusCode).json({
+      error: statusCode >= 500 ? 'Bill payment failed' : error.message,
+      ...(statusCode >= 500 && res.locals?.apiRequestId ? { request_id: res.locals.apiRequestId } : {}),
+    });
   }
 });
 
@@ -2144,6 +2154,9 @@ router.post('/:id/payments', requireRole(...ROLE_ACCESS.ownerManagerCashier), (r
     const statusCode = error.statusCode || 500;
     const errorMessage = String(error.message || '');
     const isCustomerMismatch = errorMessage === 'Payment customer does not match the bill customer';
+    if (statusCode >= 500) recordApiDiagnosticError(req, res, 'bills.payment_batch', error, {
+      payment_count: Array.isArray(req.body?.payments) ? req.body.payments.length : 0,
+    });
     console.error('[API] Batch bill payment failed:', error);
     if (statusCode >= 500 || isCustomerMismatch) {
       try {
@@ -2157,7 +2170,10 @@ router.post('/:id/payments', requireRole(...ROLE_ACCESS.ownerManagerCashier), (r
         });
       } catch { /* diagnostics must never mask the original failure */ }
     }
-    res.status(statusCode).json({ error: statusCode >= 500 ? 'Bill payment failed' : error.message });
+    res.status(statusCode).json({
+      error: statusCode >= 500 ? 'Bill payment failed' : error.message,
+      ...(statusCode >= 500 && res.locals?.apiRequestId ? { request_id: res.locals.apiRequestId } : {}),
+    });
   }
 });
 
