@@ -1,6 +1,6 @@
 {
   "name": "lyrapos-desktop",
-  "version": "3.11.1",
+  "version": "3.12.0",
   "description": "LyraPOS — Free, open-source, offline-first restaurant POS with KDS, SQLite, and thermal printer support.",
   "engines": {
     "node": ">=22.13.0"
