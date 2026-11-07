@@ -138,7 +138,8 @@ export function apiDiagnosticsMiddleware(req: Request, res: Response, next: Next
   res.once('finish', () => {
     const status = res.statusCode;
     const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method.toUpperCase());
-    if (status < 500 && !(isWrite && status >= 400)) return;
+    const isSalesWrite = isWrite && /^\/api\/(?:orders|bills)(?:\/|$)/.test(req.path);
+    if (status < 500 && !(isSalesWrite && status >= 400)) return;
 
     appendApiDiagnosticRecord({
       timestamp: new Date().toISOString(),
