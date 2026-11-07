@@ -1434,12 +1434,13 @@ const cleanupCoordinator = createShutdownCoordinator(() => [
   { name: 'KDS server', run: () => stopKdsServer(), blocksDatabase: true, timeoutManaged: true },
   { name: 'cloud sync', run: () => cloudSync.shutdown(), blocksDatabase: true },
   { name: 'telemetry', run: () => telemetry.stop(), blocksDatabase: true },
-  { name: 'Google Drive', run: () => googleDrive.stop(), blocksDatabase: true },
-  { name: 'WhatsApp', run: () => shutdownWhatsApp(), blocksDatabase: true },
+  // These services and drain barriers already enforce their own 30-second timeout.
+  { name: 'Google Drive', run: () => googleDrive.stop(), blocksDatabase: true, timeoutManaged: true },
+  { name: 'WhatsApp', run: () => shutdownWhatsApp(), blocksDatabase: true, timeoutManaged: true },
   { name: 'Bonjour', run: () => stopMdns() },
-  { name: 'HTTP handler cleanup', run: () => waitForHttpShutdownWork(), blocksDatabase: true },
+  { name: 'HTTP handler cleanup', run: () => waitForHttpShutdownWork(), blocksDatabase: true, timeoutManaged: true },
   { name: 'database admission', run: () => beginDatabaseShutdown(), blocksDatabase: true },
-  { name: 'database requests', run: () => waitForDatabaseRequests(), blocksDatabase: true },
+  { name: 'database requests', run: () => waitForDatabaseRequests(), blocksDatabase: true, timeoutManaged: true },
   // Close database after all in-flight handlers have finished.
   { name: 'database', run: () => closeDatabase(), databaseClose: true },
 ], {
