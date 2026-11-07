@@ -2,7 +2,7 @@ import type * as http from 'node:http';
 import { WebSocket, type WebSocketServer } from 'ws';
 
 /** Maximum duration allowed for clean shutdown before forceful termination. */
-export const SHUTDOWN_TIMEOUT_MS = 10_000;
+export const SHUTDOWN_TIMEOUT_MS = 30_000;
 
 export function createShutdownCancellationError(label: string): Error & { code: string } {
   const error = new Error(`${label} startup cancelled during shutdown`) as Error & { code: string };
@@ -20,6 +20,9 @@ type HttpRequestState = {
   work: Set<Promise<unknown>>;
   released: boolean;
   owner: HttpServerState;
+  startedAtMs: number;
+  method: string;
+  path: string;
 };
 
 type HttpServerState = {
@@ -32,6 +35,61 @@ const trackedHttpServerStates = new Set<HttpServerState>();
 const httpRequestStates = new WeakMap<object, HttpRequestState>();
 const shuttingDownHttpServers = new Set<HttpServerState>();
 
+function sanitizeShutdownPath(rawUrl: string | undefined): string {
+  const pathname = (rawUrl || "/").split("?")[0].split("#")[0] || "/";
+  return pathname.split("/").map((segment) => {
+    if (!segment) return segment;
+    if (/^\d+$/.test(segment) || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(segment)) {
+      return ":id";
+    }
+    return segment.length > 64 ? ":redacted" : segment;
+  }).join("/").slice(0, 160);
+}
+
+function getHttpShutdownSnapshot(state: HttpServerState): {
+  activeRequests: number;
+  trackedWork: number;
+  oldestRequestMs: number;
+  requests: Array<{ method: string; path: string; ageMs: number; trackedWork: number }>;
+} {
+  const now = Date.now();
+  const requests = [...state.requests].map((request) => ({
+    method: request.method,
+    path: request.path,
+    ageMs: Math.max(0, now - request.startedAtMs),
+    trackedWork: request.work.size,
+  }));
+  return {
+    activeRequests: requests.length,
+    trackedWork: requests.reduce((total, request) => total + request.trackedWork, 0),
+    oldestRequestMs: requests.reduce((oldest, request) => Math.max(oldest, request.ageMs), 0),
+    requests: requests.slice(0, 8),
+  };
+}
+
+function getWebSocketShutdownSnapshot(wss: WebSocketServer): {
+  clients: number;
+  byReadyState: Record<string, number>;
+} {
+  const byReadyState: Record<string, number> = {
+    connecting: 0,
+    open: 0,
+    closing: 0,
+    closed: 0,
+    unknown: 0,
+  };
+  for (const client of wss.clients) {
+    const state = client.readyState;
+    const key = state === WebSocket.CONNECTING ? "connecting"
+      : state === WebSocket.OPEN ? "open"
+      : state === WebSocket.CLOSING ? "closing"
+      : state === WebSocket.CLOSED ? "closed"
+      : "unknown";
+    byReadyState[key]++;
+  }
+  return { clients: wss.clients.size, byReadyState };
+}
+
 export function installHttpShutdownTracking(server: http.Server): HttpServerState {
   const existing = httpServerStates.get(server);
   if (existing) return existing;
@@ -40,7 +98,15 @@ export function installHttpShutdownTracking(server: http.Server): HttpServerStat
   httpServerStates.set(server, state);
   trackedHttpServerStates.add(state);
   server.prependListener('request', (request, response) => {
-    const requestState: HttpRequestState = { controller: new AbortController(), work: new Set(), released: false, owner: state };
+    const requestState: HttpRequestState = {
+      controller: new AbortController(),
+      work: new Set(),
+      released: false,
+      owner: state,
+      startedAtMs: Date.now(),
+      method: request.method || "UNKNOWN",
+      path: sanitizeShutdownPath(request.url),
+    };
     state.requests.add(requestState);
     httpRequestStates.set(request, requestState);
     const release = (): void => {
@@ -91,6 +157,8 @@ export type ShutdownStep = {
   run: () => void | Promise<void>;
   blocksDatabase?: boolean;
   databaseClose?: boolean;
+  /** The step enforces its own resource-level timeout; skip the coordinator's outer timer. */
+  timeoutManaged?: boolean;
 };
 
 export type ShutdownCoordinatorOptions = {
@@ -162,22 +230,31 @@ export async function closeHttpServer(server: http.Server, label: string, timeou
     }
   });
   const closePromise = Promise.all([closeListenerPromise, waitForHttpRequestWork(requestState)]).then(() => undefined);
+  const startedAtMs = Date.now();
+  console.info(`[Shutdown] ${label}: close requested`, JSON.stringify({
+    listening: server.listening,
+    ...getHttpShutdownSnapshot(requestState),
+  }));
 
   try {
     await withShutdownTimeout(closePromise, label, () => {
       abortHttpRequests(requestState);
       closableServer.closeAllConnections?.();
     }, timeoutMs);
+    console.info(`[Shutdown] ${label}: closed in ${Date.now() - startedAtMs}ms`);
   } catch (error) {
-    if ((error as { code?: string }).code !== 'ERR_SHUTDOWN_TIMEOUT') throw error;
-    try {
-      await withShutdownTimeout(waitForHttpRequestWork(requestState), `${label} handler`, () => {
-        abortHttpRequests(requestState);
-        closableServer.closeAllConnections?.();
-      }, timeoutMs);
-    } catch (drainError) {
-      throw new AggregateError([error, drainError], `${label} shutdown failed`);
+    const elapsedMs = Date.now() - startedAtMs;
+    if (isShutdownTimeout(error)) {
+      console.error(`[Shutdown] ${label}: timeout after ${elapsedMs}ms; force-close was attempted`, JSON.stringify({
+        listening: server.listening,
+        ...getHttpShutdownSnapshot(requestState),
+      }));
+      // Do not wait for a second full timeout here. The server connections have
+      // already been force-closed and the database must remain open if handlers
+      // still have work in flight.
+      throw new AggregateError([error], `${label} shutdown failed`);
     }
+    console.error(`[Shutdown] ${label}: close failed after ${elapsedMs}ms`, error);
     throw error;
   } finally {
     requestState.closed = true;
@@ -250,6 +327,8 @@ function drainWebSocketClients(wss: WebSocketServer, onError: (error: unknown) =
 
 /** Close WebSocket clients/server and wait for the ws close callback. */
 export function closeWebSocketServer(wss: WebSocketServer, label: string, timeoutMs = SHUTDOWN_TIMEOUT_MS): Promise<void> {
+  const startedAtMs = Date.now();
+  console.info(`[Shutdown] ${label}: close requested`, JSON.stringify(getWebSocketShutdownSnapshot(wss)));
   let clientCloseError: unknown;
   const clientsPromise = drainWebSocketClients(wss, (error) => {
     clientCloseError ??= error;
@@ -276,7 +355,17 @@ export function closeWebSocketServer(wss: WebSocketServer, label: string, timeou
     if (clientCloseError) throw clientCloseError;
   });
 
-  return withShutdownTimeout(closePromise, label, () => terminateWebSocketClients(wss), timeoutMs);
+  return withShutdownTimeout(closePromise, label, () => {
+    console.error(`[Shutdown] ${label}: timeout after ${Date.now() - startedAtMs}ms; terminating remaining clients`,
+      JSON.stringify(getWebSocketShutdownSnapshot(wss)));
+    terminateWebSocketClients(wss);
+  }, timeoutMs).then(() => {
+    console.info(`[Shutdown] ${label}: closed in ${Date.now() - startedAtMs}ms`);
+  }).catch((error) => {
+    console.error(`[Shutdown] ${label}: close failed after ${Date.now() - startedAtMs}ms`, error,
+      JSON.stringify(getWebSocketShutdownSnapshot(wss)));
+    throw error;
+  });
 }
 
 /** Close WebSocket resources and listener, waiting for each to settle. */
@@ -324,12 +413,19 @@ export async function runShutdownSteps(
   let databaseBlocked = false;
   for (const step of steps) {
     if (step.databaseClose && databaseBlocked) continue;
+    const startedAtMs = Date.now();
+    console.info(`[Shutdown] Step started: ${step.name}`);
     try {
       const stepPromise = Promise.resolve().then(() => step.run());
-      await withShutdownTimeout(stepPromise, step.name, () => {}, SHUTDOWN_TIMEOUT_MS);
+      if (step.timeoutManaged) {
+        await stepPromise;
+      } else {
+        await withShutdownTimeout(stepPromise, step.name, () => {}, SHUTDOWN_TIMEOUT_MS);
+      }
+      console.info(`[Shutdown] Step completed: ${step.name} durationMs=${Date.now() - startedAtMs}`);
     } catch (error) {
       errors.push(error);
-      console.error(`[Shutdown] ${step.name} failed:`, error);
+      console.error(`[Shutdown] Step failed: ${step.name} durationMs=${Date.now() - startedAtMs}`, error);
       if (step.blocksDatabase) databaseBlocked = true;
       if (isShutdownTimeout(error)) {
         options.onFatalTimeout?.(error);
@@ -411,23 +507,24 @@ export function createShutdownEntrypoints({
   let signalExitRequested = false;
   const shutdownController = new AbortController();
 
-  const beginShutdown = (): void => {
+  const beginShutdown = (source: string): void => {
     if (!shutdownRequested) {
       shutdownRequested = true;
+      console.info(`[Lifecycle] Shutdown requested source=${source}`);
       onShutdownRequested();
       shutdownController.abort();
     }
     cancelHttpShutdownWork();
   };
 
-  const requestShutdown = (): void => {
-    beginShutdown();
+  const requestShutdown = (source: string): void => {
+    beginShutdown(source);
     setQuitting();
   };
 
   const runCleanup = (): Promise<void> => {
     if (!cleanupPromise) {
-      beginShutdown();
+      beginShutdown("runCleanup");
       cleanupPromise = Promise.resolve().then(cleanup);
       cleanupPromise.then(
         () => { cleanupFinished = true; },
@@ -440,7 +537,7 @@ export function createShutdownEntrypoints({
   const quitAfterCleanup = (): void => {
     if (quitAfterCleanupRequested) return;
     quitAfterCleanupRequested = true;
-    requestShutdown();
+    requestShutdown("will-quit");
     void runCleanup().then(
       () => {
         const exitCode = getQuitExitCode();
@@ -457,8 +554,8 @@ export function createShutdownEntrypoints({
     );
   };
 
-  app.on('before-quit', () => {
-    requestShutdown();
+  app.on("before-quit", () => {
+    requestShutdown("before-quit");
   });
 
   app.on('will-quit', (event: ShutdownEvent) => {
@@ -470,13 +567,13 @@ export function createShutdownEntrypoints({
     quitAfterCleanup();
   });
 
-  const exitAfterCleanup = (): void => {
+  const exitAfterCleanup = (signal: "SIGTERM" | "SIGINT"): void => {
     if (signalExitRequested) {
       void runCleanup();
       return;
     }
     signalExitRequested = true;
-    requestShutdown();
+    requestShutdown(signal);
     void runCleanup().then(
       () => {
         if (isInstallingUpdate()) return;
@@ -491,8 +588,8 @@ export function createShutdownEntrypoints({
     );
   };
 
-  process.on('SIGTERM', exitAfterCleanup);
-  process.on('SIGINT', exitAfterCleanup);
+  process.on("SIGTERM", () => exitAfterCleanup("SIGTERM"));
+  process.on("SIGINT", () => exitAfterCleanup("SIGINT"));
 
   return { runCleanup, isShutdownRequested: () => shutdownRequested, shutdownSignal: shutdownController.signal };
 }
