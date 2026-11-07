@@ -157,11 +157,12 @@ async function testShutdownTimeoutConfigurationAndManagedSteps(): Promise<void> 
       },
       { name: "next step", run: () => { events.push("next"); } },
     ]);
+    const shutdownError = shutdown.then(() => null, (error: unknown) => error);
 
     await delay(10);
     assert.equal(outerTimeoutScheduled, 0, "the coordinator does not schedule a duplicate timer for resource-managed steps");
     releaseManagedStep?.();
-    await shutdown;
+    assert.equal(await shutdownError, null, "the resource-managed step completes without the coordinator timing it out");
     assert.deepEqual(events, ["managed:start", "managed:end", "next"]);
   } finally {
     globalThis.setTimeout = originalSetTimeout;
