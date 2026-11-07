@@ -39,10 +39,23 @@ function sanitizeShutdownPath(rawUrl: string | undefined): string {
   const pathname = (rawUrl || "/").split("?")[0].split("#")[0] || "/";
   return pathname.split("/").map((segment) => {
     if (!segment) return segment;
-    if (/^\d+$/.test(segment) || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(segment)) {
+    if (
+      /^\d+$/.test(segment) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(segment)
+    ) {
       return ":id";
     }
-    return segment.length > 64 ? ":redacted" : segment;
+    if (
+      segment.length > 64 ||
+      /^[0-9a-f]{16,}$/i.test(segment) ||
+      segment.includes("@") ||
+      segment.includes("%") ||
+      /[^\x20-\x7e]/.test(segment) ||
+      /^[+()0-9\s.-]{7,}$/.test(segment)
+    ) {
+      return ":redacted";
+    }
+    return segment;
   }).join("/").slice(0, 160);
 }
 
