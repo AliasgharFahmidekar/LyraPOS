@@ -265,8 +265,8 @@ export function startServer(): Promise<void> {
             severity: 'error',
             message: String(err.message || 'Unhandled server error').slice(0, 300),
             metadata: {
-              route: _req.path.slice(0, 200),
-              method: _req.method,
+              route: req.path.slice(0, 200),
+              method: req.method,
               status,
             },
             occurred_at: new Date().toISOString(),
