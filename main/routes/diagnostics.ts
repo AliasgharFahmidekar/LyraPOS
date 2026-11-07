@@ -89,7 +89,7 @@ export function buildDiagnosticEvent(body: unknown): DiagnosticEventInput | null
 router.get('/local-error-log', requireRole(...ROLE_ACCESS.ownerManager), (_req: Request, res: Response) => {
   const contents = readApiDiagnosticLog();
   res.setHeader('Content-Disposition', 'attachment; filename="lyrapos-api-errors.log"');
-  res.type('text/plain; charset=utf-8').send(contents || 'No local API errors have been recorded yet.');
+  res.type('text/plain').send(contents || 'No local API errors have been recorded yet.');
 });
 
 router.post('/event', requireRole(...ROLE_ACCESS.allStaff), diagnosticsWriteRateLimit, (req: Request, res: Response) => {
