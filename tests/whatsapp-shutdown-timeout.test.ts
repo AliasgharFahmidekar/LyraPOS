@@ -70,13 +70,13 @@ async function main(): Promise<void> {
     });
     await presenceStartedPromise;
     (globalThis as any).setTimeout = ((handler: (...args: any[]) => void, delay?: number, ...args: any[]) =>
-      originalSetTimeout(handler, delay === 10_000 ? 1 : delay, ...args)) as typeof setTimeout;
+      originalSetTimeout(handler, delay === 30_000 ? 1 : delay, ...args)) as typeof setTimeout;
 
     let databaseClosed = false;
     let fatalTimeoutObserved = false;
     await assert.rejects(
       runShutdownSteps([
-        { name: 'WhatsApp', blocksDatabase: true, run: () => whatsapp.shutdown() },
+        { name: 'WhatsApp', blocksDatabase: true, timeoutManaged: true, run: () => whatsapp.shutdown() },
         { name: 'database', databaseClose: true, run: () => { databaseClosed = true; } },
       ], { onFatalTimeout: () => { fatalTimeoutObserved = true; } }),
       (error: any) => error?.code === 'ERR_SHUTDOWN_TIMEOUT',

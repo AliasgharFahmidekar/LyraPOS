@@ -19,6 +19,7 @@ import { API_JSON_BODY_LIMIT } from './http-limits';
 import { buildCspHeader } from './csp';
 import { resolveContainedPath } from './lib/path-containment';
 import { setServerPort } from './server-state';
+import { apiDiagnosticsMiddleware, recordApiDiagnosticError } from './services/api-diagnostics';
 export { getServerPort, getLocalIP, getAllLocalIPs } from './server-state';
 
 let server: http.Server | null = null;
@@ -144,6 +145,8 @@ export function startServer(): Promise<void> {
     app = express();
 
     app.use(cors(corsOptions));
+    // Must run before body parsing/auth so failed API requests always receive a trace ID.
+    app.use(apiDiagnosticsMiddleware);
     // Scope the anonymous pre-login route to a body limit far below the
     // general API import limit, so it can't force a large allocation.
     app.use('/api/support-ticket/pre-login', express.json({ limit: '300kb' }));
@@ -244,7 +247,7 @@ export function startServer(): Promise<void> {
     }
 
     // ── Global error handler ───────────────────────────────────────────
-    app.use((err: Error & { status?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) => {
+    app.use((err: Error & { status?: number; type?: string }, req: Request, res: Response, _next: NextFunction) => {
       if (err.type === 'entity.parse.failed') {
         return res.status(400).json({ error: 'Malformed JSON request body' });
       }
@@ -252,6 +255,7 @@ export function startServer(): Promise<void> {
         ? err.status
         : 500;
       if (status >= 500) {
+        recordApiDiagnosticError(req, res, 'express.global_error_handler', err);
         console.error('[Server] Error:', err);
         // Fire-and-forget: reportDiagnostic never throws and consent-gates its own writes.
         try {
@@ -261,15 +265,18 @@ export function startServer(): Promise<void> {
             severity: 'error',
             message: String(err.message || 'Unhandled server error').slice(0, 300),
             metadata: {
-              route: _req.path.slice(0, 200),
-              method: _req.method,
+              route: req.path.slice(0, 200),
+              method: req.method,
               status,
             },
             occurred_at: new Date().toISOString(),
           });
         } catch { /* diagnostics must never mask the original error */ }
       }
-      res.status(status).json({ error: status >= 500 ? 'Internal server error' : (err.message || 'Client error') });
+      res.status(status).json({
+        error: status >= 500 ? 'Internal server error' : (err.message || 'Client error'),
+        ...(status >= 500 && res.locals?.apiRequestId ? { request_id: res.locals.apiRequestId } : {}),
+      });
     });
 
     const basePort = parseInt(process.env.PORT || '3001', 10);

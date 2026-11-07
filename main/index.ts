@@ -1428,17 +1428,19 @@ const cleanupCoordinator = createShutdownCoordinator(() => [
   { name: 'raster surface', run: () => destroySharedRasterRenderer() },
   { name: 'WordPress Bridge', run: () => wordpressBridge.stop(), blocksDatabase: true },
   // Drain Server App before shutting down main API.
-  { name: 'Server App', run: () => stopServerApp(), blocksDatabase: true },
-  { name: 'Main server', run: () => stopServer(), blocksDatabase: true },
-  { name: 'KDS server', run: () => stopKdsServer(), blocksDatabase: true },
+  // These server helpers enforce their own HTTP/WebSocket resource-level 30-second shutdown deadline.
+  { name: 'Server App', run: () => stopServerApp(), blocksDatabase: true, timeoutManaged: true },
+  { name: 'Main server', run: () => stopServer(), blocksDatabase: true, timeoutManaged: true },
+  { name: 'KDS server', run: () => stopKdsServer(), blocksDatabase: true, timeoutManaged: true },
   { name: 'cloud sync', run: () => cloudSync.shutdown(), blocksDatabase: true },
   { name: 'telemetry', run: () => telemetry.stop(), blocksDatabase: true },
-  { name: 'Google Drive', run: () => googleDrive.stop(), blocksDatabase: true },
-  { name: 'WhatsApp', run: () => shutdownWhatsApp(), blocksDatabase: true },
+  // These services and drain barriers already enforce their own 30-second timeout.
+  { name: 'Google Drive', run: () => googleDrive.stop(), blocksDatabase: true, timeoutManaged: true },
+  { name: 'WhatsApp', run: () => shutdownWhatsApp(), blocksDatabase: true, timeoutManaged: true },
   { name: 'Bonjour', run: () => stopMdns() },
-  { name: 'HTTP handler cleanup', run: () => waitForHttpShutdownWork(), blocksDatabase: true },
+  { name: 'HTTP handler cleanup', run: () => waitForHttpShutdownWork(), blocksDatabase: true, timeoutManaged: true },
   { name: 'database admission', run: () => beginDatabaseShutdown(), blocksDatabase: true },
-  { name: 'database requests', run: () => waitForDatabaseRequests(), blocksDatabase: true },
+  { name: 'database requests', run: () => waitForDatabaseRequests(), blocksDatabase: true, timeoutManaged: true },
   // Close database after all in-flight handlers have finished.
   { name: 'database', run: () => closeDatabase(), databaseClose: true },
 ], {
