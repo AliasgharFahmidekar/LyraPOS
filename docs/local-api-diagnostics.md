@@ -27,3 +27,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\collect-lyrapos-di
 The script writes a ZIP report to the current user's Desktop. It checks the local health endpoint, the process listening on port 3001, application/log/database file sizes and modification times, free disk space, and bounded tails of existing log files. It does not copy, open, repair, or modify SQLite database files.
 
 Review the ZIP before sharing it. The script redacts common token and password patterns, but log excerpts should still be treated as potentially sensitive.
+
+## Shutdown diagnostics
+
+The local lifecycle log records the shutdown trigger (before-quit, will-quit, SIGTERM, SIGINT, or direct cleanup), each cleanup step's duration, and detailed Main Server HTTP/WebSocket shutdown state. HTTP summaries include active-request counts, age, method, a sanitized path, and tracked-work counts; query strings are excluded. WebSocket summaries include client counts by ready state.
+
+The graceful shutdown timeout is 30 seconds. The Main Server step relies on its resource-level HTTP/WebSocket timeout rather than a competing outer timer, so the log can preserve the specific failing layer. If HTTP work still has not drained after the timeout, database closure remains blocked.
