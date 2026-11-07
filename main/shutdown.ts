@@ -238,6 +238,8 @@ export async function closeHttpServer(server: http.Server, label: string, timeou
 
   try {
     await withShutdownTimeout(closePromise, label, () => {
+      console.error(`[Shutdown] ${label}: timeout at ${Date.now() - startedAtMs}ms; force-closing HTTP connections`,
+        JSON.stringify({ listening: server.listening, ...getHttpShutdownSnapshot(requestState) }));
       abortHttpRequests(requestState);
       closableServer.closeAllConnections?.();
     }, timeoutMs);
