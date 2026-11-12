@@ -380,7 +380,15 @@
     "saveFailed": "Failed to save",
     "deleteFailed": "Failed to delete",
     "confirmDeleteSupply": "Delete supply {name}? Its movement history will be kept.",
-    "confirmDeleteRecipe": "Delete the recipe for {name}?"
+    "confirmDeleteRecipe": "Delete the recipe for {name}?",
+    "allProducts": "All products",
+    "increaseStock": "Increase stock",
+    "decreaseStock": "Decrease stock",
+    "setStock": "Set stock",
+    "saleMovement": "Sale",
+    "cancelRestoreMovement": "Stock restored",
+    "outOfStock": "Out of stock",
+    "emptyProducts": "No products found"
   },
   "kds": {
     "addonsLabel": "Add-ons",
@@ -753,6 +761,7 @@
     "phone": "Phone",
     "placeOrderButton": "Place Order",
     "placeOrderFailed": "Failed to place order",
+    "stockShortageWarning": "Some products are out of stock or do not have enough inventory for the requested quantity. You can continue the sale.",
     "placeOrderReady": "Place order when ready.",
     "placing": "Placing...",
     "pointsApproxValue": "{count} pts (≈ {value})",

@@ -380,7 +380,15 @@
     "saveFailed": "保存失败",
     "deleteFailed": "删除失败",
     "confirmDeleteSupply": "要删除库存品“{name}”吗？其变动记录将保留。",
-    "confirmDeleteRecipe": "要删除{name}的配方吗？"
+    "confirmDeleteRecipe": "要删除{name}的配方吗？",
+    "allProducts": "所有产品",
+    "increaseStock": "增加库存",
+    "decreaseStock": "减少库存",
+    "setStock": "设置库存",
+    "saleMovement": "销售",
+    "cancelRestoreMovement": "库存已恢复",
+    "outOfStock": "缺货",
+    "emptyProducts": "未找到商品"
   },
   "kds": {
     "addonsLabel": "加购",
@@ -753,6 +761,7 @@
     "phone": "电话",
     "placeOrderButton": "下单",
     "placeOrderFailed": "下单失败",
+    "stockShortageWarning": "部分商品已缺货或库存不足以满足所需数量。您仍可继续销售。",
     "placeOrderReady": "准备好后即可下单。",
     "placing": "下单中…",
     "pointsApproxValue": "{count} 分（≈ {value}）",

@@ -380,7 +380,15 @@
     "saveFailed": "Échec de l’enregistrement",
     "deleteFailed": "Échec de la suppression",
     "confirmDeleteSupply": "Supprimer l’approvisionnement {name} ? Son historique des mouvements sera conservé.",
-    "confirmDeleteRecipe": "Supprimer la recette de {name} ?"
+    "confirmDeleteRecipe": "Supprimer la recette de {name} ?",
+    "allProducts": "Tous les produits",
+    "increaseStock": "Augmenter le stock",
+    "decreaseStock": "Diminuer le stock",
+    "setStock": "Définir le stock",
+    "saleMovement": "Vente",
+    "cancelRestoreMovement": "Stock restauré",
+    "outOfStock": "Rupture de stock",
+    "emptyProducts": "Aucun produit trouvé"
   },
   "kds": {
     "addonsLabel": "Options",
@@ -753,6 +761,7 @@
     "phone": "Téléphone",
     "placeOrderButton": "Passer la commande",
     "placeOrderFailed": "Impossible de passer la commande",
+    "stockShortageWarning": "Certains produits sont épuisés ou les stocks sont insuffisants pour la quantité demandée. Vous pouvez poursuivre la vente.",
     "placeOrderReady": "Passez la commande lorsque vous êtes prêt.",
     "placing": "Envoi...",
     "pointsApproxValue": "{count} pts (≈ {value})",

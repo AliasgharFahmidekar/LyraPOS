@@ -1106,7 +1106,8 @@ router.put('/:id', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res:
             quantityDelta: stockDelta,
             movementType: 'adjustment',
             referenceType: 'manual_adjustment',
-            referenceId: String(req.params.id),
+            // Keep the adjustment action machine-readable without expanding movement_type.
+            referenceId: `${req.params.id}:${now()}:set`,
             reason: stockAdjustmentReason,
             actorUserId,
           });
@@ -1185,7 +1186,7 @@ router.post('/:id/stock', requireRole(...ROLE_ACCESS.ownerManager), (req: Reques
           quantityDelta,
           movementType: 'adjustment',
           referenceType: 'manual_adjustment',
-          referenceId: `${req.params.id}:${now()}`,
+          referenceId: `${req.params.id}:${now()}:${action}`,
           reason: adjustmentReason,
           actorUserId,
         });

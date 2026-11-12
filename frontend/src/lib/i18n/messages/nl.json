@@ -380,7 +380,15 @@
     "saveFailed": "Kan niet opslaan",
     "deleteFailed": "Kan niet verwijderen",
     "confirmDeleteSupply": "Voorraadartikel {name} verwijderen? De mutatiegeschiedenis blijft behouden.",
-    "confirmDeleteRecipe": "Het recept voor {name} verwijderen?"
+    "confirmDeleteRecipe": "Het recept voor {name} verwijderen?",
+    "allProducts": "Alle producten",
+    "increaseStock": "Voorraad verhogen",
+    "decreaseStock": "Voorraad verlagen",
+    "setStock": "Voorraad instellen",
+    "saleMovement": "Verkoop",
+    "cancelRestoreMovement": "Voorraad hersteld",
+    "outOfStock": "Niet op voorraad",
+    "emptyProducts": "Geen producten gevonden"
   },
   "kds": {
     "addonsLabel": "Add-ons",
@@ -753,6 +761,7 @@
     "phone": "Telefoon",
     "placeOrderButton": "Bestelling plaatsen",
     "placeOrderFailed": "Kan de bestelling niet plaatsen",
+    "stockShortageWarning": "Van sommige producten is de voorraad op of onvoldoende voor de gevraagde hoeveelheid. Je kunt de verkoop voortzetten.",
     "placeOrderReady": "Bestelling plaatsen wanneer klaar.",
     "placing": "Bestelling plaatsen…",
     "pointsApproxValue": "{count} punten (≈ {value})",

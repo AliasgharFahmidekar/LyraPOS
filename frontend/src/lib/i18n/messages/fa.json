@@ -380,7 +380,15 @@
     "saveFailed": "ذخیره ناموفق بود",
     "deleteFailed": "حذف ناموفق بود",
     "confirmDeleteSupply": "ماده اولیه {name} حذف شود؟ تاریخچه جابه‌جایی‌ها حفظ می‌شود.",
-    "confirmDeleteRecipe": "دستور {name} حذف شود؟"
+    "confirmDeleteRecipe": "دستور {name} حذف شود؟",
+    "allProducts": "همهٔ کالاها",
+    "increaseStock": "افزایش موجودی",
+    "decreaseStock": "کاهش موجودی",
+    "setStock": "تعیین موجودی",
+    "saleMovement": "فروش",
+    "cancelRestoreMovement": "بازگشت موجودی",
+    "outOfStock": "اتمام موجودی",
+    "emptyProducts": "کالایی پیدا نشد"
   },
   "kds": {
     "addonsLabel": "افزودنی‌ها",
@@ -753,6 +761,7 @@
     "phone": "تلفن",
     "placeOrderButton": "ثبت سفارش",
     "placeOrderFailed": "ثبت سفارش انجام نشد",
+    "stockShortageWarning": "موجودی بعضی کالاها تمام شده یا برای مقدار درخواستی کافی نیست؛ می‌توانید فروش را ادامه دهید.",
     "placeOrderReady": "هنگامی که آماده بودید، سفارش را ثبت کنید.",
     "placing": "در حال ثبت",
     "pointsApproxValue": "{count} امتیاز (≈ {value})",

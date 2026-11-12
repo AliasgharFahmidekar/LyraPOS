@@ -380,7 +380,15 @@
     "saveFailed": "保存に失敗しました",
     "deleteFailed": "削除に失敗しました",
     "confirmDeleteSupply": "食材「{name}」を削除しますか？入出庫履歴は保持されます。",
-    "confirmDeleteRecipe": "{name}のレシピを削除しますか？"
+    "confirmDeleteRecipe": "{name}のレシピを削除しますか？",
+    "allProducts": "すべての商品",
+    "increaseStock": "在庫を増やす",
+    "decreaseStock": "在庫を減らす",
+    "setStock": "在庫を設定",
+    "saleMovement": "販売",
+    "cancelRestoreMovement": "在庫を復元",
+    "outOfStock": "在庫切れ",
+    "emptyProducts": "商品が見つかりません"
   },
   "kds": {
     "addonsLabel": "追加項目",
@@ -753,6 +761,7 @@
     "phone": "電話番号",
     "placeOrderButton": "注文を確定",
     "placeOrderFailed": "注文に失敗しました",
+    "stockShortageWarning": "在庫切れ、または要求数量に対して在庫が不足している商品があります。販売を続行できます。",
     "placeOrderReady": "準備ができたら注文してください。",
     "placing": "注文中…",
     "pointsApproxValue": "{count}pt（約{value}）",

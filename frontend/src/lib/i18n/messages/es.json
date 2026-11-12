@@ -380,7 +380,15 @@
     "saveFailed": "No se pudo guardar",
     "deleteFailed": "No se pudo eliminar",
     "confirmDeleteSupply": "¿Eliminar el insumo {name}? Su historial de movimientos se conservará.",
-    "confirmDeleteRecipe": "¿Eliminar la receta de {name}?"
+    "confirmDeleteRecipe": "¿Eliminar la receta de {name}?",
+    "allProducts": "Todos los productos",
+    "increaseStock": "Aumentar existencias",
+    "decreaseStock": "Reducir existencias",
+    "setStock": "Establecer existencias",
+    "saleMovement": "Venta",
+    "cancelRestoreMovement": "Existencias restauradas",
+    "outOfStock": "Sin existencias",
+    "emptyProducts": "No se encontraron productos"
   },
   "kds": {
     "addonsLabel": "Adicionales",
@@ -753,6 +761,7 @@
     "phone": "Teléfono",
     "placeOrderButton": "Confirmar pedido",
     "placeOrderFailed": "No se pudo confirmar el pedido",
+    "stockShortageWarning": "Algunos productos están agotados o no tienen existencias suficientes para la cantidad solicitada. Puedes continuar con la venta.",
     "placeOrderReady": "Confirmá el pedido cuando esté listo.",
     "placing": "Confirmando...",
     "pointsApproxValue": "{count} pts (≈ {value})",

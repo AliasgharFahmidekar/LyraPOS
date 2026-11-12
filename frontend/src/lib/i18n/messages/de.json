@@ -380,7 +380,15 @@
     "saveFailed": "Speichern fehlgeschlagen",
     "deleteFailed": "Löschen fehlgeschlagen",
     "confirmDeleteSupply": "Vorrat {name} löschen? Die Bewegungshistorie bleibt erhalten.",
-    "confirmDeleteRecipe": "Rezept für {name} löschen?"
+    "confirmDeleteRecipe": "Rezept für {name} löschen?",
+    "allProducts": "Alle Produkte",
+    "increaseStock": "Bestand erhöhen",
+    "decreaseStock": "Bestand verringern",
+    "setStock": "Bestand festlegen",
+    "saleMovement": "Verkauf",
+    "cancelRestoreMovement": "Bestand wiederhergestellt",
+    "outOfStock": "Nicht vorrätig",
+    "emptyProducts": "Keine Produkte gefunden"
   },
   "kds": {
     "addonsLabel": "Zusätze",
@@ -753,6 +761,7 @@
     "phone": "Telefon",
     "placeOrderButton": "Bestellung aufgeben",
     "placeOrderFailed": "Bestellung konnte nicht aufgegeben werden",
+    "stockShortageWarning": "Einige Produkte sind ausverkauft oder der Bestand reicht für die gewünschte Menge nicht aus. Der Verkauf kann fortgesetzt werden.",
     "placeOrderReady": "Bestellung aufgeben, wenn bereit.",
     "placing": "Wird aufgegeben…",
     "pointsApproxValue": "{count} Pkt. (≈ {value})",

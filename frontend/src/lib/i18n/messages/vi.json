@@ -380,7 +380,15 @@
     "saveFailed": "Không thể lưu",
     "deleteFailed": "Không thể xóa",
     "confirmDeleteSupply": "Xóa vật tư {name}? Lịch sử biến động vẫn được giữ lại.",
-    "confirmDeleteRecipe": "Xóa công thức của {name}?"
+    "confirmDeleteRecipe": "Xóa công thức của {name}?",
+    "allProducts": "Tất cả sản phẩm",
+    "increaseStock": "Tăng tồn kho",
+    "decreaseStock": "Giảm tồn kho",
+    "setStock": "Đặt tồn kho",
+    "saleMovement": "Bán hàng",
+    "cancelRestoreMovement": "Tồn kho đã được khôi phục",
+    "outOfStock": "Hết hàng",
+    "emptyProducts": "Không tìm thấy sản phẩm"
   },
   "kds": {
     "addonsLabel": "Tuỳ chọn",
@@ -753,6 +761,7 @@
     "phone": "Điện thoại",
     "placeOrderButton": "Đặt đơn",
     "placeOrderFailed": "Không thể đặt đơn",
+    "stockShortageWarning": "Một số sản phẩm đã hết hàng hoặc không đủ tồn kho cho số lượng yêu cầu. Bạn vẫn có thể tiếp tục bán.",
     "placeOrderReady": "Đặt đơn khi bạn sẵn sàng.",
     "placing": "Đang đặt...",
     "pointsApproxValue": "{count} điểm (≈ {value})",
